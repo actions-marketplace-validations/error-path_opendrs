@@ -23,6 +23,9 @@ export function makeRepo(): TestRepo {
   run(["config", "user.name", DEFAULT_AUTHOR.name]);
   run(["config", "user.email", DEFAULT_AUTHOR.email]);
   run(["config", "commit.gpgsign", "false"]);
+  // Big test commits can trigger a detached `git gc --auto`, which races cleanup (ENOTEMPTY in CI).
+  run(["config", "gc.auto", "0"]);
+  run(["config", "maintenance.auto", "false"]);
   return {
     dir,
     commit(files, message, author = DEFAULT_AUTHOR, time) {
@@ -47,6 +50,6 @@ export function makeRepo(): TestRepo {
       return run(["rev-parse", "HEAD"]).trim();
     },
     git: (...args) => run(args).trim(),
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }),
   };
 }
