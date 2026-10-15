@@ -57,6 +57,12 @@ ${HISTORY_OPTIONS}`,
     io.out(`Wrote calibrated model to ${opts.config.model}`);
     const t = model.trainedOn;
     if (t) io.out(`Trained on ${t.commits} commits (${t.positives} positive), ${t.from} to ${t.to}`);
+    const c = model.calibration;
+    if (c?.chosen === "priors") {
+      io.out(
+        `Kept the default priors: the fitted weights did not beat them on validation commits (AUC ${c.validationAuc.fitted.toFixed(2)} vs ${c.validationAuc.priors.toFixed(2)}).`,
+      );
+    }
     const m = model.metrics;
     if (m) {
       io.out(

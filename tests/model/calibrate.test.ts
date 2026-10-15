@@ -108,3 +108,28 @@ describe("fitModel: llm.semantic stays raise-only", () => {
     expect(fitModel(rows).weights["llm.semantic"]).toBe(0);
   });
 });
+
+describe("fitModel: keeps the priors when the fit cannot beat them", () => {
+  const row = (i: number, churn: number, label: 0 | 1) => ({
+    sha: String(i),
+    time: i,
+    label,
+    signals: [{ id: "size.churn", value: churn, status: "derived" as const, summary: "", evidence: [] }],
+  });
+
+  it("keeps the priors when they already rank validation commits as well as the fit", () => {
+    // Bigger change = bug, exactly what the priors already say (size.churn has a positive prior).
+    const rows = Array.from({ length: 400 }, (_, i) => (i % 5 === 0 ? row(i, 6 + (i % 3), 1) : row(i, 1 + (i % 3), 0)));
+    const m = fitModel(rows);
+    expect(m.calibration?.chosen).toBe("priors");
+    expect(m.weights["size.churn"]).toBe(DEFAULT_WEIGHTS.weights["size.churn"]);
+  });
+
+  it("uses the fit when the history contradicts the priors", () => {
+    // Small changes are the buggy ones here, so the priors rank them backwards.
+    const rows = Array.from({ length: 400 }, (_, i) => (i % 5 === 0 ? row(i, 1 + (i % 3), 1) : row(i, 6 + (i % 3), 0)));
+    const m = fitModel(rows);
+    expect(m.calibration?.chosen).toBe("fitted");
+    expect(m.weights["size.churn"]).toBeLessThan(0);
+  });
+});

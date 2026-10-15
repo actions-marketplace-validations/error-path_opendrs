@@ -2,6 +2,13 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- `opendrs calibrate` keeps the default priors when the fitted weights do not beat them on a
+  validation slice inside the training window, and says so. On small or noisy histories, such as
+  sinatra in our benchmark, a fitted model ranked held-out commits worse than the defaults. The
+  model file records the choice and both validation AUCs under `calibration`.
+
 ## 0.1.2 - 2026-10-16
 
 - The Action's display name is now "opendrs Diff Risk Score", so it can be listed on the GitHub

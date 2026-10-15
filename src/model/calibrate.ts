@@ -52,20 +52,26 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
     );
     return { sample, fit };
   };
-  const { sample, fit } = fitOn(train, chooseL2(train, ids, prior, fitOn));
+  const choice = chooseL2(train, ids, prior, fitOn);
+  const { sample, fit } = fitOn(train, choice.l2);
 
   // Prior correction (King & Zeng 2001): the fit saw the resampled positive rate; shift the
   // intercept so scores are probabilities at the repo's real base rate.
   const sampleRate = sample.filter((r) => r.label === 1).length / sample.length;
   const trueRate = positives / train.length;
   const correction = trueRate < 1 && sampleRate < 1 ? Math.log(((1 - trueRate) / trueRate) * (sampleRate / (1 - sampleRate))) : 0;
-  const model: ModelWeights = {
-    version: 1,
-    intercept: fit.intercept - correction,
-    // The LLM may only add risk (spec §8), so its weight can never turn negative.
-    weights: Object.fromEntries(ids.map((id, j) => [id, id === "llm.semantic" ? Math.max(0, fit.weights[j]!) : fit.weights[j]!])),
-    ...(prior.priors ? { priors: prior.priors } : {}),
-  };
+  // Keep the priors when the fit could not beat them on unseen validation commits: a noisy or
+  // small history should not replace a sensible default with a worse model.
+  const keepPriors = choice.priorsAuc !== undefined && choice.priorsAuc >= choice.auc;
+  const model: ModelWeights = keepPriors
+    ? { version: 1, intercept: prior.intercept, weights: { ...prior.weights }, ...(prior.priors ? { priors: prior.priors } : {}) }
+    : {
+        version: 1,
+        intercept: fit.intercept - correction,
+        // The LLM may only add risk (spec §8), so its weight can never turn negative.
+        weights: Object.fromEntries(ids.map((id, j) => [id, id === "llm.semantic" ? Math.max(0, fit.weights[j]!) : fit.weights[j]!])),
+        ...(prior.priors ? { priors: prior.priors } : {}),
+      };
   const score = (r: ReplayRow) => scoreSignals(r.signals, model).score;
   return {
     ...model,
@@ -78,6 +84,9 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
       to: isoTime(train[train.length - 1]!.time),
     },
     metrics: evaluate(test.map(score), test.map((r) => r.label)),
+    ...(choice.priorsAuc !== undefined
+      ? { calibration: { chosen: keepPriors ? "priors" : "fitted", validationAuc: { fitted: choice.auc, priors: choice.priorsAuc } } }
+      : {}),
   };
 }
 
@@ -86,17 +95,18 @@ const L2_CANDIDATES = [10, 1, 0.1, 0.01];
 /**
  * Pick the penalty by a second time-ordered split inside the training window, so the held-out
  * test commits stay unseen. Strongest penalty (closest to the priors) wins unless a weaker one
- * ranks validation commits clearly better.
+ * ranks validation commits clearly better. Also scores the priors on the same slice, so the
+ * caller can keep them when no fit beats them.
  */
 function chooseL2(
   train: ReplayRow[],
   ids: string[],
   prior: ModelWeights,
   fitOn: (part: ReplayRow[], l2: number) => { fit: { intercept: number; weights: number[] } },
-): number {
+): { l2: number; auc: number; priorsAuc?: number } {
   const { train: inner, test: validation } = timeSplit(train);
   const labels = validation.map((r) => r.label);
-  if (!inner.some((r) => r.label === 1) || !labels.includes(1) || !labels.includes(0)) return L2_CANDIDATES[0]!;
+  if (!inner.some((r) => r.label === 1) || !labels.includes(1) || !labels.includes(0)) return { l2: L2_CANDIDATES[0]!, auc: NaN };
   let best = { l2: L2_CANDIDATES[0]!, auc: -Infinity };
   for (const l2 of L2_CANDIDATES) {
     const { fit } = fitOn(inner, l2);
@@ -104,7 +114,8 @@ function chooseL2(
     const { auc } = evaluate(validation.map((r) => scoreSignals(r.signals, model).score), labels);
     if (auc > best.auc + 0.005) best = { l2, auc };
   }
-  return best.l2;
+  const priorsAuc = evaluate(validation.map((r) => scoreSignals(r.signals, prior).score), labels).auc;
+  return { ...best, priorsAuc };
 }
 
 /** Same value rule as scoreSignals, so fitting and scoring see identical x. */
