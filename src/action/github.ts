@@ -182,11 +182,11 @@ export class GitHubClient {
   }
 
   /**
-   * Names of the latest check runs that concluded success on exactly `sha`. Never counts opendrs's
-   * own job: the names of this workflow run's (`ownRunId`) unfinished Actions jobs, opendrs among
-   * them, are left out, in this run and in earlier ones.
+   * Name and app slug of the latest check runs that concluded success on exactly `sha`. Never counts
+   * opendrs's own job: the names of this workflow run's (`ownRunId`) unfinished Actions jobs, opendrs
+   * among them, are left out, in this run and in earlier ones.
    */
-  async successfulCheckNames(sha: string, ownRunId?: string): Promise<string[]> {
+  async successfulChecks(sha: string, ownRunId?: string): Promise<Array<{ name: string; app?: string }>> {
     type Run = { name: string; head_sha: string; status: string; conclusion: string | null; details_url?: string | null; app?: { slug: string } | null };
     const runs = await this.paginate<Run>(`${this.repoPath}/commits/${sha}/check-runs?filter=latest`, (p) => (p as { check_runs: Run[] }).check_runs);
     const own = new Set(
@@ -194,7 +194,9 @@ export class GitHubClient {
         .filter((r) => ownRunId && r.status !== "completed" && r.app?.slug === "github-actions" && r.details_url?.includes(`/actions/runs/${ownRunId}/`))
         .map((r) => r.name),
     );
-    return runs.filter((r) => r.head_sha === sha && r.conclusion === "success" && !own.has(r.name)).map((r) => r.name);
+    return runs
+      .filter((r) => r.head_sha === sha && r.conclusion === "success" && !own.has(r.name))
+      .map((r) => ({ name: r.name, app: r.app?.slug }));
   }
 
   /** Parameters of the active ruleset `pull_request` rules on `branch` (readable with the default token). */

@@ -165,11 +165,14 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const predictable = config.autoApprove.enabled && config.autoApprove.sampleRate > 0 && !d.inputs.sampleSalt;
   if (predictable) io.warning(PREDICTABLE_SAMPLING);
 
-  const successfulChecks =
+  const checkRuns =
     (await unlessForbidden(
-      () => client.successfulCheckNames(pr.head.sha, d.env.GITHUB_RUN_ID),
+      () => client.successfulChecks(pr.head.sha, d.env.GITHUB_RUN_ID),
       () => io.warning("Could not read check runs (403): give the job `checks: read`. Required AI-review checks count as missing."),
     )) ?? [];
+  // Anyone can publish a check run under any name: a check pinned to an app counts only from that app.
+  const pinned = new Map(config.autoApprove.requireAiReview.checks.flatMap((c) => (typeof c === "string" ? [] : [[c.name, c.app] as const])));
+  const successfulChecks = checkRuns.filter((r) => !pinned.has(r.name) || pinned.get(r.name) === r.app).map((r) => r.name);
 
   const author = await prAuthor(d, pr);
   const mergeBase = (await git(d.repoDir, ["merge-base", pr.base.sha, pr.head.sha])).trim();

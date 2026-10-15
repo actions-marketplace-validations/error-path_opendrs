@@ -221,6 +221,31 @@ describe("AI review", () => {
     expect(t.scoreArgs().pr!.successfulChecks).toEqual(["claude-review"]);
   });
 
+  const pinned = { autoApprove: { enabled: true, requireAiReview: { checks: [{ name: "claude-review", app: "coderabbitai" }] } } };
+
+  it("counts a check pinned to an app when that app published it", async () => {
+    const t = await run({
+      baseConfig: pinned,
+      gh: { checkRuns: [{ name: "claude-review", conclusion: "success", app: { slug: "coderabbitai" } }, { name: "lint", conclusion: "success" }] },
+    });
+    await t.promise;
+    expect(t.scoreArgs().pr!.successfulChecks).toEqual(["claude-review", "lint"]);
+  });
+
+  it("does not count a same-named check from another app for a check pinned to an app", async () => {
+    const t = await run({
+      baseConfig: pinned,
+      gh: {
+        checkRuns: [
+          { name: "claude-review", conclusion: "success" }, // a workflow job named like the reviewer (github-actions)
+          { name: "claude-review", conclusion: "failure", app: { slug: "coderabbitai" } },
+        ],
+      },
+    });
+    await t.promise;
+    expect(t.scoreArgs().pr!.successfulChecks).toEqual([]);
+  });
+
   it("does not touch AI-review labels on synchronize", async () => {
     const t = await run({ labels: ["ai-reviewed"], action: "synchronize" });
     await t.promise;

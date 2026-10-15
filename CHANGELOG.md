@@ -52,6 +52,15 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   (`acme/app#107` is, `#108` is not). It now logs "sampling is predictable; set sample-salt to a
   secret" and repeats it in the PR comment; docs/github-action.md, "Set sample-salt", shows how.
 
+### Added
+
+- `autoApprove.requireAiReview.checks` entries can be `{ name, app }`, where `app` is the slug of
+  the GitHub App that must have published the check run (for example `coderabbitai` or
+  `github-actions`). A check was matched by name only, and any workflow or app can publish a check
+  run under any name; a pinned check now ignores same-named runs from other apps. Plain names work
+  as before. For checks from GitHub Actions, give the reviewer job a unique name: see
+  docs/github-action.md, "Pin a check to the app that publishes it".
+
 ## 0.1.0 - 2026-10-15
 
 First release.

@@ -134,7 +134,7 @@ export function decide(input: GateInput): PolicyOutcome {
   }
 
   // 5. AI review: check runs on the head commit only (labels are not tied to a commit)
-  const { checks } = auto.requireAiReview;
+  const checks = auto.requireAiReview.checks.map((c) => (typeof c === "string" ? c : c.name));
   if (checks.length > 0) {
     if (!input.pr) {
       fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires check ${checks.join(", ")})` });
