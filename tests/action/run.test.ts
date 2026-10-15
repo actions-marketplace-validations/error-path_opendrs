@@ -542,6 +542,23 @@ describe("dismissal", () => {
     expect(t.gh.ops("dequeue")).toEqual([]);
   });
 
+  it("fails closed: on an error after the PR is known, withdraws its approval and auto-merge, then fails", async () => {
+    const t = await run({ gh: { reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] } });
+    vi.mocked(scoreDiff).mockRejectedValue(new Error("git diff failed"));
+    await expect(t.promise).rejects.toThrow("git diff failed");
+    expect(t.gh.ops("dismissReview")).toHaveLength(1);
+    expect(t.gh.ops("disableAutoMerge")).toHaveLength(1);
+    expect(t.gh.ops("dequeue")).toHaveLength(1);
+  });
+
+  it("fails closed even when its reviews cannot be listed: stops auto-merge and keeps the original error", async () => {
+    const t = await run({ gh: { fail: new Set(["listReviews"]) } });
+    vi.mocked(scoreDiff).mockRejectedValue(new Error("git diff failed"));
+    await expect(t.promise).rejects.toThrow("git diff failed");
+    expect(t.gh.ops("disableAutoMerge")).toHaveLength(1);
+    expect(t.gh.ops("dequeue")).toHaveLength(1);
+  });
+
   it("withdraws its approval when the guard trips on a later push", async () => {
     const t = await run({
       headFiles: { ".github/workflows/x.yml": "x\n" },

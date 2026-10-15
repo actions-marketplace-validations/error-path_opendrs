@@ -82,6 +82,8 @@ Use the outputs in later steps, for example to request a reviewer on red PRs:
 
 When a call returns 403 the Action logs a `::warning::` with the cause and carries on; it fails
 the job only on operational errors (scoring, git, invalid config, non-permission API errors).
+Before it fails, it dismisses its own approval on the PR and disables auto-merge and the merge queue
+entry, so an error never leaves an earlier approval in force.
 
 ## Repository settings for auto-approval
 

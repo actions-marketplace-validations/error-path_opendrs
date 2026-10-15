@@ -7,7 +7,7 @@ import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
 import { suggestReviewers } from "../policy/reviewers.js";
 import { renderMarkdown } from "../report/markdown.js";
-import { reconcileApproval } from "./approval.js";
+import { ownApprovals, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
 
@@ -124,8 +124,32 @@ async function changedFiles(repoDir: string, base: string, head: string): Promis
 }
 
 export async function runAction(d: ActionDeps): Promise<ActionOutcome> {
-  const { client, io } = d;
   const pr = readPullRequest(d.event);
+  try {
+    return await scorePullRequest(d, pr);
+  } catch (e) {
+    await failClosed(d, pr);
+    throw e;
+  }
+}
+
+/**
+ * After an error, an earlier approval and auto-merge must not stay in place unchecked: dismiss our
+ * approvals and stop merging. When our approvals cannot even be listed, stop merging regardless.
+ */
+async function failClosed({ client, io }: ActionDeps, pr: PullRequest): Promise<void> {
+  io.warning("opendrs failed, so it withdraws its approval and auto-merge on this PR, if any.");
+  try {
+    const own = await ownApprovals(client, pr.number, await client.viewerLogin());
+    await withdraw(client, io, pr, own, "opendrs could not score the latest commit");
+  } catch (e) {
+    io.warning(`Could not check opendrs's approvals (${e instanceof Error ? e.message : String(e)}); stopping auto-merge anyway.`);
+    await stopMerge(client, io, pr);
+  }
+}
+
+async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionOutcome> {
+  const { client, io } = d;
   await requireCommit(d.repoDir, pr.base.sha, "Base");
   await requireCommit(d.repoDir, pr.head.sha, "Head");
 
