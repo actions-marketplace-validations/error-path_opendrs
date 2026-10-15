@@ -36,6 +36,15 @@ describe("workflows that run the Action", () => {
     expect(docs).toMatch(/\| `sample-salt` \|.*secret/);
   });
 
+  it("CI fails when the committed action bundle is stale or missing", () => {
+    const steps: Array<{ run?: string }> = parse(read(".github/workflows/ci.yml")).jobs.check.steps;
+    const runs = steps.map((s) => s.run ?? "");
+    const build = runs.indexOf("npm run build:action");
+    expect(build).toBeGreaterThanOrEqual(0);
+    // `git diff` misses an untracked (never committed) bundle; `git status --porcelain` does not.
+    expect(runs.slice(build + 1)).toContain('test -z "$(git status --porcelain action/dist)"');
+  });
+
   it("the docs warn against pull_request_target", () => {
     expect(docs).toMatch(/`pull_request_target`[^.]*secrets/);
   });
