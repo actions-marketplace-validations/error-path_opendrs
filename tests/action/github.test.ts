@@ -66,7 +66,7 @@ describe("GitHubClient", () => {
 
   it("maps a GraphQL FORBIDDEN error to status 403", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(200, { errors: [{ type: "FORBIDDEN", message: "nope" }] })));
-    const err = await client().enqueue("PR_1").catch((e) => e);
+    const err = await client().enqueue("PR_1", "abc").catch((e) => e);
     expect(err).toBeInstanceOf(GitHubError);
     expect(err.status).toBe(403);
   });

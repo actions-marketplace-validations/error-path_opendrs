@@ -161,6 +161,11 @@ export class GitHubClient {
     }
   }
 
+  /** The PR's current head sha. */
+  async pullHeadSha(pr: number): Promise<string> {
+    return (await this.rest<{ head: { sha: string } }>("GET", `${this.repoPath}/pulls/${pr}`)).head.sha;
+  }
+
   /** The PR's commits, oldest first (GitHub lists at most 250). */
   listPullCommits(pr: number) {
     return this.paginate<PullCommit>(`${this.repoPath}/pulls/${pr}/commits`);
@@ -199,21 +204,22 @@ export class GitHubClient {
     return { hasMergeQueue: r.mergeQueue !== null, method };
   }
 
-  async enableAutoMerge(pullRequestId: string, mergeMethod: MergeMethod) {
+  /** GitHub refuses both mutations when the PR head is no longer `expectedHeadOid`. */
+  async enableAutoMerge(pullRequestId: string, mergeMethod: MergeMethod, expectedHeadOid: string) {
     await this.graphql(
-      `mutation($id: ID!, $method: PullRequestMergeMethod) {
-        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $method }) { clientMutationId }
+      `mutation($id: ID!, $method: PullRequestMergeMethod, $head: GitObjectID!) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $head }) { clientMutationId }
       }`,
-      { id: pullRequestId, method: mergeMethod },
+      { id: pullRequestId, method: mergeMethod, head: expectedHeadOid },
     );
   }
 
-  async enqueue(pullRequestId: string) {
+  async enqueue(pullRequestId: string, expectedHeadOid: string) {
     await this.graphql(
-      `mutation($id: ID!) {
-        enqueuePullRequest(input: { pullRequestId: $id }) { mergeQueueEntry { position } }
+      `mutation($id: ID!, $head: GitObjectID!) {
+        enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) { mergeQueueEntry { position } }
       }`,
-      { id: pullRequestId },
+      { id: pullRequestId, head: expectedHeadOid },
     );
   }
 }

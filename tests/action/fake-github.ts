@@ -123,6 +123,8 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
       }
       return gql(op, () => ({ [mutation]: { clientMutationId: null } }));
     }
+    if (/enablePullRequestAutoMerge|enqueuePullRequest/.test(query) && !query.includes("expectedHeadOid: $head"))
+      throw new Error("fake GitHub: merge mutation without expectedHeadOid");
     if (query.includes("enablePullRequestAutoMerge")) return gql("enableAutoMerge", () => ({ enablePullRequestAutoMerge: { clientMutationId: null } }));
     if (query.includes("enqueuePullRequest")) return gql("enqueue", () => ({ enqueuePullRequest: { mergeQueueEntry: { position: 1 } } }));
     if (query.includes("mergeQueue"))

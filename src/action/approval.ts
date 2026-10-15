@@ -67,6 +67,13 @@ export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: b
     return { approved: false, status: `not approved: ${reasons.join("; ")}.` };
   }
 
+  // A push during scoring would otherwise get an approval meant for the commit before it.
+  const current = await client.pullHeadSha(pr.number);
+  if (current !== pr.head.sha) {
+    io.notice(`The PR head moved to ${current} while opendrs scored ${pr.head.sha}: not approving. The run for the new head decides.`);
+    return { approved: false, status: "not approved: a new commit was pushed while scoring; the next run decides." };
+  }
+
   if (own.some((r) => r.commit_id === pr.head.sha)) {
     io.info("This head commit is already approved by opendrs.");
   } else {
@@ -89,11 +96,11 @@ async function enableMerge({ client, io, pr, result }: ApprovalInput): Promise<s
   try {
     const settings = await client.mergeSettings(pr.base.ref);
     if (method === "queue" && settings.hasMergeQueue) {
-      await client.enqueue(pr.node_id);
+      await client.enqueue(pr.node_id, pr.head.sha);
       return "; added to the merge queue";
     }
     if (method === "queue") io.notice(`No merge queue on ${pr.base.ref}: enabling auto-merge instead.`);
-    await client.enableAutoMerge(pr.node_id, settings.method);
+    await client.enableAutoMerge(pr.node_id, settings.method, pr.head.sha);
     return "; auto-merge enabled";
   } catch (e) {
     if (!(e instanceof GitHubError)) throw e;

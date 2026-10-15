@@ -12,6 +12,9 @@ name: opendrs
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+concurrency:
+  group: opendrs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
   pull-requests: write
@@ -31,7 +34,14 @@ jobs:
 computes the merge-base of the PR, and reads the config from the base commit. With a shallow clone
 the job fails with "Base commit ... is not in the checkout".
 
-Run it on `pull_request`, not `pull_request_target`. opendrs only works on events that carry a
+Keep the `concurrency` block. A push cancels the run still scoring the previous head, so an old
+run cannot approve or merge a commit it did not score. The Action also re-reads the PR head before
+approving, and passes the scored commit as `expectedHeadOid` when it enables auto-merge or
+enqueues, so GitHub refuses the merge if the head moved.
+
+Run it on `pull_request`, never on `pull_request_target`. A `pull_request_target` run uses the
+base branch's workflow with a write token and the repository's secrets, even for fork PRs, and
+opendrs checks out and reads the PR's code. opendrs only works on events that carry a
 `pull_request` payload; do not add `merge_group` or `push` triggers to this workflow.
 
 ## Inputs and outputs
@@ -139,6 +149,9 @@ name: review
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+concurrency:
+  group: opendrs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: write
   pull-requests: write

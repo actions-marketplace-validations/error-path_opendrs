@@ -363,14 +363,24 @@ describe("approval", () => {
     const [review] = t.gh.ops("createReview");
     expect(review!.body).toMatchObject({ event: "APPROVE", commit_id: t.headSha });
     expect((review!.body as { body: string }).body).toContain(APPROVAL_MARKER);
-    expect(t.gh.ops("enableAutoMerge").map((e) => e.body)).toEqual([{ id: "PR_node7", method: "MERGE" }]);
+    expect(t.gh.ops("enableAutoMerge").map((e) => e.body)).toEqual([{ id: "PR_node7", method: "MERGE", head: t.headSha }]);
     expect(t.gh.ops("enqueue")).toEqual([]);
+  });
+
+  it("does not approve or merge when a new commit was pushed while it scored", async () => {
+    const t = await run();
+    t.gh.headSha = "f".repeat(40);
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.ops("getPull")).toHaveLength(1);
+    expect(t.gh.ops("createReview")).toEqual([]);
+    expect(t.gh.ops("enableAutoMerge")).toEqual([]);
+    expect(t.log()).toMatch(/::notice::.*head moved/);
   });
 
   it("enqueues in the merge queue when mergeMethod is queue and the branch has one", async () => {
     const t = await run({ result: result(0.1, "green", "auto-approve", "queue"), gh: { mergeQueue: true } });
     await t.promise;
-    expect(t.gh.ops("enqueue").map((e) => e.body)).toEqual([{ id: "PR_node7" }]);
+    expect(t.gh.ops("enqueue").map((e) => e.body)).toEqual([{ id: "PR_node7", head: t.headSha }]);
     expect(t.gh.ops("enableAutoMerge")).toEqual([]);
   });
 
@@ -378,7 +388,7 @@ describe("approval", () => {
     const t = await run({ result: result(0.1, "green", "auto-approve", "queue"), gh: { mergeQueue: false, mergeCommitAllowed: false } });
     await t.promise;
     expect(t.gh.ops("enqueue")).toEqual([]);
-    expect(t.gh.ops("enableAutoMerge").map((e) => e.body)).toEqual([{ id: "PR_node7", method: "SQUASH" }]);
+    expect(t.gh.ops("enableAutoMerge").map((e) => e.body)).toEqual([{ id: "PR_node7", method: "SQUASH", head: t.headSha }]);
     expect(t.log()).toContain("::notice::");
   });
 
