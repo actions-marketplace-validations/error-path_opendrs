@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/engine.js", () => ({ scoreDiff: vi.fn() }));
-vi.mock("../../src/git/exec.js", () => ({ gitMaybe: vi.fn() }));
+vi.mock("../../src/git/exec.js", () => ({ gitMaybe: vi.fn(async (dir: string) => `${dir}\n`) }));
 
 const { scoreDiff } = await import("../../src/engine.js");
 const { createMcpServer } = await import("../../src/mcp/server.js");

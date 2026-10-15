@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import type { OpendrsConfig } from "../domain/config.js";
 import type { DependencyGraph } from "../domain/types.js";
 import { git } from "../git/exec.js";
@@ -30,11 +30,15 @@ interface GraphData {
   edges: number[][];
 }
 
-/** Build the reverse import graph of the tree at `ref` (cached by tree sha under .opendrs/cache). */
+/**
+ * Build the reverse import graph of the tree at `ref`, cached by tree sha in
+ * `<git common dir>/opendrs-cache/`: outside the work tree, so it can never be committed.
+ */
 export async function buildDependencyGraph(repoDir: string, ref: string, config: OpendrsConfig): Promise<RepoGraph> {
   const treeSha = (await git(repoDir, ["rev-parse", `${ref}^{tree}`])).trim();
   const key = JSON.stringify({ ignore: config.paths.ignore, maxFiles: config.graph.maxFiles });
-  const cacheFile = join(repoDir, ".opendrs", "cache", `graph-${treeSha}.json`);
+  const gitDir = resolvePath(repoDir, (await git(repoDir, ["rev-parse", "--git-common-dir"])).trim());
+  const cacheFile = join(gitDir, "opendrs-cache", `graph-${treeSha}.json`);
 
   const cached = await readCache(cacheFile, key);
   if (cached) return toGraph(cached);

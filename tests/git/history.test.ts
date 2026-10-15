@@ -25,6 +25,19 @@ describe("buildHistoryIndex", () => {
     expect(h.commits[0]).toMatchObject({ parents: [c1], subject: "Fix crash in parser", isFix: true, files: ["a.ts"] });
   });
 
+  it("times commits by committer date, so a rebased commit with an old author date is not in the past", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "init", ALICE, T + 1000);
+    // A commit rebased (or cherry-picked) at T+5000 that keeps its T+500 author date.
+    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "rebased"], {
+      cwd: repo.dir,
+      env: { ...process.env, GIT_AUTHOR_DATE: `${T + 500} +0000`, GIT_COMMITTER_DATE: `${T + 5000} +0000` },
+    });
+    const h = await buildHistoryIndex(repo.dir, "HEAD", defaultConfig());
+    expect(h.commits[0]).toMatchObject({ subject: "rebased", time: T + 5000 });
+    expect(h.authorCommitCount(ALICE.email, T + 2000)).toBe(1);
+  });
+
   it("detects reverts by subject and by body, and extracts the reverted sha", async () => {
     repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "init");

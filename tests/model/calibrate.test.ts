@@ -82,7 +82,8 @@ describe("calibrate + backtest on a real repo", () => {
       }
     }
     const config = defaultConfig();
-    const model = await calibrate({ repoDir: r.dir, config });
+    const { model, warnings } = await calibrate({ repoDir: r.dir, config });
+    expect(warnings).toEqual([]);
     expect(model.trainedOn!.positives).toBeGreaterThan(0);
     expect(model.metrics!.auc).toBeGreaterThan(0.5);
 

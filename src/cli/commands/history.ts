@@ -47,8 +47,9 @@ ${HISTORY_OPTIONS}`,
 
   async run(args, io) {
     const { opts } = await historyRun(args, io, "calibrate");
-    const model = await calibrate(opts);
+    const { model, warnings } = await calibrate(opts);
     io.progress("");
+    for (const w of warnings) io.err(`opendrs: warning: ${w}`);
     const file = join(opts.repoDir, opts.config.model);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, JSON.stringify(model, null, 2) + "\n");
@@ -101,11 +102,13 @@ ${HISTORY_OPTIONS}
     }
     io.out(header());
     io.out(row("default priors", report.default.capturedAt, report.default));
-    if (report.calibrated) io.out(row("calibrated (newest 20 %)", report.calibrated.capturedAt, report.calibrated));
+    if (report.calibrated) io.out(row("calibrated (held-out)", report.calibrated.capturedAt, report.calibrated));
+    if (report.defaultOnHeldOut) io.out(row("default priors (held-out)", report.defaultOnHeldOut.capturedAt, report.defaultOnHeldOut));
     io.out(row("Meta LR baseline *", META_LR));
     io.out("");
-    if (!report.calibrated) io.out(`No calibrated model at ${opts.config.model}. Run \`opendrs calibrate\` to fit one.`);
+    if (kind !== "calibrated") io.out(`No calibrated model at ${opts.config.model}. Run \`opendrs calibrate\` to fit one.`);
     io.out("captured@X%: share of incident-linked commits that fall in the riskiest X % of commits.");
+    if (report.calibrated) io.out("held-out: commits newer than the calibrated model's training window; compare the two held-out rows.");
     for (const note of report.notes) io.out(`Note: ${note}`);
     io.out(
       "* Meta's in-house results for its LR baseline on Meta's own diffs and SEVs (arXiv 2410.06351). " +

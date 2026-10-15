@@ -61,7 +61,7 @@ export interface CommitInfo {
   parents: string[];
   authorName: string;
   authorEmail: string;
-  /** Unix seconds (author date). */
+  /** Unix seconds (committer date: rebases and cherry-picks keep old author dates). */
   time: number;
   subject: string;
   /** Changed paths (post-rename names). */

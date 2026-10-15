@@ -7,7 +7,7 @@ import { git } from "./exec.js";
 const RECORD = "\x1e";
 const FIELD = "\x1f";
 const END = "\x1d";
-const FORMAT = "%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b%x1d";
+const FORMAT = "%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
 const REVERTS = /This reverts commit ([0-9a-f]{7,40})/i;
 
 interface Change {

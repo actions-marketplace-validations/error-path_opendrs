@@ -126,6 +126,27 @@ describe("labelCommits", () => {
     expect(of(blamed)).toMatchObject(positive("incident"));
   });
 
+  it("warns about incident shas that do not resolve instead of silently dropping them", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "init");
+    const known = repo.commit({ "a.ts": "1\n2\n" }, "feat: two");
+    const config = defaultConfig();
+    const history = await buildHistoryIndex(repo.dir, "HEAD", config);
+    const warnings: string[] = [];
+    const labels = await labelCommits(
+      repo.dir,
+      history,
+      config,
+      [{ inducing: "deadbeef00" }, { fix: "feedface00" }, { inducing: known.slice(0, 10) }],
+      (w) => warnings.push(w),
+    );
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toMatch(/inducing commit deadbeef00 .*not counted/);
+    expect(warnings[1]).toMatch(/fix commit feedface00 .*not counted/);
+    expect(labels.find((l) => l.sha === known)).toMatchObject(positive("incident"));
+    expect(labels.filter((l) => l.label === 1)).toHaveLength(1);
+  });
+
   it("prefers revert over szz when both apply", async () => {
     repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "init");

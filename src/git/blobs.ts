@@ -7,24 +7,35 @@ export function readBlobs(repoDir: string, shas: string[], onBlob: (index: numbe
   return new Promise((resolve, reject) => {
     const proc = spawn("git", ["--no-pager", "cat-file", "--batch"], { cwd: repoDir, timeout: 120_000 });
     let pending: Buffer = Buffer.alloc(0);
+    // Chunks of a large blob body are parked and joined once, not re-concatenated per chunk.
+    let parked: Buffer[] = [];
+    let parkedBytes = 0;
     let index = 0;
     let need = -1; // bytes of the current blob body, or -1 while waiting for a header
     let stderr = "";
 
     proc.stdout.on("data", (chunk: Buffer) => {
-      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+      if (need >= 0 && pending.length + parkedBytes + chunk.length < need + 1) {
+        parked.push(chunk);
+        parkedBytes += chunk.length;
+        return;
+      }
+      pending = Buffer.concat([pending, ...parked, chunk]);
+      parked = [];
+      parkedBytes = 0;
       let pos = 0;
       for (;;) {
         if (need < 0) {
           const nl = pending.indexOf(10, pos);
           if (nl < 0) break;
-          const size = Number(pending.toString("latin1", pos, nl).split(" ")[2]);
+          const header = pending.toString("latin1", pos, nl);
           pos = nl + 1;
-          if (!Number.isInteger(size)) {
-            index++; // "<sha> missing"
+          // "<name> missing" / "<name> ambiguous": the name itself may contain spaces and digits.
+          if (header.endsWith(" missing") || header.endsWith(" ambiguous")) {
+            index++;
             continue;
           }
-          need = size;
+          need = Number(header.split(" ")[2]);
         }
         if (pending.length - pos < need + 1) break;
         onBlob(index++, pending.subarray(pos, pos + need));
@@ -61,6 +72,8 @@ export function createBlobReader(repoDir: string): (rev: string, path: string) =
   };
   return (rev, path) =>
     new Promise((resolve, reject) => {
+      // cat-file --batch reads one name per line; a line break in the path would desync later reads.
+      if (/[\n\r]/.test(path)) return resolve(undefined);
       if (queue.push({ name: `${rev}:${path}`, resolve, reject }) === 1) setImmediate(flush);
     });
 }

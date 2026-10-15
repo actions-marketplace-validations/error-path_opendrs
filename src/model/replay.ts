@@ -10,10 +10,18 @@ import { labelCommits, loadIncidents } from "./label.js";
 /** One historical commit with its point-in-time signals and label. */
 export interface ReplayRow {
   sha: string;
-  /** Unix seconds (author date). */
+  /** Unix seconds (committer date: rebases and cherry-picks keep old author dates). */
   time: number;
   label: 0 | 1;
   signals: Signal[];
+}
+
+export interface ReplayResult {
+  rows: ReplayRow[];
+  /** Commits left out because their diff or signals could not be read. */
+  skipped: number;
+  /** Lines for the user: unresolved incidents, then the skipped count when non-zero. */
+  warnings: string[];
 }
 
 export const GRAPH_APPROXIMATION_NOTE =
@@ -25,7 +33,7 @@ const CONCURRENCY = 8;
  * Walk non-merge commits newest-first (bounded by since/maxCommits) and compute each commit's
  * signals as of its parent: diff parent..sha, history cut at the commit time.
  */
-export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayRow[]> {
+export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayResult> {
   const { repoDir, config } = opts;
   const head = (await git(repoDir, ["rev-parse", "HEAD"])).trim();
   const history = await buildHistoryIndex(repoDir, head, config);
@@ -40,7 +48,8 @@ export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayRow[
   }
   commits = commits.slice(0, opts.maxCommits ?? config.history.maxCommits);
 
-  const labelled = await labelCommits(repoDir, history, config, await loadIncidents(repoDir));
+  const warnings: string[] = [];
+  const labelled = await labelCommits(repoDir, history, config, await loadIncidents(repoDir), (w) => warnings.push(w));
   const labels = new Map(labelled.map((l) => [l.sha, l.label]));
 
   const rows = await mapLimit(
@@ -58,7 +67,10 @@ export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayRow[
     },
     (done) => opts.onProgress?.(done, commits.length),
   );
-  return rows.filter((r): r is ReplayRow => r !== undefined);
+  const read = rows.filter((r): r is ReplayRow => r !== undefined);
+  const skipped = rows.length - read.length;
+  if (skipped > 0) warnings.push(`${skipped} commits skipped (unreadable)`);
+  return { rows: read, skipped, warnings };
 }
 
 /** Map with at most `limit` tasks in flight; results keep input order. */

@@ -33,6 +33,11 @@ describe("opendrs init", () => {
     expect(steps[1].uses).toMatch(/^error-path\/opendrs@/);
   });
 
+  it("creates nothing under .opendrs/ (a committed cache or stray file there hard-blocks every PR)", async () => {
+    expect(await runCli(["init"], testIo(repo.dir).io)).toBe(0);
+    expect(existsSync(join(repo.dir, ".opendrs"))).toBe(false);
+  });
+
   it("does not overwrite existing files without --force", async () => {
     writeFileSync(join(repo.dir, ".opendrs.yml"), "mine: true\n");
     const t = testIo(repo.dir);

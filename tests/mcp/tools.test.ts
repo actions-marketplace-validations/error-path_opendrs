@@ -49,11 +49,18 @@ function result(): ScoreResult {
 
 const json = (r: { content: Array<{ type: string; text?: string }> }) => JSON.parse(r.content[0]!.text!);
 
-beforeEach(() => vi.clearAllMocks());
+/** The repo root is the given dir; `originHead` answers the origin/HEAD probe. */
+const gitAnswers = (originHead?: string) =>
+  vi.mocked(gitMaybe).mockImplementation(async (dir, args) => (args.includes("--show-toplevel") ? `${dir}\n` : originHead));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  gitAnswers();
+});
 
 describe("score_diff", () => {
   it("scores against origin/HEAD by default and returns compact JSON", async () => {
-    vi.mocked(gitMaybe).mockResolvedValue("abc123\n");
+    gitAnswers("abc123\n");
     vi.mocked(scoreDiff).mockResolvedValue(result());
 
     const r = await scoreDiffTool({ repoDir: REPO });
@@ -76,7 +83,7 @@ describe("score_diff", () => {
   });
 
   it("falls back to main when origin/HEAD does not resolve", async () => {
-    vi.mocked(gitMaybe).mockResolvedValue(undefined);
+    gitAnswers(undefined);
     vi.mocked(scoreDiff).mockResolvedValue(result());
     await scoreDiffTool({ repoDir: REPO });
     expect(vi.mocked(scoreDiff).mock.calls[0]![0]).toMatchObject({ base: "main" });
@@ -85,12 +92,12 @@ describe("score_diff", () => {
   it("passes explicit refs through without probing origin/HEAD", async () => {
     vi.mocked(scoreDiff).mockResolvedValue(result());
     await scoreDiffTool({ repoDir: REPO, base: "release", head: "feature" });
-    expect(gitMaybe).not.toHaveBeenCalled();
+    expect(vi.mocked(gitMaybe).mock.calls.filter(([, args]) => args.includes("origin/HEAD^{commit}"))).toEqual([]);
     expect(vi.mocked(scoreDiff).mock.calls[0]![0]).toMatchObject({ base: "release", head: "feature" });
   });
 
   it("returns engine failures as a tool error instead of throwing", async () => {
-    vi.mocked(gitMaybe).mockResolvedValue("abc");
+    gitAnswers("abc");
     vi.mocked(scoreDiff).mockRejectedValue(new OpendrsError("git diff failed: bad revision", "git"));
     const r = await scoreDiffTool({ repoDir: REPO });
     expect(r.isError).toBe(true);
