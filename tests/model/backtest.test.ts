@@ -31,4 +31,22 @@ describe("backtestRows", () => {
     expect(report.calibrated).toEqual(evaluate(scores, newest.map((r) => r.label)));
     expect(report.calibrated!.commits).toBe(200);
   });
+
+  it("evaluates the calibrated model only on commits after its training window, next to the default on the same commits", () => {
+    const model = fitModel(rows); // trained on rows 0..799
+    const report = backtestRows(rows.slice(0, 900), model);
+    const heldOut = rows.slice(800, 900);
+    const labels = heldOut.map((r) => r.label);
+    expect(report.calibrated).toEqual(evaluate(heldOut.map((r) => scoreSignals(r.signals, model).score), labels));
+    expect(report.defaultOnHeldOut).toEqual(evaluate(heldOut.map((r) => scoreSignals(r.signals, DEFAULT_WEIGHTS).score), labels));
+    expect(report.calibrated!.commits).toBe(100);
+  });
+
+  it("says so when no replayed commit is newer than the training window", () => {
+    const model = fitModel(rows);
+    const report = backtestRows(rows.slice(0, 800), model);
+    expect(report.calibrated).toBeUndefined();
+    expect(report.defaultOnHeldOut).toBeUndefined();
+    expect(report.notes.join("\n")).toMatch(/no replayed commit is newer than the calibrated model's training window/i);
+  });
 });

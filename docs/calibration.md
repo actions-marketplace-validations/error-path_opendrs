@@ -68,9 +68,12 @@ report 0.7 to 0.8.
 accurate while catching nothing, which is why opendrs reports capture rates instead of accuracy.
 
 **Commits and positives.** With fewer than about 50 positives the numbers move a lot between runs
-and windows; read them as rough. The calibrated model is evaluated on the newest 20 % of commits
-only (it is trained on the oldest 80 %), so its numbers come from a smaller sample than the
-default model's.
+and windows; read them as rough. `backtest` evaluates the calibrated model only on commits newer
+than its training window (`trainedOn.to` in the model file), so it never scores a commit it was
+trained on. It also reports the default priors on those same held-out commits; compare those two
+rows, not the calibrated row with the all-commits default row. When no replayed commit is newer
+than the training window (for example on a checkout older than the one the model was fitted on),
+the calibrated model has no held-out rows and `backtest` says so.
 
 **Meta's numbers.** `backtest` prints Meta's published LR baseline (18.7 % / 27.9 % / 84.6 % of
 SEVs captured at 5 / 10 / 50 % gated) for orientation. Those come from Meta's own code and SEV

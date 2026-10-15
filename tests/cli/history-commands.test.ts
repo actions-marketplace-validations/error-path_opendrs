@@ -119,6 +119,30 @@ describe("opendrs backtest", () => {
     expect(out).toContain("not comparable");
   });
 
+  it("prints the default priors on the calibrated model's held-out commits as an extra row", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({
+      default: metrics(0.12, 0.2, 0.7, 0.64),
+      calibrated: metrics(0.2, 0.31, 0.88, 0.74),
+      defaultOnHeldOut: metrics(0.1, 0.15, 0.6, 0.61),
+      curve: [],
+      notes: [],
+    });
+    const t = testIo(repo.dir);
+    await runCli(["backtest"], t.io);
+    expect(t.stdout()).toMatch(/calibrated \(held-out\)\s+20\.0 %\s+31\.0 %\s+88\.0 %\s+0\.74/);
+    expect(t.stdout()).toMatch(/default priors \(held-out\)\s+10\.0 %\s+15\.0 %\s+60\.0 %\s+0\.61/);
+  });
+
+  it("does not claim the calibrated model is missing when it has no held-out commits", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({ default: metrics(0.12, 0.2, 0.7, 0.64), curve: [], notes: ["No replayed commit is newer"] });
+    const t = testIo(repo.dir);
+    await runCli(["backtest"], t.io);
+    expect(t.stdout()).not.toContain("No calibrated model");
+    expect(t.stdout()).toContain("Note: No replayed commit is newer");
+  });
+
   it("prints the raw report with --json", async () => {
     vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
     const t = testIo(repo.dir);
