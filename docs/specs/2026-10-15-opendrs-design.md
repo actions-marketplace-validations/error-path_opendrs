@@ -173,7 +173,8 @@ autoApprove:
   sampleRate: 0.10     # fraction of eligible PRs still routed to a human (deterministic by PR sha)
   maxChangedLines: 400 # never auto-approve above this, whatever the score
 paths:
-  # block and critical globs match ignoring case (makefile, EF Core Migrations/)
+  # block and critical globs match ignoring case (makefile, EF Core Migrations/). A user's block and
+  # critical lists EXTEND these defaults; ignore and tests lists replace theirs.
   block:    [".github/**", "**/migrations/**", "**/migration/**", "**/migrate/**", ".opendrs.yml",
              "**/CODEOWNERS", "**/*.tf", ".gitmodules", "**/.gitattributes",
              # files that execute code on install, build or CI (dependency bumps also touch an
@@ -193,6 +194,8 @@ paths:
              ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**",
              "**/bitbucket-pipelines.yml", "**/.drone.yml", "**/.travis.yml", "**/cloudbuild.y*ml",
              "**/Earthfile", "**/BUILD", "**/BUILD.bazel", "**/WORKSPACE*", "**/MODULE.bazel", "**/*.bzl"]
+  unblock:  []         # default block globs to remove; each must equal a default glob exactly,
+                       # else a config error listing the valid ones. Wins over the same glob in block.
   critical: ["**/auth/**", "**/payment*/**", "**/security/**"]
   ignore:   ["**/*.lock", "**/package-lock.json", "**/dist/**", "**/vendor/**", "**/*.min.js"]
 llm:

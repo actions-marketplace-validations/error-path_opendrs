@@ -23,6 +23,8 @@ autoApprove:
 
 paths:
   # Hard block: a PR touching any of these always needs a human. Matched ignoring case.
+  # These defaults always apply: globs you add here extend them, and deleting a line here does
+  # not unblock it. To drop a default, list it under unblock below.
   block:
     - ".github/**"
     - ".opendrs.yml"
@@ -36,7 +38,7 @@ paths:
     - "**/.gitattributes"
     # Files that execute code on install, build or CI. Dependency bumps also change a lockfile,
     # which is ignored and so goes to a human anyway. To let a PR that touches one of these be
-    # auto-approved, delete its line here, deliberately.
+    # auto-approved, list it under unblock, deliberately.
     - "**/package.json"
     - "**/.npmrc"
     - "**/.yarnrc"
@@ -101,13 +103,17 @@ paths:
     - "**/WORKSPACE*"
     - "**/MODULE.bazel"
     - "**/*.bzl"
+  # Default block globs to remove, each written exactly as above, e.g. ["**/go.mod"].
+  unblock: []
   # Raises the score (Meta's "high-criticality service" feature). Matched ignoring case.
+  # Like block, globs you add extend these defaults.
   critical:
     - "**/auth/**"
     - "**/payment*/**"
     - "**/billing/**"
     - "**/security/**"
   # Excluded from size and churn (lockfiles, generated and vendored code); never auto-approved.
+  # Unlike block and critical, a list you set for ignore or tests replaces the default.
   ignore:
     - "**/*.lock"
     - "**/package-lock.json"

@@ -81,6 +81,11 @@ describe("decide: rule 1 (hard block)", () => {
     }
   });
 
+  it("keeps the default blocks when the config sets its own paths.block", () => {
+    const out = decide(input({ cfg: { autoApprove: { sampleRate: 0 }, paths: { block: ["infra/**"] } }, files: [file("package.json", 1, 1)] }));
+    expect(out).toMatchObject({ decision: "human-review", hardBlocked: true });
+  });
+
   it("matches the old path of a rename", () => {
     const renamed: ChangedFile = { ...file("src/moved.sql"), status: "renamed", oldPath: "db/migrations/001.sql" };
     expect(decide(input({ files: [renamed] })).hardBlocked).toBe(true);

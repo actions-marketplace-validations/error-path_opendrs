@@ -134,6 +134,56 @@ describe("default paths.block", () => {
   });
 });
 
+describe("user paths.block, paths.critical and paths.unblock", () => {
+  const defaults = defaultConfig().paths;
+
+  it("extend the default block list instead of replacing it", () => {
+    const { block } = parseConfig({ paths: { block: ["infra/**"] } }).paths;
+    expect(block).toEqual([...defaults.block, "infra/**"]);
+    expect(matchAny(block, "package.json", { ignoreCase: true })).toBe(true);
+  });
+
+  it("extend the default critical list instead of replacing it", () => {
+    expect(parseConfig({ paths: { critical: ["core/**"] } }).paths.critical).toEqual([...defaults.critical, "core/**"]);
+  });
+
+  it("do not duplicate a default the user lists again (as `opendrs init` writes them)", () => {
+    expect(parseConfig({ paths: { block: [".github/**", "infra/**"], critical: ["**/auth/**"] } }).paths).toMatchObject({
+      block: [...defaults.block, "infra/**"],
+      critical: defaults.critical,
+    });
+  });
+
+  it("an empty block list keeps every default", () => {
+    expect(parseConfig({ paths: { block: [] } }).paths.block).toEqual(defaults.block);
+  });
+
+  it("unblock removes exactly the listed default globs", () => {
+    const { block, unblock } = parseConfig({ paths: { unblock: ["**/go.mod", "**/Makefile"] } }).paths;
+    expect(block).toEqual(defaults.block.filter((g) => g !== "**/go.mod" && g !== "**/Makefile"));
+    expect(unblock).toEqual(["**/go.mod", "**/Makefile"]);
+  });
+
+  it("unblock wins over the same glob listed under block", () => {
+    expect(parseConfig({ paths: { block: ["**/go.mod"], unblock: ["**/go.mod"] } }).paths.block).not.toContain("**/go.mod");
+  });
+
+  it("defaults to an empty unblock list", () => {
+    expect(defaults.unblock).toEqual([]);
+  });
+
+  it.each([["go.mod"], ["**/GO.MOD"], ["infra/**"]])("rejects unblock entry %s that is not exactly a default glob, naming the valid ones", (entry) => {
+    const message = configError({ paths: { unblock: [entry] } });
+    expect(message).toContain(`"${entry}"`);
+    expect(message).toContain('"**/go.mod"');
+    expect(message).toContain('".github/**"');
+  });
+
+  it("keeps replace semantics for ignore and tests", () => {
+    expect(parseConfig({ paths: { ignore: ["gen/**"], tests: ["spec/**"] } }).paths).toMatchObject({ ignore: ["gen/**"], tests: ["spec/**"] });
+  });
+});
+
 describe("glob validation", () => {
   it.each([
     ["block", "src/[ab]/**"],

@@ -15,6 +15,13 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   A config that still lists it, even as `labels: []`, now fails to parse; list your AI reviewer's
   check run under `requireAiReview.checks` instead. The Action no longer removes AI-review labels
   on `synchronize`.
+- A `paths.block` or `paths.critical` list in `.opendrs.yml` now extends the defaults instead of
+  replacing them. Setting `block: ["infra/**"]` used to drop every default block, so a
+  `postinstall` hook in `package.json` could be auto-approved. To remove a default block glob, list
+  it under the new `paths.unblock`, exactly as written in the defaults; any other entry is a
+  config error that names the valid ones. If you copied the default list to delete entries from
+  it, move those entries to `paths.unblock`. `paths.ignore` and `paths.tests` still replace their
+  defaults.
 
 ### Security
 
@@ -36,8 +43,7 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   Bundler and Rake files, Makefiles, Dockerfiles and Compose files, and the GitLab, Jenkins,
   CircleCI, Azure Pipelines and Buildkite pipelines. An `.npmrc` registry change or a `postinstall`
   hook in `package.json` used to score as a tiny change and could be auto-approved. `opendrs init`
-  writes the same list. If your `.opendrs.yml` sets its own `paths.block`, it replaces the defaults:
-  compare it with the new list.
+  writes the same list. A `paths.block` you set now adds to this list (see Breaking).
 - `paths.block`, `paths.critical` and the Action's self-modification guard match ignoring case.
   `makefile` and EF Core `Migrations/` folders slipped past `**/Makefile` and `**/migrations/**`
   and were auto-approved.

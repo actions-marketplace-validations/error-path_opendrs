@@ -73,10 +73,15 @@ describe("paths signals", () => {
     expect(s.value).toBe(1);
   });
 
-  it("uses the configured globs", async () => {
-    const config = parseConfig({ paths: { critical: ["core/**"], block: [] } });
-    const signals = await pathsSignals(ctxFor([changed("core/x.ts"), changed(".github/ci.yml")], config));
-    expect(byId(signals, "paths.critical").value).toBe(1);
-    expect(byId(signals, "paths.blocked").value).toBe(0);
+  it("uses the configured globs on top of the defaults", async () => {
+    const config = parseConfig({ paths: { critical: ["core/**"], block: ["infra/**"] } });
+    const signals = await pathsSignals(ctxFor([changed("core/x.ts"), changed("src/auth/x.ts"), changed("infra/a.yml"), changed(".github/ci.yml")], config));
+    expect(byId(signals, "paths.critical").evidence.map((e) => e.file)).toEqual(["core/x.ts", "src/auth/x.ts"]);
+    expect(byId(signals, "paths.blocked").evidence.map((e) => e.file)).toEqual(["infra/a.yml", ".github/ci.yml"]);
+  });
+
+  it("drops a default block glob only through paths.unblock", async () => {
+    const config = parseConfig({ paths: { unblock: [".github/**"] } });
+    expect(byId(await pathsSignals(ctxFor([changed(".github/ci.yml")], config)), "paths.blocked").value).toBe(0);
   });
 });

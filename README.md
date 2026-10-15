@@ -286,7 +286,7 @@ autoApprove:
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  # block and critical are matched ignoring case.
+  # block and critical are matched ignoring case, and a list you set adds to these defaults.
   block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS",
           "**/migrations/**", "**/migration/**", "**/migrate/**", "**/*.tf",
           ".gitmodules", "**/.gitattributes",
@@ -308,7 +308,9 @@ paths:
           ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**",
           "**/bitbucket-pipelines.yml", "**/.drone.yml", "**/.travis.yml", "**/cloudbuild.y*ml",
           "**/Earthfile", "**/BUILD", "**/BUILD.bazel", "**/WORKSPACE*", "**/MODULE.bazel", "**/*.bzl"]
+  unblock: []           # default block globs to drop, written exactly as above, e.g. ["**/go.mod"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
+  # ignore and tests: a list you set replaces the default.
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
            "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
@@ -349,17 +351,22 @@ one-line change there (a `postinstall` hook, a registry pointed at another host,
 step) scores as small and low-risk, but runs on every developer machine and CI runner. Dependency
 bumps also change a lockfile, which is in `paths.ignore` and so already goes to a human.
 
-To relax this, do it deliberately: copy the full `block` list into `.opendrs.yml` on the default
-branch and delete only the entries you accept, for example `"**/go.mod"` if you trust `go.mod`
-edits to code review alone. A `paths.block` you set replaces the default list, so leaving out an
-entry you did not mean to drop unblocks it. In the Action, the self-modification guard keeps
-`.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and `.gitattributes` blocked
-whatever the list says.
+**Your lists add to the defaults.** A `paths.block` or `paths.critical` you set extends the
+default list; it never replaces it, so `block: ["infra/**"]` blocks `infra/**` as well as
+everything above. To drop a default block entry, name it under `paths.unblock` on the default
+branch, written exactly as in the list, for example `unblock: ["**/go.mod"]` if you trust `go.mod`
+edits to code review alone. An `unblock` entry that is not a default block glob is a config error
+that lists the valid ones, so a typo cannot pass silently. `paths.unblock` wins over the same glob
+under `paths.block`. Default `critical` globs cannot be removed. `paths.ignore` and `paths.tests`
+work the other way: a list you set replaces the default. In the Action, the self-modification
+guard keeps `.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and
+`.gitattributes` blocked whatever the lists say.
 
 opendrs refuses a config that would fail silently, naming the offending value:
 
 - **Globs** are repo-relative and support `**`, `*`, `?` and `{a,b}`. A glob with `[` or `]`
   (character classes are not supported), a backslash, or a leading `/` or `./` is an error.
+- **`paths.unblock`** entries must each be a default `paths.block` glob, character for character.
 - **Thresholds** must be ordered: `0 ≤ green < yellow ≤ red ≤ 1` in absolute mode, and
   `0 < green < yellow ≤ red < 100` in percentile mode.
 
