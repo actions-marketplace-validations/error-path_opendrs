@@ -15,7 +15,7 @@ export interface GateInput {
   model: ModelWeights;
   history: HistoryIndex;
   /** Present in CI: what the PR currently has. Absent locally (AI-review rule then reports "unknown"). */
-  pr?: { labels: string[]; successfulChecks: string[]; number?: number };
+  pr?: { labels: string[]; successfulChecks: string[]; number?: number; samplingKey?: string };
   llmFailed: boolean;
 }
 
@@ -143,7 +143,7 @@ export function decide(input: GateInput): PolicyOutcome {
   }
 
   // 6. drift sample
-  const sampled = sampleValue(diff.head) < auto.sampleRate;
+  const sampled = sampleValue(input.pr?.samplingKey ?? diff.head) < auto.sampleRate;
   if (sampled) fired.push({ decision: "human-review", reason: `sampled for human review (${Math.round(auto.sampleRate * 100)}% drift check)` });
 
   // 7. auto-approve

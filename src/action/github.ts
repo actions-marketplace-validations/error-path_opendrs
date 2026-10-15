@@ -24,18 +24,46 @@ export async function unlessForbidden<T>(fn: () => Promise<T>, onForbidden: (e: 
   }
 }
 
+export interface GitHubUser {
+  login: string;
+  /** "Bot" for GitHub App installations such as GITHUB_TOKEN. */
+  type?: string;
+}
+
 export interface IssueComment {
   id: number;
   body?: string | null;
-  user: { login: string } | null;
+  user: GitHubUser | null;
 }
 
 export interface Review {
   id: number;
   body?: string | null;
   state: string;
-  user: { login: string } | null;
+  user: GitHubUser | null;
   commit_id: string;
+}
+
+/** GraphQL names GITHUB_TOKEN "github-actions" while REST shows "github-actions[bot]". */
+const normaliseLogin = (login: string) => login.toLowerCase().replace(/\[bot\]$/, "");
+
+export const sameLogin = (a: string | undefined, b: string | undefined): boolean =>
+  a !== undefined && b !== undefined && normaliseLogin(a) === normaliseLogin(b);
+
+/**
+ * Whether `user` is this token's account. When the identity is unknown (`viewer` undefined),
+ * any bot account counts; callers also require the opendrs marker in the body.
+ */
+export function isSelf(user: GitHubUser | null, viewer: string | undefined): boolean {
+  if (!user) return false;
+  return viewer === undefined ? user.type === "Bot" : sameLogin(user.login, viewer);
+}
+
+/** An entry of GET /pulls/{n}/commits. `author` is GitHub's verified email-to-account mapping. */
+export interface PullCommit {
+  sha: string;
+  author: { login: string } | null;
+  commit: { author: { email: string } | null };
 }
 
 export type MergeMethod = "MERGE" | "SQUASH" | "REBASE";
@@ -99,12 +127,15 @@ export class GitHubClient {
     return `/repos/${this.opts.owner}/${this.opts.repo}`;
   }
 
-  /** Login of the token's own user (e.g. "github-actions[bot]"). */
-  async viewerLogin(): Promise<string> {
+  /** Login of the token's own user, or undefined when neither GraphQL nor GET /user tells. */
+  async viewerLogin(): Promise<string | undefined> {
     try {
       return (await this.graphql<{ viewer: { login: string } }>("query { viewer { login } }")).viewer.login;
     } catch {
-      return (await this.rest<{ login: string }>("GET", "/user")).login;
+      return this.rest<{ login: string }>("GET", "/user").then(
+        (u) => u.login,
+        () => undefined,
+      );
     }
   }
 
@@ -128,6 +159,16 @@ export class GitHubClient {
     } catch (e) {
       if (!(e instanceof GitHubError && e.status === 404)) throw e;
     }
+  }
+
+  /** The PR's current head sha. */
+  async pullHeadSha(pr: number): Promise<string> {
+    return (await this.rest<{ head: { sha: string } }>("GET", `${this.repoPath}/pulls/${pr}`)).head.sha;
+  }
+
+  /** The PR's commits, oldest first (GitHub lists at most 250). */
+  listPullCommits(pr: number) {
+    return this.paginate<PullCommit>(`${this.repoPath}/pulls/${pr}/commits`);
   }
 
   listReviews(pr: number) {
@@ -163,21 +204,40 @@ export class GitHubClient {
     return { hasMergeQueue: r.mergeQueue !== null, method };
   }
 
-  async enableAutoMerge(pullRequestId: string, mergeMethod: MergeMethod) {
+  /** GitHub refuses both mutations when the PR head is no longer `expectedHeadOid`. */
+  async enableAutoMerge(pullRequestId: string, mergeMethod: MergeMethod, expectedHeadOid: string) {
     await this.graphql(
-      `mutation($id: ID!, $method: PullRequestMergeMethod) {
-        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $method }) { clientMutationId }
+      `mutation($id: ID!, $method: PullRequestMergeMethod, $head: GitObjectID!) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $head }) { clientMutationId }
       }`,
-      { id: pullRequestId, method: mergeMethod },
+      { id: pullRequestId, method: mergeMethod, head: expectedHeadOid },
     );
   }
 
-  async enqueue(pullRequestId: string) {
+  async disableAutoMerge(pullRequestId: string) {
     await this.graphql(
       `mutation($id: ID!) {
-        enqueuePullRequest(input: { pullRequestId: $id }) { mergeQueueEntry { position } }
+        disablePullRequestAutoMerge(input: { pullRequestId: $id }) { clientMutationId }
       }`,
       { id: pullRequestId },
+    );
+  }
+
+  async dequeue(pullRequestId: string) {
+    await this.graphql(
+      `mutation($id: ID!) {
+        dequeuePullRequest(input: { id: $id }) { clientMutationId }
+      }`,
+      { id: pullRequestId },
+    );
+  }
+
+  async enqueue(pullRequestId: string, expectedHeadOid: string) {
+    await this.graphql(
+      `mutation($id: ID!, $head: GitObjectID!) {
+        enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) { mergeQueueEntry { position } }
+      }`,
+      { id: pullRequestId, head: expectedHeadOid },
     );
   }
 }

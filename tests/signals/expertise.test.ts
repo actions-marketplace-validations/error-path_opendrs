@@ -52,6 +52,22 @@ describe("expertiseSignals", () => {
     expect(signals[0]!.summary).toMatch(/author/i);
   });
 
+  it.each([
+    [{ authorVerified: false, historyComplete: true }, /could not be verified/i],
+    [{ authorVerified: true, historyComplete: false }, /shallow/i],
+  ])("is unknown when the scoring context cannot be trusted (%j)", async (trust, why) => {
+    seed();
+    repo.commit({ "own.ts": "x\n", "major.ts": "x\n" }, "change", ALICE, T + 500);
+    const ctx = await contextFor(repo, "HEAD~1");
+    ctx.trust = trust;
+    const signals = await expertiseSignals(ctx);
+    expect(signals.map((s) => [s.id, s.value, s.status])).toEqual([
+      ["expertise.author_commits", 0, "unknown"],
+      ["expertise.owner_ratio", 0, "unknown"],
+    ]);
+    for (const s of signals) expect(s.summary).toMatch(why);
+  });
+
   it("reports 0 ownership when only new files changed", async () => {
     seed();
     repo.commit({ "fresh.ts": "x\n" }, "change", ALICE, T + 500);

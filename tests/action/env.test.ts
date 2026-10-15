@@ -13,13 +13,24 @@ const { readInputs, runFromEnv } = await import("../../src/action/env.js");
 
 describe("readInputs", () => {
   it("applies the defaults", () => {
-    expect(readInputs({ "INPUT_GITHUB-TOKEN": "t" })).toEqual({ token: "t", baseConfig: true, comment: true, labels: true, llmApiKey: undefined });
+    expect(readInputs({ "INPUT_GITHUB-TOKEN": "t" })).toStrictEqual({
+      token: "t",
+      baseConfig: true,
+      comment: true,
+      labels: true,
+      llmApiKey: undefined,
+      sampleSalt: "",
+    });
   });
 
   it("parses YAML-style booleans and the LLM key", () => {
     expect(
       readInputs({ "INPUT_GITHUB-TOKEN": "t", "INPUT_BASE-CONFIG": "False", INPUT_COMMENT: "FALSE", INPUT_LABELS: "true", "INPUT_LLM-API-KEY": " k " }),
-    ).toEqual({ token: "t", baseConfig: false, comment: false, labels: true, llmApiKey: "k" });
+    ).toEqual({ token: "t", baseConfig: false, comment: false, labels: true, llmApiKey: "k", sampleSalt: "" });
+  });
+
+  it("reads sample-salt", () => {
+    expect(readInputs({ "INPUT_GITHUB-TOKEN": "t", "INPUT_SAMPLE-SALT": "pepper" }).sampleSalt).toBe("pepper");
   });
 
   it("rejects a non-boolean value", () => {

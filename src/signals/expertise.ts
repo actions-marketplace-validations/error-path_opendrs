@@ -3,6 +3,13 @@ import { countedFiles, historyAvailable, historyPath, plural, topEvidence, unkno
 
 /** Spec §4 "expertise.*" signals. */
 export const expertiseSignals: SignalProvider = async (ctx) => {
+  const untrusted = !ctx.trust.authorVerified
+    ? "the author identity could not be verified: the head commit's email is not tied to the PR's account"
+    : !ctx.trust.historyComplete
+      ? "history is incomplete (shallow clone), so the author's prior commits cannot be counted"
+      : undefined;
+  if (untrusted) return [unknown("expertise.author_commits", untrusted), unknown("expertise.owner_ratio", untrusted)];
+
   const email = ctx.diff.author?.email.toLowerCase();
   if (!email) {
     const why = "author email unknown for the head commit";

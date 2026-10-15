@@ -12,6 +12,9 @@ name: opendrs
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+concurrency:
+  group: opendrs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
   pull-requests: write
@@ -31,7 +34,14 @@ jobs:
 computes the merge-base of the PR, and reads the config from the base commit. With a shallow clone
 the job fails with "Base commit ... is not in the checkout".
 
-Run it on `pull_request`, not `pull_request_target`. opendrs only works on events that carry a
+Keep the `concurrency` block. A push cancels the run still scoring the previous head, so an old
+run cannot approve or merge a commit it did not score. The Action also re-reads the PR head before
+approving, and passes the scored commit as `expectedHeadOid` when it enables auto-merge or
+enqueues, so GitHub refuses the merge if the head moved.
+
+Run it on `pull_request`, never on `pull_request_target`. A `pull_request_target` run uses the
+base branch's workflow with a write token and the repository's secrets, even for fork PRs, and
+opendrs checks out and reads the PR's code. opendrs only works on events that carry a
 `pull_request` payload; do not add `merge_group` or `push` triggers to this workflow.
 
 ## Inputs and outputs
@@ -39,10 +49,11 @@ Run it on `pull_request`, not `pull_request_target`. opendrs only works on event
 | Input | Default | Meaning |
 |---|---|---|
 | `github-token` | `${{ github.token }}` | Token for the REST and GraphQL APIs. |
-| `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. |
+| `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. When `false`, the `llm` section and the `model` path still come from the base commit, so a PR cannot send the LLM key to its own `llm.baseUrl` or export another secret through `llm.apiKeyEnv`. |
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). |
 | `labels` | `true` | Set the risk label and remove stale ones. |
+| `sample-salt` | empty | Set to a secret to make sampling unpredictable, e.g. `${{ secrets.OPENDRS_SAMPLE_SALT }}`. The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 
 | Output | Values |
 |---|---|
@@ -72,6 +83,8 @@ Use the outputs in later steps, for example to request a reviewer on red PRs:
 
 When a call returns 403 the Action logs a `::warning::` with the cause and carries on; it fails
 the job only on operational errors (scoring, git, invalid config, non-permission API errors).
+Before it fails, it dismisses its own approval on the PR and disables auto-merge and the merge queue
+entry, so an error never leaves an earlier approval in force.
 
 ## Repository settings for auto-approval
 
@@ -111,10 +124,22 @@ Approval needs all of these:
   and no configuration turns it off;
 - the PR is not from a fork.
 
-When any of these stop holding on a later push, the Action dismisses its own earlier approval. It
-identifies its approvals by the `<!-- opendrs-approval -->` marker and the token's own user, and
-never touches anyone else's review. A PR that changes the opendrs config, the model or the
-workflows always needs a human.
+When any of these stop holding on a later push, the Action dismisses its own earlier approval and
+also disables auto-merge and removes the PR from the merge queue. It identifies its approvals by
+the `<!-- opendrs-approval -->` marker and the token's own user (`github-actions` and
+`github-actions[bot]` count as the same account; when the token cannot read its own login, any bot
+account with the marker counts), and never touches anyone else's review. Auto-merge is only
+turned off when opendrs had an approval to withdraw, so auto-merge a person enabled stays on. A
+PR that changes the opendrs config, the model or the workflows always needs a human.
+
+### Author identity
+
+The author email on a commit is whatever the PR author typed, so opendrs does not take it on
+trust. The Action lists the PR's commits (`GET /pulls/{n}/commits`) and treats the head commit's
+author as verified only when GitHub maps its email to the account that opened the PR. Otherwise,
+and also when the clone is shallow, the author-expertise signals count as unknown, which usually
+routes the PR to a human. Suggested reviewers leave out the emails GitHub has verified for the
+PR's author, not the email the head commit claims.
 
 ## Pairing with an AI reviewer
 
@@ -139,6 +164,9 @@ name: review
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+concurrency:
+  group: opendrs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: write
   pull-requests: write
@@ -168,9 +196,12 @@ issue. opendrs matches checks by name only and does not verify which app created
 workflow on the PR's head commit can create a check with that name, which is one reason PRs that
 change `.github/**` are never approved.
 
-To use a label instead (for example an AI reviewer that adds `ai-reviewed`), list it under
-`requireAiReview.labels` and add `labeled` to the opendrs workflow's `pull_request` types, so the
-PR is re-scored when the label arrives.
+Prefer checks to labels. A check run belongs to one commit, so a new push starts without it. A
+label stays on the PR across pushes, so on every `synchronize` event (a new push) opendrs removes
+the labels listed in `requireAiReview.labels` from the PR and treats them as absent for that run;
+the AI reviewer must label the new commit again. If you do use a label (for example an AI reviewer
+that adds `ai-reviewed`), list it under `requireAiReview.labels` and add `labeled` to the opendrs
+workflow's `pull_request` types, so the PR is re-scored when the label arrives.
 
 ## Rollout
 

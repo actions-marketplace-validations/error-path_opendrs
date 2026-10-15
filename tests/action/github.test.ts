@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GitHubClient, GitHubError } from "../../src/action/github.js";
+import { GitHubClient, GitHubError, isSelf } from "../../src/action/github.js";
 
 const client = () =>
   new GitHubClient({ token: "tok", apiUrl: "https://ghe.example/api/v3", graphqlUrl: "https://ghe.example/api/graphql", owner: "o", repo: "r" });
@@ -66,7 +66,7 @@ describe("GitHubClient", () => {
 
   it("maps a GraphQL FORBIDDEN error to status 403", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(200, { errors: [{ type: "FORBIDDEN", message: "nope" }] })));
-    const err = await client().enqueue("PR_1").catch((e) => e);
+    const err = await client().enqueue("PR_1", "abc").catch((e) => e);
     expect(err).toBeInstanceOf(GitHubError);
     expect(err.status).toBe(403);
   });
@@ -78,6 +78,27 @@ describe("GitHubClient", () => {
       .mockResolvedValueOnce(json(200, { login: "octo-bot" }));
     vi.stubGlobal("fetch", fetch);
     expect(await client().viewerLogin()).toBe("octo-bot");
+  });
+
+  it("reports an unknown identity when neither viewer nor /user can be read (installation token)", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(json(200, { errors: [{ type: "FORBIDDEN", message: "no viewer" }] }))
+      .mockResolvedValueOnce(json(403, { message: "Resource not accessible by integration" }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await client().viewerLogin()).toBeUndefined();
+  });
+
+  it.each([
+    ["github-actions", { login: "github-actions[bot]", type: "Bot" }, true],
+    ["GitHub-Actions[bot]", { login: "github-actions[bot]", type: "Bot" }, true],
+    ["github-actions", { login: "github-actions", type: "User" }, true],
+    ["github-actions", { login: "mallory", type: "Bot" }, false],
+    [undefined, { login: "some-app[bot]", type: "Bot" }, true],
+    [undefined, { login: "alice", type: "User" }, false],
+    [undefined, null, false],
+  ] as const)("isSelf(%j, %j) is %s", (viewer, user, expected) => {
+    expect(isSelf(user, viewer)).toBe(expected);
   });
 
   it("picks the first allowed merge method and reports the merge queue", async () => {

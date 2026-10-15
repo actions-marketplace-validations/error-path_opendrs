@@ -92,6 +92,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# A newer push cancels the run for the older head, so it cannot approve or merge a stale commit.
+concurrency:
+  group: opendrs-\${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
