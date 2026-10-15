@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { repoRoot } from "../cli/repo.js";
 import { loadConfig } from "../domain/config.js";
 import { scoreDiff } from "../engine.js";
 import { explainFile } from "../explain.js";
@@ -20,7 +21,7 @@ async function defaultBase(repoDir: string): Promise<string> {
 
 export async function scoreDiffTool(args: { repoDir: string; base?: string; head?: string }): Promise<CallToolResult> {
   try {
-    const repoDir = resolve(args.repoDir);
+    const repoDir = await repoRoot(resolve(args.repoDir));
     const config = await loadConfig(repoDir);
     const base = args.base ?? (await defaultBase(repoDir));
     const r = await scoreDiff({ repoDir, base, head: args.head ?? "HEAD", config });
@@ -49,7 +50,7 @@ export async function scoreDiffTool(args: { repoDir: string; base?: string; head
 
 export async function explainFileRiskTool(args: { repoDir: string; path: string }): Promise<CallToolResult> {
   try {
-    const repoDir = resolve(args.repoDir);
+    const repoDir = await repoRoot(resolve(args.repoDir));
     return ok(await explainFile(repoDir, args.path, await loadConfig(repoDir)));
   } catch (e) {
     return fail(e);
@@ -58,7 +59,7 @@ export async function explainFileRiskTool(args: { repoDir: string; path: string 
 
 export async function suggestReviewersTool(args: { repoDir: string; paths: string[] }): Promise<CallToolResult> {
   try {
-    const repoDir = resolve(args.repoDir);
+    const repoDir = await repoRoot(resolve(args.repoDir));
     const history = await buildHistoryIndex(repoDir, "HEAD", await loadConfig(repoDir));
     return ok({ reviewers: suggestReviewers(history, args.paths, undefined) });
   } catch (e) {
