@@ -49,7 +49,7 @@ opendrs checks out and reads the PR's code. opendrs only works on events that ca
 | Input | Default | Meaning |
 |---|---|---|
 | `github-token` | `${{ github.token }}` | Token for the REST and GraphQL APIs. |
-| `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. |
+| `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. When `false`, the `llm` section and the `model` path still come from the base commit, so a PR cannot send the LLM key to its own `llm.baseUrl` or export another secret through `llm.apiKeyEnv`. |
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). |
 | `labels` | `true` | Set the risk label and remove stale ones. |

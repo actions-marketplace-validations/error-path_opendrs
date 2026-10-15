@@ -71,16 +71,18 @@ async function requireCommit(repoDir: string, sha: string, which: string): Promi
 }
 
 async function loadSettings(d: ActionDeps, base: string): Promise<{ config: OpendrsConfig; model?: ModelWeights }> {
+  const text = await gitMaybe(d.repoDir, ["show", `${base}:${CONFIG_FILE}`]);
+  const baseConfig = text === undefined ? defaultConfig() : parseConfigText(text);
   if (!d.inputs.baseConfig) {
     d.io.warning(
       `base-config is false: ${CONFIG_FILE} is read from the PR checkout, so a PR can change its own gate. ` +
-        "Auto-approval still refuses PRs that modify it.",
+        "Auto-approval still refuses PRs that modify it. The llm section and the model path still come from the base commit.",
     );
-    return { config: await loadConfig(d.repoDir) };
+    // Never let a PR choose where the LLM key is sent (llm.baseUrl) or which secret is exported (llm.apiKeyEnv).
+    return { config: { ...(await loadConfig(d.repoDir)), llm: baseConfig.llm, model: baseConfig.model } };
   }
-  const text = await gitMaybe(d.repoDir, ["show", `${base}:${CONFIG_FILE}`]);
   d.io.info(text === undefined ? `No ${CONFIG_FILE} on base commit ${base}: using defaults.` : `Using ${CONFIG_FILE} from base commit ${base}.`);
-  const config = text === undefined ? defaultConfig() : parseConfigText(text);
+  const config = baseConfig;
 
   const raw = await gitMaybe(d.repoDir, ["show", `${base}:${config.model}`]);
   if (raw === undefined) return { config };

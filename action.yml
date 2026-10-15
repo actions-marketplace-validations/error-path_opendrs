@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ${{ github.token }}
   base-config:
-    description: Read .opendrs.yml and the calibrated model from the PR's base commit, so a PR cannot loosen its own gate. Keep this true.
+    description: Read .opendrs.yml and the calibrated model from the PR's base commit, so a PR cannot loosen its own gate. Keep this true. Even when false, the llm section and the model path always come from the base commit.
     required: false
     default: "true"
   llm-api-key:

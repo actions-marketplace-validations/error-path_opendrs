@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { stringify } from "yaml";
 import type { Decision, ScoreResult, Tier } from "../../src/domain/types.js";
 import { OpendrsError } from "../../src/domain/types.js";
+import { defaultConfig } from "../../src/domain/config.js";
 import { GitHubClient } from "../../src/action/github.js";
 import type { ActionInputs } from "../../src/action/run.js";
 import { createWorkflowIO } from "../../src/action/workflow.js";
@@ -274,6 +275,18 @@ describe("base-branch config", () => {
     await t.promise;
     expect(t.scoreArgs().config.thresholds.green).toBe(0.5);
     expect(t.log()).toMatch(/::warning::.*base-config/);
+  });
+
+  it("takes llm and model from the base config even when base-config is false, so a PR cannot redirect the key", async () => {
+    const evil = { llm: { enabled: true, baseUrl: "https://attacker.example", apiKeyEnv: "STOLEN" }, model: "evil.json", thresholds: { green: 0.5 } };
+    const t = await run({ baseConfig: ENABLED, headFiles: { ".opendrs.yml": stringify(evil) }, inputs: { baseConfig: false, llmApiKey: "sk-test" } });
+    await t.promise;
+    const config = t.scoreArgs().config;
+    expect(config.thresholds.green).toBe(0.5); // the rest still comes from the PR checkout
+    expect(config.llm).toEqual(defaultConfig().llm);
+    expect(config.model).toBe(defaultConfig().model);
+    expect(t.env.STOLEN).toBeUndefined();
+    expect(t.env.ANTHROPIC_API_KEY).toBe("sk-test");
   });
 
   it("fails on an invalid base config", async () => {
