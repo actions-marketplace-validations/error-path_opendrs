@@ -503,6 +503,45 @@ describe("dismissal", () => {
     expect(t.gh.ops("dismissReview").map((e) => e.path)).toEqual(["/repos/o/r/pulls/7/reviews/1/dismissals"]);
   });
 
+  it("also disables auto-merge and leaves the merge queue when it withdraws its approval", async () => {
+    const t = await run({ result: result(0.4512, "yellow", "human-review"), gh: { reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] } });
+    await t.promise;
+    expect(t.gh.ops("disableAutoMerge").map((e) => e.body)).toEqual([{ id: "PR_node7" }]);
+    expect(t.gh.ops("dequeue").map((e) => e.body)).toEqual([{ id: "PR_node7" }]);
+    expect(t.log()).not.toContain("::warning::");
+  });
+
+  it.each(["Pull request is not in a merge queue", "Can't disable auto-merge for this pull request because it is not enabled"])(
+    "ignores the '%s' error when withdrawing",
+    async (message) => {
+      const t = await run({
+        result: result(0.4512, "yellow", "human-review"),
+        gh: { mergeStateError: message, reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] },
+      });
+      await t.promise;
+      expect(t.gh.ops("disableAutoMerge")).toHaveLength(1);
+      expect(t.gh.ops("dequeue")).toHaveLength(1);
+      expect(t.log()).not.toContain("::warning::");
+    },
+  );
+
+  it("warns and carries on when disabling auto-merge fails for another reason", async () => {
+    const t = await run({
+      result: result(0.4512, "yellow", "human-review"),
+      gh: { fail: new Set(["disableAutoMerge"]), reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] },
+    });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.log()).toMatch(/::warning::.*auto-merge/);
+    expect(t.gh.ops("dequeue")).toHaveLength(1);
+  });
+
+  it("leaves auto-merge alone when it has no approval to withdraw (a human may have enabled it)", async () => {
+    const t = await run({ result: result(0.4512, "yellow", "human-review") });
+    await t.promise;
+    expect(t.gh.ops("disableAutoMerge")).toEqual([]);
+    expect(t.gh.ops("dequeue")).toEqual([]);
+  });
+
   it("withdraws its approval when the guard trips on a later push", async () => {
     const t = await run({
       headFiles: { ".github/workflows/x.yml": "x\n" },

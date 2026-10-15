@@ -214,6 +214,24 @@ export class GitHubClient {
     );
   }
 
+  async disableAutoMerge(pullRequestId: string) {
+    await this.graphql(
+      `mutation($id: ID!) {
+        disablePullRequestAutoMerge(input: { pullRequestId: $id }) { clientMutationId }
+      }`,
+      { id: pullRequestId },
+    );
+  }
+
+  async dequeue(pullRequestId: string) {
+    await this.graphql(
+      `mutation($id: ID!) {
+        dequeuePullRequest(input: { id: $id }) { clientMutationId }
+      }`,
+      { id: pullRequestId },
+    );
+  }
+
   async enqueue(pullRequestId: string, expectedHeadOid: string) {
     await this.graphql(
       `mutation($id: ID!, $head: GitObjectID!) {

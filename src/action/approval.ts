@@ -38,15 +38,56 @@ function blockers({ config, result, files, pr }: ApprovalInput): string[] {
   return out;
 }
 
+/** This token's current opendrs approvals on the PR. */
+export async function ownApprovals(client: GitHubClient, pr: number, viewer: string | undefined): Promise<Review[]> {
+  return (await client.listReviews(pr)).filter(
+    (r) => r.state === "APPROVED" && isSelf(r.user, viewer) && (r.body ?? "").includes(APPROVAL_MARKER),
+  );
+}
+
+/**
+ * Dismiss `own` approvals and, when there were any, stop the auto-merge or queue entry they led
+ * to. With no approval of ours, auto-merge is left alone: a human may have turned it on.
+ */
+export async function withdraw(client: GitHubClient, io: WorkflowIO, pr: PullRequest, own: Review[], message: string): Promise<void> {
+  for (const r of own) {
+    await unlessForbidden(
+      async () => {
+        await client.dismissReview(pr.number, r.id, message);
+        io.notice(`Dismissed opendrs's earlier approval: ${message}`);
+      },
+      (e) => io.warning(`Could not dismiss opendrs's earlier approval (${e.message}). Dismiss it by hand.`),
+    );
+  }
+  if (own.length) await stopMerge(client, io, pr);
+}
+
+/** GraphQL errors that mean there was nothing to stop. */
+const NOTHING_TO_STOP = /\bnot\b[^.]*\b(enabled|queued|queue|auto-?merge)\b/i;
+
+/** Best-effort: disable auto-merge and leave the merge queue, ignoring "not enabled / not queued". */
+export async function stopMerge(client: GitHubClient, io: WorkflowIO, pr: PullRequest): Promise<void> {
+  const steps: Array<[string, () => Promise<void>]> = [
+    ["disable auto-merge", () => client.disableAutoMerge(pr.node_id)],
+    ["remove the PR from the merge queue", () => client.dequeue(pr.node_id)],
+  ];
+  for (const [what, step] of steps) {
+    try {
+      await step();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (!NOTHING_TO_STOP.test(message)) io.warning(`Could not ${what} (${message}). Check the PR by hand.`);
+    }
+  }
+}
+
 /**
  * Approve (and queue or auto-merge) only when every rail passes; otherwise dismiss this
  * token's own earlier opendrs approvals. Returns a one-line status for the PR comment.
  */
 export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: boolean; status: string }> {
   const { client, io, pr, result } = a;
-  const own = (await client.listReviews(pr.number)).filter(
-    (r: Review) => r.state === "APPROVED" && isSelf(r.user, a.viewer) && (r.body ?? "").includes(APPROVAL_MARKER),
-  );
+  const own = await ownApprovals(client, pr.number, a.viewer);
 
   const reasons = blockers(a);
   if (reasons.length) {
@@ -55,15 +96,7 @@ export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: b
       result.policy.decision !== "auto-approve"
         ? `Risk increased: ${result.tier} ${result.score.toFixed(2)}`
         : `opendrs approval withdrawn: ${reasons.join("; ")}`;
-    for (const r of own) {
-      await unlessForbidden(
-        async () => {
-          await client.dismissReview(pr.number, r.id, message);
-          io.notice(`Dismissed opendrs's earlier approval: ${message}`);
-        },
-        (e) => io.warning(`Could not dismiss opendrs's earlier approval (${e.message}). Dismiss it by hand.`),
-      );
-    }
+    await withdraw(client, io, pr, own, message);
     return { approved: false, status: `not approved: ${reasons.join("; ")}.` };
   }
 
