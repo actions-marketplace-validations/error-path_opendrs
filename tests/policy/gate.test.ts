@@ -198,4 +198,14 @@ describe("decide: rule 6 (sampling)", () => {
     expect(decide(input({ cfg }))).toEqual(decide(input({ cfg })));
     expect(decide(input({ cfg })).sampled).toBe(sampleValue("head") < 0.5);
   });
+
+  it("hashes pr.samplingKey instead of the head, so a new push cannot re-roll the sample", () => {
+    const cfg = { autoApprove: { sampleRate: 0.5 } };
+    const pr = { labels: [], successfulChecks: [], number: 7, samplingKey: "o/r#7#salt" };
+    const sampled = Array.from({ length: 20 }, (_, i) => {
+      const base = input({ cfg, pr });
+      return decide({ ...base, diff: { ...base.diff, head: `sha-${i}` } }).sampled;
+    });
+    expect(sampled).toEqual(Array(20).fill(sampleValue("o/r#7#salt") < 0.5));
+  });
 });
