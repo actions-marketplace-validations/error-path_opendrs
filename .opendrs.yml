@@ -1,0 +1,6 @@
+# opendrs scores its own pull requests with these settings. Reference: README, "Configuration".
+# The config is always read from the base branch, so a PR cannot change its own gate.
+autoApprove:
+  enabled: true
+  # Approve low-risk PRs, but leave merging to a maintainer.
+  mergeMethod: none

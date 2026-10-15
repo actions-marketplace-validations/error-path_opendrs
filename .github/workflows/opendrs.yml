@@ -1,5 +1,6 @@
-# Dogfood: score this repository's own PRs with the action as checked out (uses: ./).
-# Comment-only: autoApprove stays off in this repo, and the token below cannot merge.
+# Dogfood: score this repository's own PRs and approve the low-risk ones (.opendrs.yml).
+# Runs the RELEASED action (@v0), never the PR's own copy: a PR must not be able to edit the
+# code that decides whether to approve it.
 name: opendrs
 
 on:
@@ -23,8 +24,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # required: the score reads past commits, authors and the merge-base
-      - uses: ./
+      - uses: error-path/opendrs@v0
         id: opendrs
+        with:
+          sample-salt: ${{ secrets.OPENDRS_SAMPLE_SALT }}
       - env:
           SCORE: ${{ steps.opendrs.outputs.score }}
           TIER: ${{ steps.opendrs.outputs.tier }}
