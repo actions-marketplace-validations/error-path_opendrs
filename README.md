@@ -108,7 +108,7 @@ The decision rules run in this order; the first that matches wins:
 4. tier is not green → `human-review`;
 5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
    the tier → `human-review`;
-6. the required AI-review checks or labels are missing → `waiting-ai-review`;
+6. a required AI-review check has not passed on the head commit → `waiting-ai-review`;
 7. the PR is sampled for human review → `human-review`;
 8. otherwise `auto-approve`.
 
@@ -263,9 +263,8 @@ thresholds:
 
 autoApprove:
   enabled: false        # false = comment and label only (dry run)
-  requireAiReview:      # every listed check and label must be present
+  requireAiReview:      # every listed check must have passed on the PR's head commit
     checks: []          # check-run names that must have concluded success, e.g. ["claude-review"]
-    labels: []          # labels that must be on the PR, e.g. ["ai-reviewed"]
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human
   maxChangedLines: 400  # never auto-approve above this, whatever the score

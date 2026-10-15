@@ -181,10 +181,33 @@ export class GitHubClient {
     await this.rest("PUT", `${this.repoPath}/pulls/${pr}/reviews/${reviewId}/dismissals`, { message, event: "DISMISS" });
   }
 
-  async successfulCheckNames(sha: string): Promise<string[]> {
-    type Run = { name: string; conclusion: string | null };
-    const runs = await this.paginate<Run>(`${this.repoPath}/commits/${sha}/check-runs`, (p) => (p as { check_runs: Run[] }).check_runs);
-    return runs.filter((r) => r.conclusion === "success").map((r) => r.name);
+  /**
+   * Names of the latest check runs that concluded success on exactly `sha`. Never counts opendrs's
+   * own job: the names of this workflow run's (`ownRunId`) unfinished Actions jobs, opendrs among
+   * them, are left out, in this run and in earlier ones.
+   */
+  async successfulCheckNames(sha: string, ownRunId?: string): Promise<string[]> {
+    type Run = { name: string; head_sha: string; status: string; conclusion: string | null; details_url?: string | null; app?: { slug: string } | null };
+    const runs = await this.paginate<Run>(`${this.repoPath}/commits/${sha}/check-runs?filter=latest`, (p) => (p as { check_runs: Run[] }).check_runs);
+    const own = new Set(
+      runs
+        .filter((r) => ownRunId && r.status !== "completed" && r.app?.slug === "github-actions" && r.details_url?.includes(`/actions/runs/${ownRunId}/`))
+        .map((r) => r.name),
+    );
+    return runs.filter((r) => r.head_sha === sha && r.conclusion === "success" && !own.has(r.name)).map((r) => r.name);
+  }
+
+  /** Parameters of the active ruleset `pull_request` rules on `branch` (readable with the default token). */
+  async pullRequestRules(branch: string): Promise<Array<{ required_approving_review_count?: number; dismiss_stale_reviews_on_push?: boolean }>> {
+    type Rule = { type: string; parameters?: { required_approving_review_count?: number; dismiss_stale_reviews_on_push?: boolean } };
+    const rules = await this.paginate<Rule>(`${this.repoPath}/rules/branches/${encodeURIComponent(branch)}`);
+    return rules.filter((r) => r.type === "pull_request").map((r) => r.parameters ?? {});
+  }
+
+  /** Classic branch protection's review settings; reading them needs administration read, which GITHUB_TOKEN lacks. */
+  async classicReviewProtection(branch: string): Promise<{ dismiss_stale_reviews?: boolean; required_approving_review_count?: number } | undefined> {
+    type Protection = { required_pull_request_reviews?: { dismiss_stale_reviews?: boolean; required_approving_review_count?: number } };
+    return (await this.rest<Protection>("GET", `${this.repoPath}/branches/${encodeURIComponent(branch)}/protection`)).required_pull_request_reviews;
   }
 
   /** Whether `branch` has a merge queue, and the first merge method the repo allows. */

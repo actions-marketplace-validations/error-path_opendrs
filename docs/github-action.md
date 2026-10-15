@@ -37,7 +37,9 @@ the job fails with "Base commit ... is not in the checkout".
 Keep the `concurrency` block. A push cancels the run still scoring the previous head, so an old
 run cannot approve or merge a commit it did not score. The Action also re-reads the PR head before
 approving, and passes the scored commit as `expectedHeadOid` when it enables auto-merge or
-enqueues, so GitHub refuses the merge if the head moved.
+enqueues, so GitHub refuses to enable either if the head already moved. Neither stops a commit
+pushed after the approval from merging on it; that needs the branch ruleset described in
+[Required: dismiss stale approvals on push](#required-dismiss-stale-approvals-on-push).
 
 Run it on `pull_request`, never on `pull_request_target`. A `pull_request_target` run uses the
 base branch's workflow with a write token and the repository's secrets, even for fork PRs, and
@@ -92,11 +94,50 @@ entry, so an error never leaves an earlier approval in force.
    and approve pull requests*. Without it the approval returns 403 and the Action logs a warning.
 2. **Settings > General > Pull Requests:** enable *Allow auto-merge* if you use
    `mergeMethod: auto-merge`, or as the fallback for `queue`.
-3. **Branch ruleset or protection on the default branch:** require the status checks you trust
-   (tests, your AI review) and one approval. opendrs's approval counts as that approval. If you
-   require review from code owners, opendrs cannot satisfy it, because the bot is not a code owner.
-4. Optionally enable *Dismiss stale pull request approvals when new commits are pushed*. opendrs
-   approves a specific commit and re-scores on every push either way.
+3. **A branch ruleset on the base branch that requires one approval and dismisses stale
+   approvals (required).** See below. opendrs checks it before every approval and does not
+   approve without it. opendrs's approval counts as the required approval.
+4. **Recommended:** in the same ruleset, require the status checks you trust (tests, your AI
+   review) and the opendrs job's check. opendrs cannot verify which checks you require, because
+   a job's check name depends on your workflow.
+
+If you require review from code owners, opendrs cannot satisfy it, because the bot is not a code
+owner.
+
+### Required: dismiss stale approvals on push
+
+An approval belongs to a commit, but GitHub keeps it in force after a new push unless the branch
+dismisses it. Without that, someone with write access can get commit A approved with auto-merge
+on, push commit B, and cancel the opendrs run for B (or merge before it ends): B then merges on
+A's approval. The `concurrency` block and the head check do not prevent this, because the run that
+would withdraw the approval never finishes.
+
+So before approving, opendrs reads the base branch's rules (`GET /repos/{owner}/{repo}/rules/branches/{branch}`)
+and approves only when an active `pull_request` rule requires at least one approval and dismisses
+stale approvals on push. Failing that, it accepts classic branch protection with the same two
+settings (`GET /repos/{owner}/{repo}/branches/{branch}/protection`). Reading classic protection
+needs *Administration: read*, which the default `GITHUB_TOKEN` does not have, so with the default
+token only a ruleset can be verified. When neither confirms it, opendrs does not approve, logs a
+`::warning::` naming the settings, and says so in the PR comment. A 403 or 404 counts as not
+verified.
+
+To set it up:
+
+1. Open **Settings > Rules > Rulesets** and choose **New ruleset > New branch ruleset**.
+2. Name it, for example `default branch`, and set **Enforcement status** to **Active**.
+3. Under **Target branches**, choose **Add target > Include default branch** (or the branch your
+   PRs merge into).
+4. Leave **Bypass list** empty, or add only people you would trust to merge without review.
+5. Enable **Require a pull request before merging**, and in its options:
+   - set **Required approvals** to at least `1`;
+   - enable **Dismiss stale pull request approvals when new commits are pushed**.
+6. Recommended: enable **Require status checks to pass**, and add your test and AI-review checks
+   and the opendrs job's check (named after the job, for example `opendrs`).
+7. Click **Create**.
+
+Then re-run the opendrs job or push a commit. The job log line `Not approving: could not confirm that ...`
+means the ruleset is missing, inactive, does not target the base branch, or lacks one of the two
+settings in step 5.
 
 Events caused by `GITHUB_TOKEN` do not start new workflow runs. If the merge must trigger
 workflows (for example a deploy on push to `main`), pass a GitHub App token as `github-token`.
@@ -122,7 +163,9 @@ Approval needs all of these:
 - the PR does not add, change, delete or rename `.opendrs.yml`, `.opendrs/**`, `.github/**`,
   `action.yml`, `action.yaml`, `action/**`, or the configured model file. This guard is in code
   and no configuration turns it off;
-- the PR is not from a fork.
+- the PR is not from a fork;
+- the base branch requires an approval and dismisses stale approvals on push (see
+  [Required: dismiss stale approvals on push](#required-dismiss-stale-approvals-on-push)).
 
 When any of these stop holding on a later push, the Action dismisses its own earlier approval and
 also disables auto-merge and removes the PR from the merge queue. It identifies its approvals by
@@ -144,8 +187,8 @@ PR's author, not the email the head commit claims.
 ## Pairing with an AI reviewer
 
 opendrs measures risk; it does not review the code. The intended setup is: an AI reviewer checks
-correctness, and opendrs decides whether a human must look too. Tell opendrs which checks or
-labels mean "the AI review passed":
+correctness, and opendrs decides whether a human must look too. Tell opendrs which check runs
+mean "the AI review passed":
 
 ```yaml
 # .opendrs.yml on the default branch
@@ -192,16 +235,18 @@ jobs:
 ```
 
 A check that merely ran is not a passed review: make the review job fail when it finds a blocking
-issue. opendrs matches checks by name only and does not verify which app created them. Any
-workflow on the PR's head commit can create a check with that name, which is one reason PRs that
-change `.github/**` are never approved.
+issue. opendrs counts a check when the latest check run with that exact name concluded `success`
+on the PR's head commit; runs on earlier commits never count. It never counts its own job: the
+names of the opendrs workflow run's unfinished jobs, the opendrs job among them, are left out, so
+do not list the opendrs job's name, and run the review in an earlier job (`needs:`) as above.
+Beyond that, opendrs does not verify which app created a check. Any workflow on the PR's head
+commit can create a check with that name, which is one reason PRs that change `.github/**` are
+never approved.
 
-Prefer checks to labels. A check run belongs to one commit, so a new push starts without it. A
-label stays on the PR across pushes, so on every `synchronize` event (a new push) opendrs removes
-the labels listed in `requireAiReview.labels` from the PR and treats them as absent for that run;
-the AI reviewer must label the new commit again. If you do use a label (for example an AI reviewer
-that adds `ai-reviewed`), list it under `requireAiReview.labels` and add `labeled` to the opendrs
-workflow's `pull_request` types, so the PR is re-scored when the label arrives.
+Only check runs count. A check run belongs to one commit, so a new push starts without it. PR
+labels are not supported: a label is not tied to a commit, stays on the PR across pushes, and
+anyone with triage access can add one. `requireAiReview.labels` was removed in 0.1.1, and a config
+that still lists it fails with an error; make your AI reviewer report a check run instead.
 
 ## Rollout
 
@@ -233,5 +278,6 @@ warnings. Fork PRs are never approved, whatever the token can do. Do not switch 
 | `GitHub refused the approval (403)` | Enable *Allow GitHub Actions to create and approve pull requests*, and grant `pull-requests: write`. |
 | `Could not read check runs (403)` | Add `checks: read`. Until then, required AI-review checks count as missing. |
 | `Could not write the PR comment (403)` | Add `pull-requests: write`. Expected on fork PRs. |
+| `could not confirm that ... dismisses it when new commits are pushed` | Add the branch ruleset from [Required: dismiss stale approvals on push](#required-dismiss-stale-approvals-on-push). |
 | `enabling auto-merge failed` | Enable *Allow auto-merge*, grant `contents: write`, or check the branch's merge queue. |
 | `opendrs needs a pull_request event` | Run the workflow on `pull_request` only. |

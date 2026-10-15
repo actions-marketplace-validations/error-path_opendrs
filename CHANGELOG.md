@@ -2,6 +2,20 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Breaking
+
+- The Action approves only when the base branch requires an approval and dismisses stale
+  approvals on push (an active branch ruleset, or classic protection the token can read).
+  Otherwise it logs a warning and does not approve. Add the ruleset described in
+  docs/github-action.md, "Required: dismiss stale approvals on push".
+- `autoApprove.requireAiReview.labels` is removed. A label is not tied to a commit and anyone with
+  triage access can add one, so a self-applied `ai-reviewed` label could get a PR auto-approved.
+  A config that still lists it, even as `labels: []`, now fails to parse; list your AI reviewer's
+  check run under `requireAiReview.checks` instead. The Action no longer removes AI-review labels
+  on `synchronize`.
+
 ## 0.1.0 - 2026-10-15
 
 First release.

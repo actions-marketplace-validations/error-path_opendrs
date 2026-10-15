@@ -15,7 +15,7 @@ export interface GateInput {
   model: ModelWeights;
   history: HistoryIndex;
   /** Present in CI: what the PR currently has. Absent locally (AI-review rule then reports "unknown"). */
-  pr?: { labels: string[]; successfulChecks: string[]; number?: number; samplingKey?: string };
+  pr?: { successfulChecks: string[]; number?: number; samplingKey?: string };
   llmFailed: boolean;
 }
 
@@ -128,17 +128,14 @@ export function decide(input: GateInput): PolicyOutcome {
     fired.push({ decision: "human-review", reason });
   }
 
-  // 5. AI review
-  const { checks, labels } = auto.requireAiReview;
-  if (checks.length + labels.length > 0) {
+  // 5. AI review: check runs on the head commit only (labels are not tied to a commit)
+  const { checks } = auto.requireAiReview;
+  if (checks.length > 0) {
     if (!input.pr) {
-      fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires ${requirement(checks, labels)})` });
+      fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires check ${checks.join(", ")})` });
     } else {
-      const missingChecks = checks.filter((c) => !input.pr!.successfulChecks.includes(c));
-      const missingLabels = labels.filter((l) => !input.pr!.labels.includes(l));
-      if (missingChecks.length + missingLabels.length > 0) {
-        fired.push({ decision: "waiting-ai-review", reason: `AI review pending: missing ${requirement(missingChecks, missingLabels)}` });
-      }
+      const missing = checks.filter((c) => !input.pr!.successfulChecks.includes(c));
+      if (missing.length > 0) fired.push({ decision: "waiting-ai-review", reason: `AI review pending: missing check ${missing.join(", ")}` });
     }
   }
 
@@ -209,7 +206,3 @@ function percentileScore(table: Record<string, number> | undefined, p: number): 
 }
 
 const list = (paths: string[]) => (paths.length > 3 ? `${paths.slice(0, 3).join(", ")} (+${paths.length - 3} more)` : paths.join(", "));
-
-function requirement(checks: string[], labels: string[]): string {
-  return [checks.length ? `check ${checks.join(", ")}` : "", labels.length ? `label ${labels.join(", ")}` : ""].filter(Boolean).join("; ");
-}

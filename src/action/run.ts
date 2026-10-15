@@ -160,22 +160,9 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const { config, model } = await io.group("Configuration", () => loadSettings(d, pr.base.sha));
   if (d.inputs.llmApiKey) d.env[llmKeyEnv(config)] = d.inputs.llmApiKey;
 
-  // An AI-review label was given for an earlier commit; after a push it must be earned again.
-  const staleLabels = (d.event as { action?: string }).action === "synchronize" ? config.autoApprove.requireAiReview.labels : [];
-  const labels = pr.labels.map((l) => l.name).filter((l) => !staleLabels.includes(l));
-  for (const label of staleLabels.filter((l) => pr.labels.some((p) => p.name === l))) {
-    await unlessForbidden(
-      async () => {
-        await client.removeLabel(pr.number, label);
-        io.info(`Removed the AI-review label ${label}: it was given before the new push.`);
-      },
-      () => io.warning(`Could not remove the stale AI-review label ${label} (403): it does not count for this commit either way.`),
-    );
-  }
-
   const successfulChecks =
     (await unlessForbidden(
-      () => client.successfulCheckNames(pr.head.sha),
+      () => client.successfulCheckNames(pr.head.sha, d.env.GITHUB_RUN_ID),
       () => io.warning("Could not read check runs (403): give the job `checks: read`. Required AI-review checks count as missing."),
     )) ?? [];
 
@@ -195,7 +182,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
       title: pr.title,
       description: pr.body ?? undefined,
       // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.
-      pr: { labels, successfulChecks, number: pr.number, samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}` },
+      pr: { successfulChecks, number: pr.number, samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}` },
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
