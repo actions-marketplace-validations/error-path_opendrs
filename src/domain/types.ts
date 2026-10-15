@@ -61,7 +61,7 @@ export interface CommitInfo {
   parents: string[];
   authorName: string;
   authorEmail: string;
-  /** Unix seconds (author date). */
+  /** Unix seconds (committer date: rebases and cherry-picks keep old author dates). */
   time: number;
   subject: string;
   /** Changed paths (post-rename names). */
@@ -125,6 +125,12 @@ export interface ScoringContext {
   llm?: { judgement?: LlmJudgement; error?: string };
   /** Point-in-time cutoff (unix seconds) used by backtests; undefined = now. */
   asOf?: number;
+  /**
+   * What the engine could verify. `authorVerified: false` (CI could not tie the head commit's
+   * author email to the PR's account) and `historyComplete: false` (shallow clone) make the
+   * signals that depend on them report `unknown` instead of a reassuring value.
+   */
+  trust: { authorVerified: boolean; historyComplete: boolean };
   /** Read a file's contents at base (undefined when the file did not exist). */
   readBase(path: string): Promise<string | undefined>;
   /** Read a file's contents at head (undefined when deleted). */

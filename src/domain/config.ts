@@ -6,12 +6,37 @@ import { OpendrsError } from "./types.js";
 
 export const CONFIG_FILE = ".opendrs.yml";
 
-const thresholdsSchema = z.object({
-  mode: z.enum(["absolute", "percentile"]).default("absolute"),
-  green: z.number().min(0).max(100).default(0.3),
-  yellow: z.number().min(0).max(100).default(0.6),
-  red: z.number().min(0).max(100).default(0.8),
-});
+const thresholdsSchema = z
+  .object({
+    mode: z.enum(["absolute", "percentile"]).default("absolute"),
+    green: z.number().min(0).max(100).default(0.3),
+    yellow: z.number().min(0).max(100).default(0.6),
+    red: z.number().min(0).max(100).default(0.8),
+  })
+  .superRefine(({ mode, green, yellow, red }, ctx) => {
+    const ok = mode === "absolute" ? 0 <= green && green < yellow && yellow <= red && red <= 1 : 0 < green && green < yellow && yellow <= red && red < 100;
+    if (ok) return;
+    const rule = mode === "absolute" ? "0 ≤ green < yellow ≤ red ≤ 1 (scores)" : "0 < green < yellow ≤ red < 100 (percentiles)";
+    ctx.addIssue({ code: "custom", message: `${mode} thresholds must satisfy ${rule}; got green ${green}, yellow ${yellow}, red ${red}` });
+  });
+
+/** Why a glob would silently match nothing (or the wrong thing) in our matcher, if it would. */
+function globProblem(glob: string): string | undefined {
+  if (/[[\]]/.test(glob)) return "uses [ or ], which are not supported (they match literally)";
+  if (glob.includes("\\")) return "contains \\; use forward slashes";
+  if (glob.startsWith("/") || glob.startsWith("./")) return "has a leading / or ./; globs match repo-relative paths like src/**";
+  return undefined;
+}
+
+const globs = (defaults: string[]) =>
+  z
+    .array(
+      z.string().superRefine((glob, ctx) => {
+        const problem = globProblem(glob);
+        if (problem) ctx.addIssue({ code: "custom", message: `glob "${glob}" ${problem}` });
+      }),
+    )
+    .default(defaults);
 
 export const configSchema = z.object({
   thresholds: thresholdsSchema.prefault({}),
@@ -31,7 +56,7 @@ export const configSchema = z.object({
     .prefault({}),
   paths: z
     .object({
-      block: z.array(z.string()).default([
+      block: globs([
         ".github/**",
         ".opendrs.yml",
         ".opendrs/**",
@@ -39,20 +64,19 @@ export const configSchema = z.object({
         "**/migrations/**",
         "**/*.tf",
       ]),
-      critical: z.array(z.string()).default(["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]),
-      ignore: z.array(z.string()).default([
+      critical: globs(["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]),
+      ignore: globs([
         "**/*.lock",
         "**/package-lock.json",
         "**/pnpm-lock.yaml",
         "**/go.sum",
         "**/dist/**",
-        "**/build/**",
         "**/vendor/**",
         "**/node_modules/**",
         "**/*.min.js",
         "**/*.snap",
       ]),
-      tests: z.array(z.string()).default([
+      tests: globs([
         "**/test/**",
         "**/tests/**",
         "**/__tests__/**",

@@ -39,6 +39,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
     "build:action": "esbuild src/action/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=action/dist/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

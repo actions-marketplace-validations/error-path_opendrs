@@ -1,0 +1,44 @@
+name: opendrs
+description: Diff Risk Score for pull requests. Comments a calibrated 0-1 risk score, labels the PR, and can approve low-risk PRs.
+author: error-path
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  github-token:
+    description: Token for the GitHub API. Needs pull-requests write (comment, labels, approval) and checks read.
+    required: false
+    default: ${{ github.token }}
+  base-config:
+    description: Read .opendrs.yml and the calibrated model from the PR's base commit, so a PR cannot loosen its own gate. Keep this true. Even when false, the llm section and the model path always come from the base commit.
+    required: false
+    default: "true"
+  llm-api-key:
+    description: API key for the optional LLM judge, exported as ANTHROPIC_API_KEY or OPENAI_API_KEY (or llm.apiKeyEnv). Used only when llm.enabled is true in the config.
+    required: false
+    default: ""
+  comment:
+    description: Create or update one PR comment with the risk report.
+    required: false
+    default: "true"
+  labels:
+    description: Set one of the risk:green, risk:yellow or risk:red labels.
+    required: false
+    default: "true"
+  sample-salt:
+    description: Mixed into the per-PR key that picks which eligible PRs still go to a human (autoApprove.sampleRate). Set it to a secret to make sampling unpredictable.
+    required: false
+    default: ""
+
+outputs:
+  score:
+    description: Risk score between 0 and 1.
+  tier:
+    description: green, yellow or red.
+  decision:
+    description: auto-approve, waiting-ai-review or human-review. This is the policy decision; the PR is approved only when autoApprove.enabled is true and every safety rail passes.
+
+runs:
+  using: node24
+  main: action/dist/index.js
