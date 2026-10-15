@@ -120,13 +120,20 @@ The rails that matter when the Action can approve PRs:
 - **Config comes from the base branch.** The Action reads `.opendrs.yml` and the calibrated model
   from the PR's base commit, so a PR cannot loosen its own gate.
 - **Hard blocks.** `paths.block` (by default `.github/**`, `.opendrs.yml`, `.opendrs/**`,
-  `CODEOWNERS`, migrations, Terraform and `.gitmodules`) always sends the PR to a human.
+  `CODEOWNERS`, migrations, Terraform, `.gitmodules` and `.gitattributes`) always sends the PR to
+  a human.
+- **Binary files cannot pass as text.** Git's own test only looks for a NUL in the first 8000 bytes
+  and obeys `.gitattributes`, so opendrs also reads every changed file at the PR head and treats it
+  as binary when it holds a NUL anywhere or is not valid UTF-8. With git 2.40 or later the diff
+  reads attributes from the base commit (`--attr-source`), so the PR's own `.gitattributes` has no
+  effect. Older git ignores only the global and system attribute files and still reads the ones in
+  the checkout; the content check above still catches binaries there.
 - **Submodules.** Moving a submodule pointer pulls in code the diff does not show, so any gitlink
   change goes to a human, whatever `diff.submodule`, `diff.ignoreSubmodules` or a submodule's
   `ignore` setting says. Repointing a submodule's URL changes `.gitmodules`, which is blocked.
 - **Self-modification guard.** Independently of any config, the Action never approves a PR that
   adds, changes, deletes or renames `.opendrs.yml`, `.opendrs/**`, `.github/**`, `action.yml`,
-  `action/**` or `.gitmodules`, or the configured model file. It also never approves PRs from forks.
+  `action/**`, `.gitmodules` or any `.gitattributes`, or the configured model file. It also never approves PRs from forks.
 - **Sampling.** `sampleRate` (default 10 %) of eligible PRs still go to a human, chosen
   deterministically from the head commit, so you keep measuring what the gate lets through.
 - **Unknown is not safe.** A signal that cannot be computed is reported under "Unknowns" and blocks
@@ -241,7 +248,7 @@ autoApprove:
 
 paths:
   block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf",
-          ".gitmodules"]
+          ".gitmodules", "**/.gitattributes"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",

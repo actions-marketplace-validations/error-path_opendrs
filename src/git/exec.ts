@@ -4,12 +4,18 @@ import { OpendrsError } from "../domain/types.js";
 const MAX_BUFFER = 256 * 1024 * 1024;
 
 /** Run git without a shell. Throws OpendrsError("git") with stderr on failure. */
-export function git(repoDir: string, args: string[], opts: { timeoutMs?: number } = {}): Promise<string> {
+export function git(repoDir: string, args: string[], opts: { timeoutMs?: number; env?: Record<string, string> } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
       ["--no-pager", "-c", "core.quotepath=off", "-c", "color.ui=false", ...args],
-      { cwd: repoDir, maxBuffer: MAX_BUFFER, timeout: opts.timeoutMs ?? 120_000, encoding: "utf8" },
+      {
+        cwd: repoDir,
+        maxBuffer: MAX_BUFFER,
+        timeout: opts.timeoutMs ?? 120_000,
+        encoding: "utf8",
+        env: opts.env && { ...process.env, ...opts.env },
+      },
       (err, stdout, stderr) => {
         if (err) reject(new OpendrsError(`git ${args[0]} failed: ${(stderr || err.message).trim()}`, "git"));
         else resolve(stdout);

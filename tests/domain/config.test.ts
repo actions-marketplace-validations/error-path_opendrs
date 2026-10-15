@@ -27,6 +27,10 @@ describe("default paths.block", () => {
   it("blocks .gitmodules, which can repoint a submodule at another repository", () => {
     expect(blocked(".gitmodules")).toBe(true);
   });
+
+  it.each([".gitattributes", "tools/.gitattributes"])("blocks %s, which can make git call a binary text", (path) => {
+    expect(blocked(path)).toBe(true);
+  });
 });
 
 describe("glob validation", () => {

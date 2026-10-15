@@ -11,6 +11,14 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   now marks such files (`ChangedFile.submodule`), the gate sends them to a human, and the diff is
   generated so that git config and `.gitmodules` `ignore` settings cannot hide them.
   `.gitmodules` is blocked by default and by the Action's self-modification guard.
+- Binary detection no longer relies on git's heuristic or on the PR's own `.gitattributes`. A PR
+  that added `tools/* diff` plus an executable, or a jar with 8 KB of text in front, scored as
+  text and could be auto-approved. Now:
+  - every changed file is read at the head, and one with a NUL anywhere or invalid UTF-8 is
+    binary, so it goes to a human;
+  - with git 2.40 or later, attributes are read from the base commit (`--attr-source`). Older git
+    ignores the global and system attribute files but still reads in-tree ones;
+  - `**/.gitattributes` is blocked by default and by the self-modification guard.
 
 ## 0.1.0 - 2026-10-15
 

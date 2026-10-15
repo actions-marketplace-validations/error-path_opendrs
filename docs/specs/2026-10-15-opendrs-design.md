@@ -173,7 +173,8 @@ autoApprove:
   sampleRate: 0.10     # fraction of eligible PRs still routed to a human (deterministic by PR sha)
   maxChangedLines: 400 # never auto-approve above this, whatever the score
 paths:
-  block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf", ".gitmodules"]
+  block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf", ".gitmodules",
+             "**/.gitattributes"]
   critical: ["**/auth/**", "**/payment*/**", "**/security/**"]
   ignore:   ["**/*.lock", "**/package-lock.json", "**/dist/**", "**/vendor/**", "**/*.min.js"]
 llm:
@@ -248,8 +249,17 @@ files, excluding the PR author (one of Meta's DRS uses).
   score (`llm.semantic` is 0 for `p` ≤ 0.2), so a successful injection cannot lower it.
 - Git is invoked with `execFile` (no shell), with `--no-pager`, `-c core.quotepath=off`, and
   timeouts.
-- The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, `.gitmodules`, or
-  the action itself. The config is read from base.
+- The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, `.gitmodules`,
+  any `.gitattributes`, or the action itself. The config is read from base.
+- Binary detection does not trust the PR. Git's heuristic only looks for a NUL in the first 8000
+  bytes and obeys `.gitattributes` (`* diff` prints a binary as text). So:
+  - with git ≥ 2.40 (detected once per process from `git version`), the diff runs with
+    `--attr-source=<base sha>`, so attributes come from the base, not the PR's work tree;
+  - with older git it runs with `-c core.attributesFile=/dev/null` and `GIT_ATTR_NOSYSTEM=1`,
+    which drops the global and system files. In-tree attributes are still read there;
+  - after parsing, every non-deleted, non-submodule file that git called text has its head blob
+    read through one batched `git cat-file --batch`. It becomes binary when it holds a NUL
+    anywhere, is not valid UTF-8, or cannot be read (a path with a line break).
 - The diff is generated with `--submodule=short --ignore-submodules=none`, so neither git config
   nor a submodule's `ignore` setting in `.gitmodules` can hide or summarise a gitlink change. The
   parser marks a file as a submodule (`ChangedFile.submodule`, an additive field) from an `index`,

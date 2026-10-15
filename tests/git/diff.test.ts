@@ -1,6 +1,9 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultConfig } from "../../src/domain/config.js";
-import { EMPTY_TREE, loadDiff, parseUnifiedDiff } from "../../src/git/diff.js";
+import { EMPTY_TREE, gitHasAttrSource, loadDiff, parseUnifiedDiff } from "../../src/git/diff.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
 
 const lines = (...l: string[]) => l.join("\n") + "\n";
@@ -295,5 +298,85 @@ describe("loadDiff", () => {
     repo.commit({ "a.txt": "a\n" }, "init");
     await expect(loadDiff(repo.dir, "nope", "HEAD", defaultConfig())).rejects.toThrow(/nope/);
     await expect(loadDiff(repo.dir, "--output=/tmp/x", "HEAD", defaultConfig())).rejects.toThrow();
+  });
+});
+
+describe("gitHasAttrSource", () => {
+  it.each([
+    ["git version 2.40.0", true],
+    ["git version 2.43.0.windows.1", true],
+    ["git version 3.0.0", true],
+    ["git version 2.39.5 (Apple Git-154)", false],
+    ["git version 1.99.0", false],
+    ["not git", false],
+  ])("%s -> %s", (version, want) => {
+    expect(gitHasAttrSource(version)).toBe(want);
+  });
+});
+
+describe("loadDiff: binary detection the PR cannot steer", () => {
+  let repo: TestRepo;
+  afterEach(() => repo?.cleanup());
+
+  // An ELF header: a NUL in the first bytes, so git's own heuristic calls it binary.
+  const ELF = Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x0a, 0x41, 0x0a]);
+  const write = (path: string, content: Buffer | string) => {
+    mkdirSync(dirname(join(repo.dir, path)), { recursive: true });
+    writeFileSync(join(repo.dir, path), content);
+  };
+  const byPath = async () => Object.fromEntries((await loadDiff(repo.dir, "HEAD~1", "HEAD", defaultConfig())).files.map((f) => [f.path, f]));
+  const installedGit = execFileSync("git", ["version"], { encoding: "utf8" });
+
+  it("calls a blob binary although the PR's .gitattributes marks it as text", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.txt": "a\n" }, "init");
+    write(".gitattributes", "tools/* diff\n");
+    write("tools/helper", ELF);
+    repo.commit({}, "add helper");
+    expect((await byPath())["tools/helper"]!.binary).toBe(true);
+  });
+
+  it("calls a blob binary when its first NUL comes after git's 8000-byte window", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.txt": "a\n" }, "init");
+    write("lib/tool.jar", Buffer.concat([Buffer.from("x".repeat(8200)), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00])]));
+    repo.commit({}, "add jar");
+    expect((await byPath())["lib/tool.jar"]!.binary).toBe(true);
+  });
+
+  it("calls a blob binary when it is not valid UTF-8, even without a NUL", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.txt": "a\n" }, "init");
+    write("data/latin1.txt", Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a, 0xff, 0xfe, 0x0a]));
+    repo.commit({ "src/ok.ts": "export const café = 1;\n" }, "add data");
+    const files = await byPath();
+    expect(files["data/latin1.txt"]!.binary).toBe(true);
+    expect(files["src/ok.ts"]!.binary).toBe(false);
+  });
+
+  it("calls a file binary when its head blob cannot be read", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.txt": "a\n" }, "init");
+    repo.commit({ "evil\nname.ts": "export {};\n" }, "add");
+    expect((await byPath())["evil\nname.ts"]!.binary).toBe(true);
+  });
+
+  it.skipIf(!gitHasAttrSource(installedGit))("reads attributes from the base, not the PR (git ≥ 2.40)", async () => {
+    repo = makeRepo();
+    write("tools/helper", ELF);
+    repo.commit({ "a.txt": "a\n" }, "init");
+    write(".gitattributes", "tools/* diff\n");
+    repo.commit({ "tools/helper": null }, "delete helper");
+    expect((await byPath())["tools/helper"]).toMatchObject({ status: "deleted", binary: true });
+  });
+
+  it.skipIf(gitHasAttrSource(installedGit))("ignores the user's global attributes file (git < 2.40)", async () => {
+    repo = makeRepo();
+    write("tools/helper", ELF);
+    repo.commit({ "a.txt": "a\n" }, "init");
+    write(".git/global-attrs", "* diff\n");
+    repo.git("config", "core.attributesFile", join(repo.dir, ".git/global-attrs"));
+    repo.commit({ "tools/helper": null }, "delete helper");
+    expect((await byPath())["tools/helper"]).toMatchObject({ status: "deleted", binary: true });
   });
 });

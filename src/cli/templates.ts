@@ -32,6 +32,7 @@ paths:
     - "**/migrations/**"
     - "**/*.tf"
     - ".gitmodules"
+    - "**/.gitattributes"
   # Raises the score (Meta's "high-criticality service" feature).
   critical:
     - "**/auth/**"
