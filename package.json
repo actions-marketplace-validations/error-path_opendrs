@@ -18,7 +18,12 @@
     "blast-radius",
     "defect-prediction",
     "mcp",
-    "github-action"
+    "github-action",
+    "auto-approve",
+    "merge-queue",
+    "ai-code-review",
+    "pr-risk",
+    "claude-code"
   ],
   "engines": {
     "node": ">=22"
@@ -32,10 +37,11 @@
     ".": "./dist/index.js"
   },
   "files": [
-    "dist",
-    "skills",
+    ".claude-plugin",
+    "LICENSE",
     "README.md",
-    "LICENSE"
+    "dist",
+    "skills"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
