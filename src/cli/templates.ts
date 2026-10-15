@@ -15,29 +15,105 @@ thresholds:
 
 autoApprove:
   enabled: false        # false = comment and label only (dry run)
-  requireAiReview:      # every listed check and label must be present
+  requireAiReview:      # every listed check must have passed on the PR's head commit
     checks: []          # check-run names that must have concluded success, e.g. ["claude-review"]
-    labels: []          # labels that must be on the PR, e.g. ["ai-reviewed"]
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human, to detect drift
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  # Hard block: a PR touching any of these always needs a human.
+  # Hard block: a PR touching any of these always needs a human. Matched ignoring case.
+  # These defaults always apply: globs you add here extend them, and deleting a line here does
+  # not unblock it. To drop a default, list it under unblock below.
   block:
     - ".github/**"
     - ".opendrs.yml"
     - ".opendrs/**"
     - "**/CODEOWNERS"
     - "**/migrations/**"
+    - "**/migration/**"
+    - "**/migrate/**"
     - "**/*.tf"
-  # Raises the score (Meta's "high-criticality service" feature).
+    - ".gitmodules"
+    - "**/.gitattributes"
+    # Files that execute code on install, build or CI. Dependency bumps also change a lockfile,
+    # which is ignored and so goes to a human anyway. To let a PR that touches one of these be
+    # auto-approved, list it under unblock, deliberately.
+    - "**/package.json"
+    - "**/.npmrc"
+    - "**/.yarnrc"
+    - "**/.yarnrc.yml"
+    - "**/.pnpmfile.cjs"
+    - "**/setup.py"
+    - "**/setup.cfg"
+    - "**/pyproject.toml"
+    - "**/pip.conf"
+    - "**/build.gradle"
+    - "**/build.gradle.kts"
+    - "**/settings.gradle*"
+    - "**/gradle/wrapper/**"
+    - "**/pom.xml"
+    - "**/.mvn/**"
+    - "**/Cargo.toml"
+    - "**/build.rs"
+    - "**/go.mod"
+    - "**/Gemfile"
+    - "**/Rakefile"
+    - "**/*.gemspec"
+    - "**/requirements*.txt"
+    - "**/conftest.py"
+    - "**/.pre-commit-config.y*ml"
+    - "**/tox.ini"
+    - "**/noxfile.py"
+    - "**/*.csproj"
+    - "**/*.sln"
+    - "**/Directory.Build.*"
+    - "**/nuget.config"
+    - "**/CMakeLists.txt"
+    - "**/*.cmake"
+    - "**/.cargo/**"
+    - "**/.husky/**"
+    - "**/Makefile"
+    - "**/GNUmakefile"
+    - "**/*.mk"
+    - "**/Dockerfile*"
+    - "**/docker-compose*.y*ml"
+    - "**/compose.y*ml"
+    - "**/Brewfile"
+    - "**/Vagrantfile"
+    - "**/Procfile"
+    - "**/*.nix"
+    - "**/flake.lock"
+    - "**/.devcontainer/**"
+    - "**/.envrc"
+    - "**/Taskfile.y*ml"
+    - "**/justfile"
+    - ".gitlab-ci.yml"
+    - "Jenkinsfile"
+    - ".circleci/**"
+    - "azure-pipelines.yml"
+    - ".buildkite/**"
+    - "**/bitbucket-pipelines.yml"
+    - "**/.drone.yml"
+    - "**/.travis.yml"
+    - "**/cloudbuild.y*ml"
+    - "**/Earthfile"
+    - "**/BUILD"
+    - "**/BUILD.bazel"
+    - "**/WORKSPACE*"
+    - "**/MODULE.bazel"
+    - "**/*.bzl"
+  # Default block globs to remove, each written exactly as above, e.g. ["**/go.mod"].
+  unblock: []
+  # Raises the score (Meta's "high-criticality service" feature). Matched ignoring case.
+  # Like block, globs you add extend these defaults.
   critical:
     - "**/auth/**"
     - "**/payment*/**"
     - "**/billing/**"
     - "**/security/**"
   # Excluded from size and churn (lockfiles, generated and vendored code); never auto-approved.
+  # Unlike block and critical, a list you set for ignore or tests replaces the default.
   ignore:
     - "**/*.lock"
     - "**/package-lock.json"

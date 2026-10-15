@@ -103,6 +103,24 @@ const newFeature = vector({
   "lang.js": 1,
 });
 
+// (f) an experienced owner deletes a 20-line exported CSRF check and its 30-line test file, outside
+// any critical path: tests.missing = 1 (deleted test lines are not coverage) and tests.deleted = 1.
+const deletedCheck = vector({
+  "size.churn": l(55),
+  "size.relative": l(55 / 300),
+  "diffusion.files": l(3),
+  "diffusion.dirs": l(2),
+  "diffusion.authors": l(4),
+  "history.churn": l(10),
+  "expertise.author_commits": l(150),
+  "expertise.owner_ratio": 0.5,
+  "complexity.touched": l(20),
+  "blast.dependents": l(5),
+  "tests.missing": 1,
+  "tests.deleted": 1,
+  "lang.ts": 1,
+});
+
 const score = (s: Signal[]) => scoreSignals(s, DEFAULT_WEIGHTS).score;
 
 describe("DEFAULT_WEIGHTS fixtures (spec §5 targets)", () => {
@@ -128,6 +146,10 @@ describe("DEFAULT_WEIGHTS fixtures (spec §5 targets)", () => {
   it("(e) new-files-only feature with tests stays below 0.3", () => {
     expect(score(newFeature)).toBeLessThan(0.3);
   });
+
+  it("(f) deleting a security check together with its tests lands at yellow or above", () => {
+    expect(score(deletedCheck)).toBeGreaterThanOrEqual(0.3);
+  });
 });
 
 describe("DEFAULT_WEIGHTS shape", () => {
@@ -149,6 +171,7 @@ describe("DEFAULT_WEIGHTS shape", () => {
     "paths.critical",
     "paths.blocked",
     "tests.missing",
+    "tests.deleted",
     "llm.semantic",
     "lang.docs",
     "lang.config",

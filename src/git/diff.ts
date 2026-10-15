@@ -1,6 +1,8 @@
+import { isUtf8 } from "node:buffer";
 import type { ChangedFile, DiffInfo, Hunk } from "../domain/types.js";
 import { OpendrsError } from "../domain/types.js";
 import type { OpendrsConfig } from "../domain/config.js";
+import { readBlobs } from "./blobs.js";
 import { git } from "./exec.js";
 import { matchAny } from "./glob.js";
 
@@ -8,6 +10,9 @@ import { matchAny } from "./glob.js";
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+/** Header lines that give a side the gitlink mode, i.e. a submodule pointer. */
+const GITLINK_MODE = /^(?:index [0-9a-f]+\.\.[0-9a-f]+|(?:new|deleted) file mode|(?:old|new) mode) 160000$/;
+const SUBPROJECT_LINE = /^[-+]Subproject commit [0-9a-f]+$/;
 
 /** Parse `git diff --no-color -M` unified output into ChangedFile[] (ignored=false; caller applies globs). */
 export function parseUnifiedDiff(text: string): ChangedFile[] {
@@ -19,6 +24,7 @@ export function parseUnifiedDiff(text: string): ChangedFile[] {
     if (!cur) return;
     if (cur.status === "deleted" && oldSide !== undefined) cur.path = oldSide;
     if (cur.status !== "renamed") delete cur.oldPath;
+    if (cur.hunks.some((h) => h.lines.some((l) => SUBPROJECT_LINE.test(l)))) cur.submodule = true;
   };
 
   for (let i = 0; i < rows.length; i++) {
@@ -40,6 +46,7 @@ export function parseUnifiedDiff(text: string): ChangedFile[] {
       cur.oldPath = oldSide = unquotePath(line.slice("rename from ".length));
     } else if (line.startsWith("rename to ")) cur.path = unquotePath(line.slice("rename to ".length));
     else if (line.startsWith("Binary files ") || line === "GIT binary patch") cur.binary = true;
+    else if (GITLINK_MODE.test(line)) cur.submodule = true;
     else if (line.startsWith("--- ")) {
       const p = sidePath(line.slice(4), "a/");
       if (p !== undefined) oldSide = p;
@@ -160,12 +167,30 @@ export async function loadDiff(
   const headSha = opts.resolved ? head : await resolveCommit(repoDir, head);
   const baseSha =
     opts.resolved || base === EMPTY_TREE ? base : await mergeBase(repoDir, await resolveCommit(repoDir, base), headSha);
+  const attrs = await attributeIsolation(repoDir, baseSha);
   const [text, meta] = await Promise.all([
     // Explicit prefixes and no textconv keep the output parseable whatever the user's git config says.
-    git(repoDir, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M", "--unified=3", baseSha, headSha]),
+    // The submodule flags keep every gitlink change visible as a "Subproject commit" patch, whatever
+    // diff.submodule, diff.ignoreSubmodules or a submodule's `ignore` in .gitmodules says.
+    git(repoDir, [
+      ...attrs.args,
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--submodule=short",
+      "--ignore-submodules=none",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      "-M",
+      "--unified=3",
+      baseSha,
+      headSha,
+    ], { env: attrs.env }),
     git(repoDir, ["show", "-s", "--format=%an%x00%ae%x00%s", headSha]),
   ]);
   const files = parseUnifiedDiff(text);
+  await markBinaryBlobs(repoDir, headSha, files);
   for (const f of files) f.ignored = matchAny(config.paths.ignore, f.path);
   const [name = "", email = "", title = ""] = meta.replace(/\n$/, "").split("\0");
   return {
@@ -175,6 +200,43 @@ export async function loadDiff(
     author: email ? { name, email } : undefined,
     title,
   };
+}
+
+/** True when `git version` output names git 2.40 or later, which has `git --attr-source=<tree>`. */
+export function gitHasAttrSource(version: string): boolean {
+  const m = /git version (\d+)\.(\d+)/.exec(version);
+  if (!m) return false;
+  const [major, minor] = [Number(m[1]), Number(m[2])];
+  return major > 2 || (major === 2 && minor >= 40);
+}
+
+let attrSourceSupport: Promise<boolean> | undefined;
+
+/**
+ * Git options that keep the PR's own .gitattributes from steering the diff (e.g. `* diff` makes
+ * git print a binary as text). git ≥ 2.40 reads attributes from the base tree instead of the work
+ * tree. Older git can only drop the global and system files; in-tree attributes are still read
+ * there, which the blob check in loadDiff covers.
+ */
+async function attributeIsolation(repoDir: string, base: string): Promise<{ args: string[]; env?: Record<string, string> }> {
+  attrSourceSupport ??= git(repoDir, ["version"]).then(gitHasAttrSource, () => false);
+  if (await attrSourceSupport) return { args: [`--attr-source=${base}`] };
+  return { args: ["-c", "core.attributesFile=/dev/null"], env: { GIT_ATTR_NOSYSTEM: "1" } };
+}
+
+/**
+ * Git calls a file text when its first 8000 bytes hold no NUL, and attributes can override even
+ * that. So read every head blob git called text, in one batched `cat-file`, and call it binary
+ * when it has a NUL anywhere, is not valid UTF-8, or cannot be read.
+ */
+async function markBinaryBlobs(repoDir: string, head: string, files: ChangedFile[]): Promise<void> {
+  const check = files.filter((f) => f.status !== "deleted" && !f.binary && !f.submodule);
+  for (const f of check) f.binary = true; // until its blob proves otherwise
+  // cat-file --batch reads one name per line, so a path with a line break cannot be read.
+  const readable = check.filter((f) => !/[\n\r]/.test(f.path));
+  await readBlobs(repoDir, readable.map((f) => `${head}:${f.path}`), (i, content) => {
+    readable[i]!.binary = content.includes(0) || !isUtf8(content);
+  });
 }
 
 async function resolveCommit(repoDir: string, ref: string): Promise<string> {

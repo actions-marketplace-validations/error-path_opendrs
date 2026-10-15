@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { matchGlob } from "../git/glob.js";
+import { matchAny } from "../git/glob.js";
 import type { HistoryIndex, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { featureValues, sigmoid } from "../model/logistic.js";
@@ -15,7 +15,7 @@ export interface GateInput {
   model: ModelWeights;
   history: HistoryIndex;
   /** Present in CI: what the PR currently has. Absent locally (AI-review rule then reports "unknown"). */
-  pr?: { labels: string[]; successfulChecks: string[]; number?: number; samplingKey?: string };
+  pr?: { successfulChecks: string[]; number?: number; samplingKey?: string };
   llmFailed: boolean;
 }
 
@@ -68,7 +68,7 @@ export function decide(input: GateInput): PolicyOutcome {
 
   // 1. hard block
   const blocked = diff.files
-    .filter((f) => [f.path, f.oldPath].some((p) => p !== undefined && config.paths.block.some((g) => matchGlob(g, p))))
+    .filter((f) => [f.path, f.oldPath].some((p) => p !== undefined && matchAny(config.paths.block, p, { ignoreCase: true })))
     .map((f) => f.path);
   const blockedSignal = input.signals.find((s) => s.id === "paths.blocked" && s.value >= 1);
   const hardBlocked = blocked.length > 0 || blockedSignal !== undefined;
@@ -82,6 +82,19 @@ export function decide(input: GateInput): PolicyOutcome {
   if (unread.length > 0) {
     fired.push({ decision: "human-review", reason: `ignored or binary files are never auto-approved: ${list(unread)}` });
   }
+  // Control characters in a path are never legitimate and are how log and glob tricks start.
+  const oddPaths = diff.files.flatMap((f) => [f.path, f.oldPath ?? ""]).filter((p) => /[\u0000-\u001f\u007f]/.test(p));
+  if (oddPaths.length > 0) {
+    fired.push({ decision: "human-review", reason: `paths with control characters are never auto-approved: ${list(oddPaths.map((p) => JSON.stringify(p)))}` });
+  }
+  // A moved submodule pointer pulls in code the diff does not show.
+  const submodules = diff.files.filter((f) => f.submodule).map((f) => f.path);
+  if (submodules.length > 0) {
+    fired.push({ decision: "human-review", reason: `submodule changes are never auto-approved: ${list(submodules)}` });
+  }
+  // Removing tests removes the evidence a change is safe, and a calibrated model may not weigh it.
+  const testsDeleted = input.signals.find((s) => s.id === "tests.deleted" && s.value >= 1);
+  if (testsDeleted) fired.push({ decision: "human-review", reason: `test deletion: ${testsDeleted.summary}` });
 
   // 2. size cap (a binary file counts as one line)
   const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
@@ -128,17 +141,14 @@ export function decide(input: GateInput): PolicyOutcome {
     fired.push({ decision: "human-review", reason });
   }
 
-  // 5. AI review
-  const { checks, labels } = auto.requireAiReview;
-  if (checks.length + labels.length > 0) {
+  // 5. AI review: check runs on the head commit only (labels are not tied to a commit)
+  const checks = auto.requireAiReview.checks.map((c) => (typeof c === "string" ? c : c.name));
+  if (checks.length > 0) {
     if (!input.pr) {
-      fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires ${requirement(checks, labels)})` });
+      fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires check ${checks.join(", ")})` });
     } else {
-      const missingChecks = checks.filter((c) => !input.pr!.successfulChecks.includes(c));
-      const missingLabels = labels.filter((l) => !input.pr!.labels.includes(l));
-      if (missingChecks.length + missingLabels.length > 0) {
-        fired.push({ decision: "waiting-ai-review", reason: `AI review pending: missing ${requirement(missingChecks, missingLabels)}` });
-      }
+      const missing = checks.filter((c) => !input.pr!.successfulChecks.includes(c));
+      if (missing.length > 0) fired.push({ decision: "waiting-ai-review", reason: `AI review pending: missing check ${missing.join(", ")}` });
     }
   }
 
@@ -209,7 +219,3 @@ function percentileScore(table: Record<string, number> | undefined, p: number): 
 }
 
 const list = (paths: string[]) => (paths.length > 3 ? `${paths.slice(0, 3).join(", ")} (+${paths.length - 3} more)` : paths.join(", "));
-
-function requirement(checks: string[], labels: string[]): string {
-  return [checks.length ? `check ${checks.join(", ")}` : "", labels.length ? `label ${labels.join(", ")}` : ""].filter(Boolean).join("; ");
-}

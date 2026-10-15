@@ -27,7 +27,7 @@ inputs:
     required: false
     default: "true"
   sample-salt:
-    description: Mixed into the per-PR key that picks which eligible PRs still go to a human (autoApprove.sampleRate). Set it to a secret to make sampling unpredictable.
+    description: Set this to a secret whenever autoApprove is enabled. It is mixed into the per-PR key that picks which eligible PRs still go to a human (autoApprove.sampleRate). With the default empty salt, sampling is predictable - anyone can compute which PR numbers are sampled - and the Action logs a warning.
     required: false
     default: ""
 

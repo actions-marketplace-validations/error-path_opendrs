@@ -89,7 +89,8 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Language indicators | `lang.*` | one indicator per language family present |
 | Author created the file | `expertise.owner_ratio` | share of changed files the author created or mostly wrote |
 | Author's landed diffs | `expertise.author_commits` | `log1p` of the author's prior commits; negative weight |
-| Test plan | `tests.missing` | 1 when source changed and no test lines did; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))` (a proxy) |
+| Test plan | `tests.missing` | 1 when source changed and no test lines were added; otherwise `max(0, 1 − addedTestLines / (0.3 · sourceLines))` (a proxy). Deleted test lines never count |
+| (not in Meta's list) | `tests.deleted` | 1 when a test file is deleted (or renamed out of `paths.tests`), or 10 or more test lines more are deleted than added. Also a policy rule: such a PR always goes to a human |
 | LLM risk model (iDiffLlama) | `llm.semantic` | `max(0, logit(p) − logit(0.2))` from an optional prompted LLM judge: it can only raise risk |
 | (not in Meta's list) | `blast.dependents`, `blast.public_surface` | transitive dependents of the changed files (depth 3) from the import graph; exported symbols changed in a file that has dependents |
 | (not in Meta's list) | `history.churn` | `log1p` of commits touching the files in the lookback window |
@@ -103,12 +104,13 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. a changed file is ignored (`paths.ignore`) or binary → `human-review`;
+2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink), or the PR
+   deletes tests (`tests.deleted`) → `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green → `human-review`;
 5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
    the tier → `human-review`;
-6. the required AI-review checks or labels are missing → `waiting-ai-review`;
+6. a required AI-review check has not passed on the head commit → `waiting-ai-review`;
 7. the PR is sampled for human review → `human-review`;
 8. otherwise `auto-approve`.
 
@@ -119,10 +121,21 @@ The rails that matter when the Action can approve PRs:
 - **Config comes from the base branch.** The Action reads `.opendrs.yml` and the calibrated model
   from the PR's base commit, so a PR cannot loosen its own gate.
 - **Hard blocks.** `paths.block` (by default `.github/**`, `.opendrs.yml`, `.opendrs/**`,
-  `CODEOWNERS`, migrations and Terraform) always sends the PR to a human.
+  `CODEOWNERS`, migrations, Terraform, `.gitmodules`, `.gitattributes`, and files that execute
+  code on install, build or CI; see [Configuration](#configuration)) always sends the PR to a
+  human.
+- **Binary files cannot pass as text.** Git's own test only looks for a NUL in the first 8000 bytes
+  and obeys `.gitattributes`, so opendrs also reads every changed file at the PR head and treats it
+  as binary when it holds a NUL anywhere or is not valid UTF-8. With git 2.40 or later the diff
+  reads attributes from the base commit (`--attr-source`), so the PR's own `.gitattributes` has no
+  effect. Older git ignores only the global and system attribute files and still reads the ones in
+  the checkout; the content check above still catches binaries there.
+- **Submodules.** Moving a submodule pointer pulls in code the diff does not show, so any gitlink
+  change goes to a human, whatever `diff.submodule`, `diff.ignoreSubmodules` or a submodule's
+  `ignore` setting says. Repointing a submodule's URL changes `.gitmodules`, which is blocked.
 - **Self-modification guard.** Independently of any config, the Action never approves a PR that
-  adds, changes, deletes or renames `.opendrs.yml`, `.opendrs/**`, `.github/**`, `action.yml` or
-  `action/**`, or the configured model file. It also never approves PRs from forks.
+  adds, changes, deletes or renames `.opendrs.yml`, `.opendrs/**`, `.github/**`, `action.yml`,
+  `action/**`, `.gitmodules` or any `.gitattributes`, or the configured model file. It also never approves PRs from forks.
 - **Sampling.** `sampleRate` (default 10 %) of eligible PRs still go to a human, chosen
   deterministically from the head commit, so you keep measuring what the gate lets through.
 - **Unknown is not safe.** A signal that cannot be computed is reported under "Unknowns" and blocks
@@ -130,6 +143,10 @@ The rails that matter when the Action can approve PRs:
   same way.
 - **Withdrawn approvals.** When a new push makes the PR ineligible, the Action dismisses its own
   earlier approval ("Risk increased: yellow 0.45").
+- **Stale approvals are blocked by branch rules.** The Action approves only if the base branch
+  requires at least one approval and dismisses stale approvals on push. Without that rule, an
+  approval for one commit could carry over to a later, riskier push. See
+  [docs/github-action.md](docs/github-action.md) for the ruleset.
 - **Prompt injection.** The diff, PR title and PR body are untrusted. The LLM prompt wraps them in
   delimiters and tells the model to ignore instructions inside them; the PR body is not sent at
   all unless `llm.includeDescription` is true. The answer must be exactly one JSON object and is
@@ -159,9 +176,44 @@ not numbers your repository should be expected to match.
 
 ## Results on public repositories
 
-Backtest results on public repos: coming soon.
+We ran `opendrs calibrate` and then `opendrs backtest --max-commits 4000` on nine open-source
+repositories with opendrs v0.1.0, without changing any configuration. Labels come from reverts and
+SZZ blame on fix commits only, since none of these repos publish an incident list. Read them as
+"later needed a fix", not as production incidents.
 
-<!-- results -->
+**Held-out commits** are the commits newer than the calibration window, and so unseen by the fitted
+model. That is the fair comparison between the default priors and a calibrated model:
+
+| Repository | Language | Commits | Positives | AUC: default priors (held-out) | AUC: calibrated (held-out) | Caught in riskiest 10 %: default, all commits |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| [expressjs/express](https://github.com/expressjs/express) | JavaScript | 4,000 | 628 | 0.62 | **0.73** | 17.8 % |
+| [pallets/flask](https://github.com/pallets/flask) | Python | 3,828 | 793 | 0.75 | **0.78** | 12.5 % |
+| [django/django](https://github.com/django/django) | Python | 4,000 | 1,102 | 0.63 | **0.70** | 19.6 % |
+| [gin-gonic/gin](https://github.com/gin-gonic/gin) | Go | 1,806 | 380 | 0.63 | **0.67** | 15.0 % |
+| [prometheus/prometheus](https://github.com/prometheus/prometheus) | Go | 4,000 | 619 | 0.59 | **0.62** | 24.7 % |
+| [rust-lang/cargo](https://github.com/rust-lang/cargo) | Rust | 4,000 | 1,163 | 0.61 | **0.75** | 15.2 % |
+| [spring-projects/spring-boot](https://github.com/spring-projects/spring-boot) | Java | 4,000 | 152 | 0.61 | **0.62** | 32.9 % |
+| [quarkusio/quarkus](https://github.com/quarkusio/quarkus) | Java | 6,000 | 497 | 0.65 | **0.66** | 28.2 % |
+| [rails/rails](https://github.com/rails/rails) | Ruby | 4,000 | 351 | 0.63 | **0.71** | 17.9 % |
+
+What this shows:
+
+- **Calibration beat the default priors on held-out commits in all nine repositories.** The median
+  AUC gain is +0.04, but on spring-boot and quarkus the gain is too small to matter. Fit the
+  model on your own history; don't rely on the defaults.
+- The default priors alone rank risk better than chance everywhere. Their AUC over all replayed
+  commits ranges from 0.58 to 0.70. On quarkus, gating the riskiest 5 % and 10 % caught 18.5 % and
+  28.2 % of positives. For orientation only, Meta reports 18.7 % and 27.9 % for its internal
+  logistic-regression baseline. Different code, labels and population make this an analogy, not a
+  comparison.
+- Positive rates range from 4 % (spring-boot) to 29 % (cargo). SZZ labels are noisy, and a project's
+  fix-commit habits shape them. Your own incident list (`.opendrs/incidents.jsonl`) is the
+  strongest label you can add.
+- Two known approximations, both reported by `backtest`: the import graph comes from the newest
+  commit, and the newest commits' labels are incomplete.
+
+Reproduce a row: `git clone <repo> && cd <repo> && npx github:error-path/opendrs calibrate --max-commits 4000 && npx github:error-path/opendrs backtest --max-commits 4000`.
+Runs took 1 to 16 minutes per repository on a 4-core Linux machine.
 
 ## LLM judge (optional)
 
@@ -228,16 +280,38 @@ thresholds:
 
 autoApprove:
   enabled: false        # false = comment and label only (dry run)
-  requireAiReview:      # every listed check and label must be present
+  requireAiReview:      # every listed check must have passed on the PR's head commit
     checks: []          # check-run names that must have concluded success, e.g. ["claude-review"]
-    labels: []          # labels that must be on the PR, e.g. ["ai-reviewed"]
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf"]
+  # block and critical are matched ignoring case, and a list you set adds to these defaults.
+  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS",
+          "**/migrations/**", "**/migration/**", "**/migrate/**", "**/*.tf",
+          ".gitmodules", "**/.gitattributes",
+          # files that execute code on install, build or CI
+          "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
+          "**/setup.py", "**/setup.cfg", "**/pyproject.toml", "**/pip.conf",
+          "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle*", "**/gradle/wrapper/**",
+          "**/pom.xml", "**/.mvn/**",
+          "**/Cargo.toml", "**/build.rs", "**/go.mod",
+          "**/Gemfile", "**/Rakefile", "**/*.gemspec",
+          "**/requirements*.txt", "**/conftest.py", "**/.pre-commit-config.y*ml", "**/tox.ini",
+          "**/noxfile.py",
+          "**/*.csproj", "**/*.sln", "**/Directory.Build.*", "**/nuget.config",
+          "**/CMakeLists.txt", "**/*.cmake", "**/.cargo/**", "**/.husky/**",
+          "**/Makefile", "**/GNUmakefile", "**/*.mk",
+          "**/Dockerfile*", "**/docker-compose*.y*ml", "**/compose.y*ml",
+          "**/Brewfile", "**/Vagrantfile", "**/Procfile", "**/*.nix", "**/flake.lock",
+          "**/.devcontainer/**", "**/.envrc", "**/Taskfile.y*ml", "**/justfile",
+          ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**",
+          "**/bitbucket-pipelines.yml", "**/.drone.yml", "**/.travis.yml", "**/cloudbuild.y*ml",
+          "**/Earthfile", "**/BUILD", "**/BUILD.bazel", "**/WORKSPACE*", "**/MODULE.bazel", "**/*.bzl"]
+  unblock: []           # default block globs to drop, written exactly as above, e.g. ["**/go.mod"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
+  # ignore and tests: a list you set replaces the default.
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
            "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
@@ -266,10 +340,34 @@ graph:
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
 ```
 
+**Why the default block list is long.** Besides the gate's own files, `paths.block` lists
+files that execute code on install, build or CI: package manifests and their registry settings
+(`package.json`, `.npmrc`, `setup.py`, `pyproject.toml`, `requirements.txt`, ...), build scripts
+and project files (`build.gradle`, `pom.xml`, `build.rs`, `Makefile`, `CMakeLists.txt`, `*.csproj`,
+`Dockerfile`, Bazel and Nix files, ...), developer hooks and environments (`.husky/`,
+`.pre-commit-config.yaml`, `conftest.py`, `.envrc`, `.devcontainer/`, ...) and CI pipelines outside
+`.github/`. Block and critical globs are matched ignoring case, so `makefile` or an EF Core
+`Migrations/` folder cannot slip past `**/Makefile` or `**/migrations/**`. A
+one-line change there (a `postinstall` hook, a registry pointed at another host, a new build
+step) scores as small and low-risk, but runs on every developer machine and CI runner. Dependency
+bumps also change a lockfile, which is in `paths.ignore` and so already goes to a human.
+
+**Your lists add to the defaults.** A `paths.block` or `paths.critical` you set extends the
+default list; it never replaces it, so `block: ["infra/**"]` blocks `infra/**` as well as
+everything above. To drop a default block entry, name it under `paths.unblock` on the default
+branch, written exactly as in the list, for example `unblock: ["**/go.mod"]` if you trust `go.mod`
+edits to code review alone. An `unblock` entry that is not a default block glob is a config error
+that lists the valid ones, so a typo cannot pass silently. `paths.unblock` wins over the same glob
+under `paths.block`. Default `critical` globs cannot be removed. `paths.ignore` and `paths.tests`
+work the other way: a list you set replaces the default. In the Action, the self-modification
+guard keeps `.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and
+`.gitattributes` blocked whatever the lists say.
+
 opendrs refuses a config that would fail silently, naming the offending value:
 
 - **Globs** are repo-relative and support `**`, `*`, `?` and `{a,b}`. A glob with `[` or `]`
   (character classes are not supported), a backslash, or a leading `/` or `./` is an error.
+- **`paths.unblock`** entries must each be a default `paths.block` glob, character for character.
 - **Thresholds** must be ordered: `0 ≤ green < yellow ≤ red ≤ 1` in absolute mode, and
   `0 < green < yellow ≤ red < 100` in percentile mode.
 
@@ -285,6 +383,10 @@ opendrs refuses a config that would fail silently, naming the offending value:
 - **The import graph is regex-based.** It misses dynamic imports, reflection, dependency
   injection, code generation, and dependencies across services or repositories.
 - **Complexity is a heuristic** that counts branch keywords; it does not parse code.
+- **Test signals count lines, not assertions.** `tests.missing` and `tests.deleted` see only files
+  matching `paths.tests`. A PR that weakens a test without shrinking it (an assertion edited into a
+  no-op) is not flagged by them, and tests outside those globs are not seen at all. Splitting a test
+  file into new ones counts as deleting a test file and goes to a human.
 - **The LLM judge is prompted, not trained.** Meta's LLM variants were fine-tuned on Meta's own
   incidents; a general model reading a diff is a weaker signal, and it costs money per PR.
 - **The score is not a code review.** It estimates the chance of an incident, not whether the

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { defaultConfig, parseConfigText } from "../../src/domain/config.js";
+import { DEFAULT_BLOCK, DEFAULT_CRITICAL, defaultConfig, parseConfigText } from "../../src/domain/config.js";
 import { runCli } from "../../src/cli/cli.js";
 import { mcpCommand } from "../../src/cli/commands/mcp.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
@@ -21,6 +21,14 @@ describe("opendrs init", () => {
     const text = readFileSync(join(repo.dir, ".opendrs.yml"), "utf8");
     expect(parseConfigText(text)).toEqual(defaultConfig());
     expect(text).toMatch(/^\s*#/m);
+  });
+
+  it("lists every default block and critical glob (user lists extend the defaults, so parsing alone cannot tell)", async () => {
+    await runCli(["init"], testIo(repo.dir).io);
+    const raw = parse(readFileSync(join(repo.dir, ".opendrs.yml"), "utf8"));
+    expect(raw.paths.block).toEqual(DEFAULT_BLOCK);
+    expect(raw.paths.critical).toEqual(DEFAULT_CRITICAL);
+    expect(raw.paths.unblock).toEqual([]);
   });
 
   it("writes a comment-only workflow with full history", async () => {

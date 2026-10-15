@@ -1186,8 +1186,8 @@ var require_stringifyString = __commonJS({
             case "u":
               {
                 str += json2.slice(start, i);
-                const code = json2.substr(i + 2, 4);
-                switch (code) {
+                const code2 = json2.substr(i + 2, 4);
+                switch (code2) {
                   case "0000":
                     str += "\\0";
                     break;
@@ -1213,8 +1213,8 @@ var require_stringifyString = __commonJS({
                     str += "\\P";
                     break;
                   default:
-                    if (code.substr(0, 2) === "00")
-                      str += "\\x" + code.substr(2);
+                    if (code2.substr(0, 2) === "00")
+                      str += "\\x" + code2.substr(2);
                     else
                       str += json2.substr(i, 6);
                 }
@@ -3713,22 +3713,22 @@ var require_errors = __commonJS({
   "node_modules/yaml/dist/errors.js"(exports) {
     "use strict";
     var YAMLError = class extends Error {
-      constructor(name, pos, code, message) {
+      constructor(name, pos, code2, message) {
         super();
         this.name = name;
-        this.code = code;
+        this.code = code2;
         this.message = message;
         this.pos = pos;
       }
     };
     var YAMLParseError = class extends YAMLError {
-      constructor(pos, code, message) {
-        super("YAMLParseError", pos, code, message);
+      constructor(pos, code2, message) {
+        super("YAMLParseError", pos, code2, message);
       }
     };
     var YAMLWarning = class extends YAMLError {
-      constructor(pos, code, message) {
-        super("YAMLWarning", pos, code, message);
+      constructor(pos, code2, message) {
+        super("YAMLWarning", pos, code2, message);
       }
     };
     var prettifyError2 = (src, lc) => (error62) => {
@@ -4637,7 +4637,7 @@ var require_resolve_flow_scalar = __commonJS({
       const { offset, type, source, end } = scalar;
       let _type;
       let value;
-      const _onError = (rel, code, msg) => onError(offset + rel, code, msg);
+      const _onError = (rel, code2, msg) => onError(offset + rel, code2, msg);
       switch (type) {
         case "scalar":
           _type = Scalar.Scalar.PLAIN;
@@ -4835,9 +4835,9 @@ var require_resolve_flow_scalar = __commonJS({
     function parseCharCode(source, offset, length, onError) {
       const cc = source.substr(offset, length);
       const ok = cc.length === length && /^[0-9a-fA-F]+$/.test(cc);
-      const code = ok ? parseInt(cc, 16) : NaN;
+      const code2 = ok ? parseInt(cc, 16) : NaN;
       try {
-        return String.fromCodePoint(code);
+        return String.fromCodePoint(code2);
       } catch {
         const raw2 = source.substr(offset - 2, length + 2);
         onError(offset - 2, "BAD_DQ_ESCAPE", `Invalid escape sequence ${raw2}`);
@@ -5159,12 +5159,12 @@ var require_composer = __commonJS({
         this.prelude = [];
         this.errors = [];
         this.warnings = [];
-        this.onError = (source, code, message, warning) => {
+        this.onError = (source, code2, message, warning) => {
           const pos = getErrorPos(source);
           if (warning)
-            this.warnings.push(new errors.YAMLWarning(pos, code, message));
+            this.warnings.push(new errors.YAMLWarning(pos, code2, message));
           else
-            this.errors.push(new errors.YAMLParseError(pos, code, message));
+            this.errors.push(new errors.YAMLParseError(pos, code2, message));
         };
         this.directives = new directives.Directives({ version: options.version || "1.2" });
         this.options = options;
@@ -5326,12 +5326,12 @@ var require_cst_scalar = __commonJS({
     var stringifyString = require_stringifyString();
     function resolveAsScalar(token, strict = true, onError) {
       if (token) {
-        const _onError = (pos, code, message) => {
+        const _onError = (pos, code2, message) => {
           const offset = typeof pos === "number" ? pos : Array.isArray(pos) ? pos[0] : pos.offset;
           if (onError)
-            onError(offset, code, message);
+            onError(offset, code2, message);
           else
-            throw new errors.YAMLParseError([offset, offset + 1], code, message);
+            throw new errors.YAMLParseError([offset, offset + 1], code2, message);
         };
         switch (token.type) {
           case "scalar":
@@ -7374,9 +7374,9 @@ import { readFile as readFile5 } from "node:fs/promises";
 
 // src/domain/types.ts
 var OpendrsError = class extends Error {
-  constructor(message, code) {
+  constructor(message, code2) {
     super(message);
-    this.code = code;
+    this.code = code2;
     this.name = "OpendrsError";
   }
   code;
@@ -7504,9 +7504,26 @@ var GitHubClient = class {
   async dismissReview(pr, reviewId, message) {
     await this.rest("PUT", `${this.repoPath}/pulls/${pr}/reviews/${reviewId}/dismissals`, { message, event: "DISMISS" });
   }
-  async successfulCheckNames(sha) {
-    const runs = await this.paginate(`${this.repoPath}/commits/${sha}/check-runs`, (p) => p.check_runs);
-    return runs.filter((r) => r.conclusion === "success").map((r) => r.name);
+  /**
+   * Name and app slug of the latest check runs that concluded success on exactly `sha`. Never counts
+   * opendrs's own job: the names of this workflow run's (`ownRunId`) unfinished Actions jobs, opendrs
+   * among them, are left out, in this run and in earlier ones.
+   */
+  async successfulChecks(sha, ownRunId) {
+    const runs = await this.paginate(`${this.repoPath}/commits/${sha}/check-runs?filter=latest`, (p) => p.check_runs);
+    const own2 = new Set(
+      runs.filter((r) => ownRunId && r.status !== "completed" && r.app?.slug === "github-actions" && r.details_url?.includes(`/actions/runs/${ownRunId}/`)).map((r) => r.name)
+    );
+    return runs.filter((r) => r.head_sha === sha && r.conclusion === "success" && !own2.has(r.name)).map((r) => ({ name: r.name, app: r.app?.slug }));
+  }
+  /** Parameters of the active ruleset `pull_request` rules on `branch` (readable with the default token). */
+  async pullRequestRules(branch) {
+    const rules = await this.paginate(`${this.repoPath}/rules/branches/${encodeURIComponent(branch)}`);
+    return rules.filter((r) => r.type === "pull_request").map((r) => r.parameters ?? {});
+  }
+  /** Classic branch protection's review settings; reading them needs administration read, which GITHUB_TOKEN lacks. */
+  async classicReviewProtection(branch) {
+    return (await this.rest("GET", `${this.repoPath}/branches/${encodeURIComponent(branch)}/protection`)).required_pull_request_reviews;
   }
   /** Whether `branch` has a merge queue, and the first merge method the repo allows. */
   async mergeSettings(branch) {
@@ -10663,12 +10680,12 @@ function isIso7064Mod97(iban3) {
   let remainder = 0;
   const len = iban3.length;
   for (let i = 4; i < len; i++) {
-    const code = iban3.charCodeAt(i);
-    remainder = (code >= 65 ? remainder * 100 + (code - 55) : remainder * 10 + (code - 48)) % 97;
+    const code2 = iban3.charCodeAt(i);
+    remainder = (code2 >= 65 ? remainder * 100 + (code2 - 55) : remainder * 10 + (code2 - 48)) % 97;
   }
   for (let i = 0; i < 4; i++) {
-    const code = iban3.charCodeAt(i);
-    remainder = (code >= 65 ? remainder * 100 + (code - 55) : remainder * 10 + (code - 48)) % 97;
+    const code2 = iban3.charCodeAt(i);
+    remainder = (code2 >= 65 ? remainder * 100 + (code2 - 55) : remainder * 10 + (code2 - 48)) % 97;
   }
   return remainder === 1;
 }
@@ -11420,8 +11437,8 @@ var $ZodXor = /* @__PURE__ */ $constructor("$ZodXor", (inst, def) => {
     });
   };
 });
-function getDiscriminatedOption(union2, value) {
-  const internals = union2._zod;
+function getDiscriminatedOption(union3, value) {
+  const internals = union3._zod;
   let map2 = internals.bag.optionsMap;
   if (!map2) {
     map2 = discriminatorMap(internals.def);
@@ -20614,12 +20631,12 @@ function compileFn(schema, options) {
   doc.write(outputAccessor === null ? `return true;` : `return ${outputAccessor};`);
   const constantNames = ["INVALID", ...ctx.constants.keys()];
   const constantValues = [INVALID, ...ctx.constants.values()];
-  const code = doc.content.join("\n");
+  const code2 = doc.content.join("\n");
   const fullCode = options?.debug ? constantNames.length > 0 ? `// Constants: ${constantNames.join(", ")}
-${code}` : code : "";
+${code2}` : code2 : "";
   const F = Function;
   const factoryCode = `return (input) => {
-${code}
+${code2}
 }`;
   let fn;
   try {
@@ -23463,12 +23480,12 @@ function foldIntersection(json2) {
   if (!unions.length) {
     folded = foldObjects(allOf);
   } else {
-    const union2 = unions[0];
-    const keyword = UNION_KEYS.find((k) => Array.isArray(union2[k]));
-    if (Object.keys(union2).length !== 1)
+    const union3 = unions[0];
+    const keyword = UNION_KEYS.find((k) => Array.isArray(union3[k]));
+    if (Object.keys(union3).length !== 1)
       return;
-    const rest = allOf.filter((m) => m !== union2);
-    const branches = union2[keyword].map((branch) => foldObjects([...rest, branch]));
+    const rest = allOf.filter((m) => m !== union3);
+    const branches = union3[keyword].map((branch) => foldObjects([...rest, branch]));
     if (branches.some((b) => !b))
       return;
     folded = { [keyword]: branches };
@@ -27304,28 +27321,112 @@ var globs = (defaults) => external_exports.array(
     if (problem) ctx.addIssue({ code: "custom", message: `glob "${glob}" ${problem}` });
   })
 ).default(defaults);
+var DEFAULT_BLOCK = [
+  ".github/**",
+  ".opendrs.yml",
+  ".opendrs/**",
+  "**/CODEOWNERS",
+  "**/migrations/**",
+  "**/migration/**",
+  "**/migrate/**",
+  "**/*.tf",
+  ".gitmodules",
+  "**/.gitattributes",
+  // Files that execute code on install, build or CI.
+  "**/package.json",
+  "**/.npmrc",
+  "**/.yarnrc",
+  "**/.yarnrc.yml",
+  "**/.pnpmfile.cjs",
+  "**/setup.py",
+  "**/setup.cfg",
+  "**/pyproject.toml",
+  "**/pip.conf",
+  "**/build.gradle",
+  "**/build.gradle.kts",
+  "**/settings.gradle*",
+  "**/gradle/wrapper/**",
+  "**/pom.xml",
+  "**/.mvn/**",
+  "**/Cargo.toml",
+  "**/build.rs",
+  "**/go.mod",
+  "**/Gemfile",
+  "**/Rakefile",
+  "**/*.gemspec",
+  "**/requirements*.txt",
+  "**/conftest.py",
+  "**/.pre-commit-config.y*ml",
+  "**/tox.ini",
+  "**/noxfile.py",
+  "**/*.csproj",
+  "**/*.sln",
+  "**/Directory.Build.*",
+  "**/nuget.config",
+  "**/CMakeLists.txt",
+  "**/*.cmake",
+  "**/.cargo/**",
+  "**/.husky/**",
+  "**/Makefile",
+  "**/GNUmakefile",
+  "**/*.mk",
+  "**/Dockerfile*",
+  "**/docker-compose*.y*ml",
+  "**/compose.y*ml",
+  "**/Brewfile",
+  "**/Vagrantfile",
+  "**/Procfile",
+  "**/*.nix",
+  "**/flake.lock",
+  "**/.devcontainer/**",
+  "**/.envrc",
+  "**/Taskfile.y*ml",
+  "**/justfile",
+  ".gitlab-ci.yml",
+  "Jenkinsfile",
+  ".circleci/**",
+  "azure-pipelines.yml",
+  ".buildkite/**",
+  "**/bitbucket-pipelines.yml",
+  "**/.drone.yml",
+  "**/.travis.yml",
+  "**/cloudbuild.y*ml",
+  "**/Earthfile",
+  "**/BUILD",
+  "**/BUILD.bazel",
+  "**/WORKSPACE*",
+  "**/MODULE.bazel",
+  "**/*.bzl"
+];
+var DEFAULT_CRITICAL = ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"];
+function unblockable(glob, ctx) {
+  if (DEFAULT_BLOCK.includes(glob)) return;
+  ctx.addIssue({
+    code: "custom",
+    message: `paths.unblock entry "${glob}" is not a default paths.block glob; valid entries: ${DEFAULT_BLOCK.map((g) => `"${g}"`).join(", ")}`
+  });
+}
+var union2 = (a, b) => [.../* @__PURE__ */ new Set([...a, ...b])];
 var configSchema = external_exports.object({
   thresholds: thresholdsSchema.prefault({}),
   autoApprove: external_exports.object({
     enabled: external_exports.boolean().default(false),
     requireAiReview: external_exports.object({
-      checks: external_exports.array(external_exports.string()).default([]),
-      labels: external_exports.array(external_exports.string()).default([])
+      // A check name, or { name, app } to also require the GitHub App (slug) that published the check run.
+      checks: external_exports.array(external_exports.union([external_exports.string(), external_exports.strictObject({ name: external_exports.string(), app: external_exports.string().min(1) })])).default([]),
+      // Removed in 0.1.1; kept only so that a config still listing it fails with a clear error.
+      labels: external_exports.undefined({
+        error: "requireAiReview.labels was removed in 0.1.1: labels are not tied to a commit and can be added by anyone with triage access; require a check run instead (requireAiReview.checks)"
+      }).optional()
     }).prefault({}),
     mergeMethod: external_exports.enum(["queue", "auto-merge", "none"]).default("queue"),
     sampleRate: external_exports.number().min(0).max(1).default(0.1),
     maxChangedLines: external_exports.number().int().positive().default(400)
   }).prefault({}),
   paths: external_exports.object({
-    block: globs([
-      ".github/**",
-      ".opendrs.yml",
-      ".opendrs/**",
-      "**/CODEOWNERS",
-      "**/migrations/**",
-      "**/*.tf"
-    ]),
-    critical: globs(["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]),
+    block: globs([]),
+    critical: globs([]),
+    unblock: external_exports.array(external_exports.string().superRefine(unblockable)).default([]),
     ignore: globs([
       "**/*.lock",
       "**/package-lock.json",
@@ -27346,7 +27447,11 @@ var configSchema = external_exports.object({
       "**/*_test.*",
       "**/test_*.py"
     ])
-  }).prefault({}),
+  }).transform((p) => ({
+    ...p,
+    block: union2(DEFAULT_BLOCK, p.block).filter((g) => !p.unblock.includes(g)),
+    critical: union2(DEFAULT_CRITICAL, p.critical)
+  })).prefault({}),
   llm: external_exports.object({
     enabled: external_exports.boolean().default(false),
     provider: external_exports.enum(["anthropic", "openai"]).default("anthropic"),
@@ -27445,9 +27550,9 @@ function readBlobs(repoDir, shas, onBlob) {
     proc.stdin.on("error", () => {
     });
     proc.on("error", (e) => reject(new OpendrsError(`git cat-file failed: ${e.message}`, "git")));
-    proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new OpendrsError(`git cat-file failed: ${stderr.trim() || `exit ${code}`}`, "git"));
+    proc.on("close", (code2) => {
+      if (code2 === 0) resolve();
+      else reject(new OpendrsError(`git cat-file failed: ${stderr.trim() || `exit ${code2}`}`, "git"));
     });
     proc.stdin.end(`${shas.join("\n")}
 `);
@@ -27478,7 +27583,13 @@ function git(repoDir, args, opts = {}) {
     execFile(
       "git",
       ["--no-pager", "-c", "core.quotepath=off", "-c", "color.ui=false", ...args],
-      { cwd: repoDir, maxBuffer: MAX_BUFFER, timeout: opts.timeoutMs ?? 12e4, encoding: "utf8" },
+      {
+        cwd: repoDir,
+        maxBuffer: MAX_BUFFER,
+        timeout: opts.timeoutMs ?? 12e4,
+        encoding: "utf8",
+        env: opts.env && { ...process.env, ...opts.env }
+      },
       (err, stdout, stderr) => {
         if (err) reject(new OpendrsError(`git ${args[0]} failed: ${(stderr || err.message).trim()}`, "git"));
         else resolve(stdout);
@@ -27494,18 +27605,23 @@ async function gitMaybe(repoDir, args) {
   }
 }
 
+// src/git/diff.ts
+import { isUtf8 } from "node:buffer";
+
 // src/git/glob.ts
 var cache = /* @__PURE__ */ new Map();
-function matchGlob(pattern, path) {
-  let re = cache.get(pattern);
+function matchGlob(pattern, path, opts = {}) {
+  const flags = opts.ignoreCase ? "isu" : "su";
+  const key = `${flags}:${pattern}`;
+  let re = cache.get(key);
   if (!re) {
-    re = new RegExp(`^${translate(pattern)}$`, "u");
-    cache.set(pattern, re);
+    re = new RegExp(`^${translate(pattern)}$`, flags);
+    cache.set(key, re);
   }
   return re.test(path);
 }
-function matchAny(patterns, path) {
-  return patterns.some((p) => matchGlob(p, path));
+function matchAny(patterns, path, opts = {}) {
+  return patterns.some((p) => matchGlob(p, path, opts));
 }
 function translate(glob) {
   let out = "";
@@ -27559,6 +27675,8 @@ function splitTopLevel(s) {
 // src/git/diff.ts
 var EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+var GITLINK_MODE = /^(?:index [0-9a-f]+\.\.[0-9a-f]+|(?:new|deleted) file mode|(?:old|new) mode) 160000$/;
+var SUBPROJECT_LINE = /^[-+]Subproject commit [0-9a-f]+$/;
 function parseUnifiedDiff(text) {
   const files = [];
   const rows = text.split("\n");
@@ -27568,6 +27686,7 @@ function parseUnifiedDiff(text) {
     if (!cur) return;
     if (cur.status === "deleted" && oldSide !== void 0) cur.path = oldSide;
     if (cur.status !== "renamed") delete cur.oldPath;
+    if (cur.hunks.some((h) => h.lines.some((l) => SUBPROJECT_LINE.test(l)))) cur.submodule = true;
   };
   for (let i = 0; i < rows.length; i++) {
     const line2 = rows[i];
@@ -27588,6 +27707,7 @@ function parseUnifiedDiff(text) {
       cur.oldPath = oldSide = unquotePath(line2.slice("rename from ".length));
     } else if (line2.startsWith("rename to ")) cur.path = unquotePath(line2.slice("rename to ".length));
     else if (line2.startsWith("Binary files ") || line2 === "GIT binary patch") cur.binary = true;
+    else if (GITLINK_MODE.test(line2)) cur.submodule = true;
     else if (line2.startsWith("--- ")) {
       const p = sidePath(line2.slice(4), "a/");
       if (p !== void 0) oldSide = p;
@@ -27683,12 +27803,30 @@ function readQuoted(s, start) {
 async function loadDiff(repoDir, base, head, config2, opts = {}) {
   const headSha = opts.resolved ? head : await resolveCommit(repoDir, head);
   const baseSha = opts.resolved || base === EMPTY_TREE ? base : await mergeBase(repoDir, await resolveCommit(repoDir, base), headSha);
+  const attrs = await attributeIsolation(repoDir, baseSha);
   const [text, meta3] = await Promise.all([
     // Explicit prefixes and no textconv keep the output parseable whatever the user's git config says.
-    git(repoDir, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M", "--unified=3", baseSha, headSha]),
+    // The submodule flags keep every gitlink change visible as a "Subproject commit" patch, whatever
+    // diff.submodule, diff.ignoreSubmodules or a submodule's `ignore` in .gitmodules says.
+    git(repoDir, [
+      ...attrs.args,
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--submodule=short",
+      "--ignore-submodules=none",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      "-M",
+      "--unified=3",
+      baseSha,
+      headSha
+    ], { env: attrs.env }),
     git(repoDir, ["show", "-s", "--format=%an%x00%ae%x00%s", headSha])
   ]);
   const files = parseUnifiedDiff(text);
+  await markBinaryBlobs(repoDir, headSha, files);
   for (const f of files) f.ignored = matchAny(config2.paths.ignore, f.path);
   const [name = "", email3 = "", title = ""] = meta3.replace(/\n$/, "").split("\0");
   return {
@@ -27698,6 +27836,26 @@ async function loadDiff(repoDir, base, head, config2, opts = {}) {
     author: email3 ? { name, email: email3 } : void 0,
     title
   };
+}
+function gitHasAttrSource(version2) {
+  const m = /git version (\d+)\.(\d+)/.exec(version2);
+  if (!m) return false;
+  const [major, minor] = [Number(m[1]), Number(m[2])];
+  return major > 2 || major === 2 && minor >= 40;
+}
+var attrSourceSupport;
+async function attributeIsolation(repoDir, base) {
+  attrSourceSupport ??= git(repoDir, ["version"]).then(gitHasAttrSource, () => false);
+  if (await attrSourceSupport) return { args: [`--attr-source=${base}`] };
+  return { args: ["-c", "core.attributesFile=/dev/null"], env: { GIT_ATTR_NOSYSTEM: "1" } };
+}
+async function markBinaryBlobs(repoDir, head, files) {
+  const check2 = files.filter((f) => f.status !== "deleted" && !f.binary && !f.submodule);
+  for (const f of check2) f.binary = true;
+  const readable = check2.filter((f) => !/[\n\r]/.test(f.path));
+  await readBlobs(repoDir, readable.map((f) => `${head}:${f.path}`), (i, content) => {
+    readable[i].binary = content.includes(0) || !isUtf8(content);
+  });
 }
 async function resolveCommit(repoDir, ref) {
   try {
@@ -28847,6 +29005,7 @@ var DEFAULT_WEIGHTS = {
     "paths.critical": 1.2,
     "paths.blocked": 0.5,
     "tests.missing": 0.7,
+    "tests.deleted": 1,
     "lang.docs": -0.4,
     "lang.config": -0.3,
     "llm.semantic": 0.8
@@ -28943,7 +29102,7 @@ function decide(input2) {
   const thresholds = resolveThresholds(config2, model, notes);
   const tier = tierOf(input2.score, thresholds);
   const fired = [];
-  const blocked = diff.files.filter((f) => [f.path, f.oldPath].some((p) => p !== void 0 && config2.paths.block.some((g) => matchGlob(g, p)))).map((f) => f.path);
+  const blocked = diff.files.filter((f) => [f.path, f.oldPath].some((p) => p !== void 0 && matchAny(config2.paths.block, p, { ignoreCase: true }))).map((f) => f.path);
   const blockedSignal = input2.signals.find((s) => s.id === "paths.blocked" && s.value >= 1);
   const hardBlocked = blocked.length > 0 || blockedSignal !== void 0;
   if (hardBlocked) {
@@ -28954,6 +29113,16 @@ function decide(input2) {
   if (unread.length > 0) {
     fired.push({ decision: "human-review", reason: `ignored or binary files are never auto-approved: ${list(unread)}` });
   }
+  const oddPaths = diff.files.flatMap((f) => [f.path, f.oldPath ?? ""]).filter((p) => /[\u0000-\u001f\u007f]/.test(p));
+  if (oddPaths.length > 0) {
+    fired.push({ decision: "human-review", reason: `paths with control characters are never auto-approved: ${list(oddPaths.map((p) => JSON.stringify(p)))}` });
+  }
+  const submodules = diff.files.filter((f) => f.submodule).map((f) => f.path);
+  if (submodules.length > 0) {
+    fired.push({ decision: "human-review", reason: `submodule changes are never auto-approved: ${list(submodules)}` });
+  }
+  const testsDeleted = input2.signals.find((s) => s.id === "tests.deleted" && s.value >= 1);
+  if (testsDeleted) fired.push({ decision: "human-review", reason: `test deletion: ${testsDeleted.summary}` });
   const changedLines2 = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
   if (changedLines2 > auto.maxChangedLines) {
     fired.push({ decision: "human-review", reason: `${changedLines2} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
@@ -28986,16 +29155,13 @@ function decide(input2) {
     const reason = lifts.length === 1 ? `unknown ${lifts[0].id} could raise the score to ${worst.toFixed(2)} (${worstTier})` : `unknown signals could together raise the score to ${worst.toFixed(2)} (${worstTier}); alone: ${alone}`;
     fired.push({ decision: "human-review", reason });
   }
-  const { checks, labels } = auto.requireAiReview;
-  if (checks.length + labels.length > 0) {
+  const checks = auto.requireAiReview.checks.map((c) => typeof c === "string" ? c : c.name);
+  if (checks.length > 0) {
     if (!input2.pr) {
-      fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires ${requirement(checks, labels)})` });
+      fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires check ${checks.join(", ")})` });
     } else {
-      const missingChecks = checks.filter((c) => !input2.pr.successfulChecks.includes(c));
-      const missingLabels = labels.filter((l) => !input2.pr.labels.includes(l));
-      if (missingChecks.length + missingLabels.length > 0) {
-        fired.push({ decision: "waiting-ai-review", reason: `AI review pending: missing ${requirement(missingChecks, missingLabels)}` });
-      }
+      const missing = checks.filter((c) => !input2.pr.successfulChecks.includes(c));
+      if (missing.length > 0) fired.push({ decision: "waiting-ai-review", reason: `AI review pending: missing check ${missing.join(", ")}` });
     }
   }
   const sampled = sampleValue(input2.pr?.samplingKey ?? diff.head) < auto.sampleRate;
@@ -29049,9 +29215,6 @@ function percentileScore(table, p) {
   return void 0;
 }
 var list = (paths) => paths.length > 3 ? `${paths.slice(0, 3).join(", ")} (+${paths.length - 3} more)` : paths.join(", ");
-function requirement(checks, labels) {
-  return [checks.length ? `check ${checks.join(", ")}` : "", labels.length ? `label ${labels.join(", ")}` : ""].filter(Boolean).join("; ");
-}
 
 // src/graph/public-decl.ts
 var KOTLIN_DECL = /^(?:(?:open|abstract|sealed|data|enum|inline|value|annotation|const|suspend|operator|infix|tailrec|external|final|inner|lateinit)\s+)*(?:fun|class|interface|object|val|var|typealias)\b/;
@@ -29532,12 +29695,12 @@ var llmSignals = async (ctx) => {
 function matches(files, globs2, kind) {
   const out = [];
   for (const f of files) {
-    const hitNew = globs2.find((g) => matchGlob(g, f.path));
+    const hitNew = globs2.find((g) => matchGlob(g, f.path, { ignoreCase: true }));
     if (hitNew) {
       out.push({ file: f.path, detail: `matches ${kind} glob "${hitNew}"` });
       continue;
     }
-    const hitOld = f.oldPath ? globs2.find((g) => matchGlob(g, f.oldPath)) : void 0;
+    const hitOld = f.oldPath ? globs2.find((g) => matchGlob(g, f.oldPath, { ignoreCase: true })) : void 0;
     if (hitOld) out.push({ file: f.path, detail: `renamed from ${f.oldPath}, which matches ${kind} glob "${hitOld}"` });
   }
   return out;
@@ -29623,13 +29786,14 @@ function lineCount(text) {
 
 // src/signals/tests.ts
 var EXPECTED_TEST_SHARE = 0.3;
+var NET_TEST_DELETION = 10;
 var testsSignals = async (ctx) => {
   const files = countedFiles(ctx);
   const isTest = (path) => matchAny(ctx.config.paths.tests, path);
   const lines = (fs) => fs.reduce((n, f) => n + f.added + f.deleted, 0);
   const tests = files.filter((f) => isTest(f.path));
   const sources = files.filter((f) => !f.binary && !isTest(f.path) && isCodeFamily(languageFamily(f.path)));
-  const testLines = lines(tests);
+  const testLines = tests.reduce((n, f) => n + f.added, 0);
   const sourceLines = lines(sources);
   let value;
   let summary;
@@ -29638,12 +29802,19 @@ var testsSignals = async (ctx) => {
     summary = "no source code changed";
   } else if (testLines === 0) {
     value = 1;
-    summary = `${plural2(sources.length, "source file")} changed with no test changes`;
+    summary = `${plural2(sources.length, "source file")} changed with no test lines added`;
   } else {
     value = Math.min(1, Math.max(0, 1 - testLines / (EXPECTED_TEST_SHARE * sourceLines)));
-    summary = `${plural2(testLines, "test line")} changed for ${plural2(sourceLines, "source line")} (${EXPECTED_TEST_SHARE * 100}% expected)`;
+    summary = `${plural2(testLines, "test line")} added for ${plural2(sourceLines, "source line")} changed (${EXPECTED_TEST_SHARE * 100}% expected)`;
   }
   const untested = sources.length > 0 && testLines === 0;
+  const removedFiles = files.filter((f) => f.status === "deleted" && isTest(f.path) || f.oldPath !== void 0 && isTest(f.oldPath) && !isTest(f.path));
+  const netDeleted = tests.reduce((n, f) => n + f.deleted - f.added, 0);
+  const deletes = removedFiles.length > 0 || netDeleted >= NET_TEST_DELETION;
+  const deletedSummary = [
+    removedFiles.length > 0 && `${plural2(removedFiles.length, "test file")} deleted`,
+    netDeleted >= NET_TEST_DELETION && `${plural2(netDeleted, "test line")} more deleted than added`
+  ].filter(Boolean);
   return [
     {
       id: "tests.missing",
@@ -29651,8 +29822,18 @@ var testsSignals = async (ctx) => {
       status: "derived",
       summary,
       evidence: topEvidence(
-        untested ? sources.map((f) => ({ file: f.path, detail: "source without test change" })) : tests.map((f) => ({ file: f.path, detail: `test file changed (+${f.added} -${f.deleted})` }))
+        untested ? sources.map((f) => ({ file: f.path, detail: "source without added test lines" })) : tests.map((f) => ({ file: f.path, detail: `test file changed (+${f.added} -${f.deleted})` }))
       )
+    },
+    {
+      id: "tests.deleted",
+      value: deletes ? 1 : 0,
+      status: "observed",
+      summary: deletes ? deletedSummary.join("; ") : "no test deletion",
+      evidence: deletes ? topEvidence([
+        ...removedFiles.map((f) => ({ file: f.path, detail: f.status === "deleted" ? "test file deleted" : `test file renamed from ${f.oldPath}` })),
+        ...tests.filter((f) => f.status !== "deleted" && f.deleted > f.added).map((f) => ({ file: f.path, detail: `test lines removed (+${f.added} -${f.deleted})` }))
+      ]) : []
     }
   ];
 };
@@ -29672,7 +29853,7 @@ var SIGNAL_PROVIDERS = [
 ];
 
 // src/version.ts
-var VERSION = "0.1.0";
+var VERSION = "0.1.1";
 
 // src/engine.ts
 async function loadModel(repoDir, config2) {
@@ -29778,7 +29959,8 @@ var DECISION_TEXT = {
   "waiting-ai-review": "waiting for AI review",
   "human-review": "human review"
 };
-var cell = (text) => text.replace(/\s+/g, " ").replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;").trim();
+var cell = (text) => text.replace(/\s+/g, " ").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/[\\|`[\]]/g, "\\$&").trim();
+var code = (text) => `\`${text.replace(/\s+/g, " ").replace(/`/g, "\u02CB").trim()}\``;
 var untrusted = (text) => cell(text).replace(/@(?=\w)/g, "@\u200B");
 var signed = (n, minus) => `${n < 0 ? minus : "+"}${Math.abs(n).toFixed(2)}`;
 var top = (contributions) => contributions.filter((c) => c.contribution !== 0).slice(0, TOP_CONTRIBUTIONS);
@@ -29807,12 +29989,12 @@ function renderMarkdown(result) {
   }
   lines.push("**Policy**", ...policy.reasons.map((r) => `- ${cell(r)}`), "");
   if (policy.suggestedReviewers.length > 0) {
-    lines.push(`**Suggested reviewers:** ${policy.suggestedReviewers.map((r) => `\`${cell(r)}\``).join(", ")}`, "");
+    lines.push(`**Suggested reviewers:** ${policy.suggestedReviewers.map(code).join(", ")}`, "");
   }
   if (result.llm) {
     lines.push(`<details><summary>LLM review (p=${result.llm.risk.toFixed(2)})</summary>`, "", `> ${untrusted(clip(result.llm.rationale))}`, "");
     for (const s of result.llm.riskySnippets.slice(0, MAX_SNIPPETS2)) {
-      lines.push(`- \`${cell(s.file)}${s.line !== void 0 ? `:${s.line}` : ""}\` ${untrusted(s.reason)}`);
+      lines.push(`- ${code(`${s.file}${s.line !== void 0 ? `:${s.line}` : ""}`)} ${untrusted(s.reason)}`);
     }
     lines.push("", "</details>", "");
   }
@@ -29822,15 +30004,25 @@ function renderMarkdown(result) {
 }
 
 // src/action/guard.ts
-var GUARDED = [".opendrs.yml", ".opendrs/**", ".github/**", "action.yml", "action.yaml", "action/**"];
+var GUARDED = [
+  ".opendrs.yml",
+  ".opendrs/**",
+  ".github/**",
+  "action.yml",
+  "action.yaml",
+  "action/**",
+  ".gitmodules",
+  "**/.gitattributes"
+];
 function selfModifiedPaths(files, extra = []) {
-  const patterns = [...GUARDED, ...extra].map((p) => p.toLowerCase());
-  return files.filter((f) => matchAny(patterns, f.toLowerCase()));
+  const patterns = [...GUARDED, ...extra];
+  return files.filter((f) => matchAny(patterns, f, { ignoreCase: true }));
 }
 
 // src/action/approval.ts
 var APPROVAL_MARKER = "<!-- opendrs-approval -->";
 var APPROVAL_FORBIDDEN = 'GitHub refused the approval (403). In Settings > Actions > General > Workflow permissions, enable "Allow GitHub Actions to create and approve pull requests", and give the job `pull-requests: write`.';
+var staleApprovalsUnverified = (branch) => `Not approving: could not confirm that ${branch} requires an approval and dismisses it when new commits are pushed. Without that, a commit pushed after opendrs approves can merge on the earlier approval. In Settings > Rules > Rulesets, add an active branch ruleset for ${branch} with "Require a pull request before merging", "Required approvals" of at least 1 and "Dismiss stale pull request approvals when new commits are pushed". Classic branch protection with the same settings also counts, but only when github-token can read it (Administration: read), which the default GITHUB_TOKEN cannot.`;
 var isFork = (pr) => pr.head.repo?.full_name !== pr.base.repo.full_name;
 function blockers({ config: config2, result, files, pr }) {
   const out = [];
@@ -29843,6 +30035,16 @@ function blockers({ config: config2, result, files, pr }) {
   }
   if (isFork(pr)) out.push("the PR comes from a fork");
   return out;
+}
+async function dismissesStaleApprovals(client, branch) {
+  const unverifiable = (e) => {
+    if (e instanceof GitHubError && (e.status === 403 || e.status === 404)) return void 0;
+    throw e;
+  };
+  const rules = await client.pullRequestRules(branch).catch(unverifiable) ?? [];
+  if (rules.some((r) => r.dismiss_stale_reviews_on_push) && rules.some((r) => (r.required_approving_review_count ?? 0) >= 1)) return true;
+  const classic = await client.classicReviewProtection(branch).catch(unverifiable);
+  return classic?.dismiss_stale_reviews === true && (classic.required_approving_review_count ?? 0) >= 1;
 }
 async function ownApprovals(client, pr, viewer) {
   return (await client.listReviews(pr)).filter(
@@ -29880,6 +30082,10 @@ async function reconcileApproval(a) {
   const { client, io, pr, result } = a;
   const own2 = await ownApprovals(client, pr.number, a.viewer);
   const reasons = blockers(a);
+  if (!reasons.length && !await dismissesStaleApprovals(client, pr.base.ref)) {
+    io.warning(staleApprovalsUnverified(pr.base.ref));
+    reasons.push(`cannot confirm that ${pr.base.ref} dismisses stale approvals on push (see the job log)`);
+  }
   if (reasons.length) {
     io.info(`Not approving: ${reasons.join("; ")}.`);
     const message = result.policy.decision !== "auto-approve" ? `Risk increased: ${result.tier} ${result.score.toFixed(2)}` : `opendrs approval withdrawn: ${reasons.join("; ")}`;
@@ -29927,6 +30133,7 @@ async function enableMerge({ client, io, pr, result }) {
 // src/action/run.ts
 var COMMENT_MARKER = "<!-- opendrs -->";
 var RISK_LABELS = ["risk:green", "risk:yellow", "risk:red"];
+var PREDICTABLE_SAMPLING = "sampling is predictable; set sample-salt to a secret. Without it, anyone can compute which PR numbers autoApprove.sampleRate sends to a human, and time a risky PR for one that is not sampled.";
 function readPullRequest(event) {
   const pr = event?.pull_request;
   if (!pr || typeof pr.number !== "number" || !pr.base?.sha || !pr.head?.sha) {
@@ -30006,21 +30213,14 @@ async function scorePullRequest(d, pr) {
   await requireCommit(d.repoDir, pr.head.sha, "Head");
   const { config: config2, model } = await io.group("Configuration", () => loadSettings(d, pr.base.sha));
   if (d.inputs.llmApiKey) d.env[llmKeyEnv(config2)] = d.inputs.llmApiKey;
-  const staleLabels = d.event.action === "synchronize" ? config2.autoApprove.requireAiReview.labels : [];
-  const labels = pr.labels.map((l) => l.name).filter((l) => !staleLabels.includes(l));
-  for (const label of staleLabels.filter((l) => pr.labels.some((p) => p.name === l))) {
-    await unlessForbidden(
-      async () => {
-        await client.removeLabel(pr.number, label);
-        io.info(`Removed the AI-review label ${label}: it was given before the new push.`);
-      },
-      () => io.warning(`Could not remove the stale AI-review label ${label} (403): it does not count for this commit either way.`)
-    );
-  }
-  const successfulChecks = await unlessForbidden(
-    () => client.successfulCheckNames(pr.head.sha),
+  const predictable = config2.autoApprove.enabled && config2.autoApprove.sampleRate > 0 && !d.inputs.sampleSalt;
+  if (predictable) io.warning(PREDICTABLE_SAMPLING);
+  const checkRuns = await unlessForbidden(
+    () => client.successfulChecks(pr.head.sha, d.env.GITHUB_RUN_ID),
     () => io.warning("Could not read check runs (403): give the job `checks: read`. Required AI-review checks count as missing.")
   ) ?? [];
+  const pinned = new Map(config2.autoApprove.requireAiReview.checks.flatMap((c) => typeof c === "string" ? [] : [[c.name, c.app]]));
+  const successfulChecks = checkRuns.filter((r) => !pinned.has(r.name) || pinned.get(r.name) === r.app).map((r) => r.name);
   const author = await prAuthor(d, pr);
   const mergeBase2 = (await git(d.repoDir, ["merge-base", pr.base.sha, pr.head.sha])).trim();
   const history = await buildHistoryIndex(d.repoDir, mergeBase2, config2);
@@ -30036,7 +30236,7 @@ async function scorePullRequest(d, pr) {
       title: pr.title,
       description: pr.body ?? void 0,
       // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.
-      pr: { labels, successfulChecks, number: pr.number, samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}` }
+      pr: { successfulChecks, number: pr.number, samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}` }
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -30052,10 +30252,13 @@ async function scorePullRequest(d, pr) {
   if (viewer === void 0) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
   const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer }));
   const report = renderMarkdown(result);
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}
-${report}`}
+  const warning = predictable ? `
 
-**Auto-approval:** ${approval.status}`;
+**Warning:** ${PREDICTABLE_SAMPLING}` : "";
+  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}
+${report}`}${warning}
+
+**Auto-approval:** ${cell(approval.status)}`;
   if (d.inputs.comment) {
     await unlessForbidden(
       async () => {
@@ -30089,11 +30292,12 @@ ${report}`}
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 var escapeData = (s) => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+var logLine = (s) => s.replace(/\r\n|\r|\n/g, "\u23CE").replace(/^(\s*)::/, "$1\u203A::").replace(/##\[/g, "#\u203A#[");
 function createWorkflowIO(env, write = (s) => void process.stdout.write(s)) {
   const command = (name, message) => write(`::${name}::${escapeData(message)}
 `);
   return {
-    info: (m) => write(m + "\n"),
+    info: (m) => write(logLine(m) + "\n"),
     notice: (m) => command("notice", m),
     warning: (m) => command("warning", m),
     error: (m) => command("error", m),

@@ -14,10 +14,20 @@ export interface WorkflowIO {
 
 const escapeData = (s: string) => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 
+/**
+ * Plain log text (file paths, titles and git output among it) as one line the runner cannot take
+ * for a command: line breaks become ⏎, a leading `::` and any legacy `##[` get a visible ›.
+ */
+const logLine = (s: string) =>
+  s
+    .replace(/\r\n|\r|\n/g, "⏎")
+    .replace(/^(\s*)::/, "$1›::")
+    .replace(/##\[/g, "#›#[");
+
 export function createWorkflowIO(env: NodeJS.ProcessEnv, write: (s: string) => void = (s) => void process.stdout.write(s)): WorkflowIO {
   const command = (name: string, message: string) => write(`::${name}::${escapeData(message)}\n`);
   return {
-    info: (m) => write(m + "\n"),
+    info: (m) => write(logLine(m) + "\n"),
     notice: (m) => command("notice", m),
     warning: (m) => command("warning", m),
     error: (m) => command("error", m),

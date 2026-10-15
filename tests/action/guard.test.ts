@@ -13,6 +13,9 @@ describe("selfModifiedPaths", () => {
     "action/dist/index.js",
     ".GitHub/workflows/x.yml",
     "Action.YML",
+    ".gitmodules",
+    ".gitattributes",
+    "tools/.gitattributes",
   ])("trips on %s", (path) => {
     expect(selfModifiedPaths(["src/a.ts", path])).toEqual([path]);
   });
@@ -26,6 +29,10 @@ describe("selfModifiedPaths", () => {
 
   it("also guards extra paths such as a custom model location", () => {
     expect(selfModifiedPaths(["models/drs.json", "src/a.ts"], ["models/drs.json"])).toEqual(["models/drs.json"]);
+  });
+
+  it("matches extra paths case-insensitively too", () => {
+    expect(selfModifiedPaths(["Models/DRS.json"], ["models/drs.json"])).toEqual(["Models/DRS.json"]);
   });
 
   it("cannot be disabled by passing no extra paths", () => {

@@ -16,6 +16,8 @@ import type { ModelWeights } from "../domain/types.js";
  * - size.new_files_only is negative: Meta found new-file-only diffs rarely cause SEVs.
  * - paths.critical is the largest single bump (Meta's "high-criticality service").
  * - paths.blocked is also a policy hard block; its weight only colours the score.
+ * - tests.deleted (a test file deleted, or net test deletion of 10+ lines) is also a policy rule. Its
+ *   weight 1.0 puts an owner's deletion of a security check plus its tests at ≈ 0.37, yellow.
  * - lang.*: docs and config lower risk; code families (lang.ts, lang.py, ...) are absent, i.e. 0,
  *   until calibration fits them.
  * - llm.semantic is max(0, logit(p) - logit(0.2)) from the LLM judge: it only adds risk above a
@@ -44,6 +46,7 @@ export const DEFAULT_WEIGHTS: ModelWeights = {
     "paths.critical": 1.2,
     "paths.blocked": 0.5,
     "tests.missing": 0.7,
+    "tests.deleted": 1.0,
     "lang.docs": -0.4,
     "lang.config": -0.3,
     "llm.semantic": 0.8,

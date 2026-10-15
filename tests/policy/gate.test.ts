@@ -75,6 +75,29 @@ describe("decide: rule 1 (hard block)", () => {
     expect(out).toMatchObject({ decision: "human-review", hardBlocked: true });
   });
 
+  it("matches paths.block case-insensitively (makefile, EF Core Migrations/)", () => {
+    for (const path of ["makefile", "src/Data/Migrations/20240101_Init.cs"]) {
+      expect(decide(input({ files: [file(path)] })), path).toMatchObject({ decision: "human-review", hardBlocked: true });
+    }
+  });
+
+  it("keeps the default blocks when the config sets its own paths.block", () => {
+    const out = decide(input({ cfg: { autoApprove: { sampleRate: 0 }, paths: { block: ["infra/**"] } }, files: [file("package.json", 1, 1)] }));
+    expect(out).toMatchObject({ decision: "human-review", hardBlocked: true });
+  });
+
+  it("routes a net test deletion to human review, whatever the score", () => {
+    const signals: Signal[] = [{ id: "tests.deleted", value: 1, status: "observed", summary: "1 test file deleted", evidence: [] }];
+    const out = decide(input({ signals, score: 0.05 }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", hardBlocked: false });
+    expect(out.reasons[0]).toBe("test deletion: 1 test file deleted");
+  });
+
+  it("ignores a tests.deleted signal of 0", () => {
+    const signals: Signal[] = [{ id: "tests.deleted", value: 0, status: "observed", summary: "no test deletion", evidence: [] }];
+    expect(decide(input({ signals })).decision).toBe("auto-approve");
+  });
+
   it("matches the old path of a rename", () => {
     const renamed: ChangedFile = { ...file("src/moved.sql"), status: "renamed", oldPath: "db/migrations/001.sql" };
     expect(decide(input({ files: [renamed] })).hardBlocked).toBe(true);
@@ -103,6 +126,20 @@ describe("decide: ignored or binary files", () => {
     const out = decide(input({ files: [file("src/a.ts"), binary("gradle/wrapper/gradle-wrapper.jar")] }));
     expect(out.decision).toBe("human-review");
     expect(out.reasons[0]).toContain("gradle/wrapper/gradle-wrapper.jar");
+  });
+
+  it("never auto-approves a PR whose paths contain control characters", () => {
+    const out = decide(input({ files: [file("src/a.ts"), file("docs/x\n::notice::ok\n.md")] }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toMatch(/control characters/);
+  });
+
+  it("never auto-approves a PR that moves a submodule pointer, but keeps its green tier", () => {
+    const gitlink: ChangedFile = { ...file("libs/core", 1, 1), submodule: true };
+    const out = decide(input({ files: [file("src/a.ts"), gitlink] }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", hardBlocked: false, mergeMethod: "none" });
+    expect(out.reasons[0]).toMatch(/submodule/);
+    expect(out.reasons[0]).toContain("libs/core");
   });
 
   it("names at most 3 such files", () => {
@@ -206,7 +243,7 @@ describe("decide: rule 4 (unknowns and LLM failure)", () => {
 });
 
 describe("decide: rule 5 (AI review)", () => {
-  const cfg = { autoApprove: { sampleRate: 0, requireAiReview: { checks: ["claude-review"], labels: ["ai-reviewed"] } } };
+  const cfg = { autoApprove: { sampleRate: 0, requireAiReview: { checks: ["claude-review", "security-review"] } } };
 
   it("waits when requirements are configured but PR state is unknown (local run)", () => {
     const out = decide(input({ cfg }));
@@ -214,17 +251,37 @@ describe("decide: rule 5 (AI review)", () => {
     expect(out.reasons[0]).toMatch(/claude-review/);
   });
 
-  it("waits until every listed check and label is present", () => {
-    const pr = { labels: ["ai-reviewed"], successfulChecks: [] };
-    const out = decide(input({ cfg, pr }));
+  it("waits until every listed check has passed on the head commit", () => {
+    const out = decide(input({ cfg, pr: { successfulChecks: ["security-review"] } }));
     expect(out.decision).toBe("waiting-ai-review");
-    expect(out.reasons[0]).toMatch(/claude-review/);
-    expect(out.reasons[0]).not.toMatch(/ai-reviewed/);
-    expect(decide(input({ cfg, pr: { labels: ["ai-reviewed"], successfulChecks: ["claude-review"] } })).decision).toBe("auto-approve");
+    expect(out.reasons[0]).toBe("AI review pending: missing check claude-review");
+    expect(decide(input({ cfg, pr: { successfulChecks: ["claude-review", "security-review"] } })).decision).toBe("auto-approve");
   });
 
-  it("passes when no checks or labels are configured", () => {
+  it("accepts { name, app } entries and reports them by name", () => {
+    const pinned = { autoApprove: { sampleRate: 0, requireAiReview: { checks: [{ name: "claude-review", app: "coderabbitai" }, "security-review"] } } };
+    expect(decide(input({ cfg: pinned, pr: { successfulChecks: ["security-review"] } })).reasons[0]).toBe("AI review pending: missing check claude-review");
+    expect(decide(input({ cfg: pinned, pr: { successfulChecks: ["claude-review", "security-review"] } })).decision).toBe("auto-approve");
+  });
+
+  it.each([[{ name: "claude-review" }], [{ name: "claude-review", app: "" }], [{ name: "claude-review", app: "x", extra: 1 }]])(
+    "rejects a check entry %j that is not a name or { name, app }",
+    (entry) => {
+      expect(() => parseConfig({ autoApprove: { requireAiReview: { checks: [entry] } } })).toThrow(/requireAiReview/);
+    },
+  );
+
+  it("passes when no checks are configured", () => {
     expect(decide(input()).decision).toBe("auto-approve");
+  });
+
+  it("rejects a config that still lists requireAiReview.labels, even an empty list", () => {
+    const removed =
+      "requireAiReview.labels was removed in 0.1.1: labels are not tied to a commit and can be added by anyone with triage access; " +
+      "require a check run instead (requireAiReview.checks)";
+    for (const labels of [["ai-reviewed"], []]) {
+      expect(() => parseConfig({ autoApprove: { requireAiReview: { checks: ["claude-review"], labels } } })).toThrow(removed);
+    }
   });
 });
 
@@ -252,7 +309,7 @@ describe("decide: rule 6 (sampling)", () => {
 
   it("hashes pr.samplingKey instead of the head, so a new push cannot re-roll the sample", () => {
     const cfg = { autoApprove: { sampleRate: 0.5 } };
-    const pr = { labels: [], successfulChecks: [], number: 7, samplingKey: "o/r#7#salt" };
+    const pr = { successfulChecks: [], number: 7, samplingKey: "o/r#7#salt" };
     const sampled = Array.from({ length: 20 }, (_, i) => {
       const base = input({ cfg, pr });
       return decide({ ...base, diff: { ...base.diff, head: `sha-${i}` } }).sampled;

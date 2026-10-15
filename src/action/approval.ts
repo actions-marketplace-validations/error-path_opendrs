@@ -11,6 +11,13 @@ const APPROVAL_FORBIDDEN =
   "GitHub refused the approval (403). In Settings > Actions > General > Workflow permissions, enable " +
   "\"Allow GitHub Actions to create and approve pull requests\", and give the job `pull-requests: write`.";
 
+const staleApprovalsUnverified = (branch: string) =>
+  `Not approving: could not confirm that ${branch} requires an approval and dismisses it when new commits are pushed. ` +
+  `Without that, a commit pushed after opendrs approves can merge on the earlier approval. In Settings > Rules > Rulesets, ` +
+  `add an active branch ruleset for ${branch} with "Require a pull request before merging", "Required approvals" of at least 1 ` +
+  `and "Dismiss stale pull request approvals when new commits are pushed". Classic branch protection with the same settings ` +
+  `also counts, but only when github-token can read it (Administration: read), which the default GITHUB_TOKEN cannot.`;
+
 export interface ApprovalInput {
   client: GitHubClient;
   io: WorkflowIO;
@@ -36,6 +43,21 @@ function blockers({ config, result, files, pr }: ApprovalInput): string[] {
   }
   if (isFork(pr)) out.push("the PR comes from a fork");
   return out;
+}
+
+/**
+ * Whether `branch` requires an approval and dismisses it on a new push, by an active ruleset or by
+ * classic protection. A 403 or 404 means it cannot be verified; other errors propagate.
+ */
+async function dismissesStaleApprovals(client: GitHubClient, branch: string): Promise<boolean> {
+  const unverifiable = (e: unknown): undefined => {
+    if (e instanceof GitHubError && (e.status === 403 || e.status === 404)) return undefined;
+    throw e;
+  };
+  const rules = (await client.pullRequestRules(branch).catch(unverifiable)) ?? [];
+  if (rules.some((r) => r.dismiss_stale_reviews_on_push) && rules.some((r) => (r.required_approving_review_count ?? 0) >= 1)) return true;
+  const classic = await client.classicReviewProtection(branch).catch(unverifiable);
+  return classic?.dismiss_stale_reviews === true && (classic.required_approving_review_count ?? 0) >= 1;
 }
 
 /** This token's current opendrs approvals on the PR. */
@@ -90,6 +112,11 @@ export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: b
   const own = await ownApprovals(client, pr.number, a.viewer);
 
   const reasons = blockers(a);
+  // An approval must not outlive its commit: GitHub has to dismiss it when B is pushed after A was approved.
+  if (!reasons.length && !(await dismissesStaleApprovals(client, pr.base.ref))) {
+    io.warning(staleApprovalsUnverified(pr.base.ref));
+    reasons.push(`cannot confirm that ${pr.base.ref} dismisses stale approvals on push (see the job log)`);
+  }
   if (reasons.length) {
     io.info(`Not approving: ${reasons.join("; ")}.`);
     const message =

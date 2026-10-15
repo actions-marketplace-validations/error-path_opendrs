@@ -55,7 +55,7 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
     },
     diff: { base: "abcdef1234567890", head: "0123456789abcdef", files: 9, added: 300, deleted: 112 },
     model: "default",
-    version: "0.1.0",
+    version: "0.1.1",
     ...over,
   };
 }
@@ -103,9 +103,37 @@ describe("renderMarkdown", () => {
     expect(md).toContain("`src/auth/session.ts` session reuse");
   });
 
+  describe("with hostile file names and text", () => {
+    const NASTY = "x\n::stop-commands::p\r\n| `y` <img src=x> & [ok](evil) \\| z";
+    const evil = renderMarkdown(
+      result({
+        signals: result().signals.map((sig) => (sig.id === "size.churn" ? { ...sig, summary: NASTY } : sig)),
+        policy: { ...result().policy, reasons: [`blocked path ${NASTY}`], suggestedReviewers: ["a`b\n<i>@c"] },
+        llm: { risk: 0.5, rationale: NASTY, riskySnippets: [{ file: NASTY, line: 3, reason: NASTY }] },
+      }),
+    );
+    const ESCAPED = "x ::stop-commands::p \\| \\`y\\` &lt;img src=x&gt; &amp; \\[ok\\](evil) \\\\\\| z";
+
+    it("keeps a table cell on one line with pipes, backticks, brackets, backslashes and HTML escaped", () => {
+      expect(evil).toContain(`| \`size.churn\` | 6.04 | +1.51 | ${ESCAPED} |`);
+      expect(evil.split("\n").filter((l) => l.startsWith("| `"))).toHaveLength(6);
+    });
+
+    it("escapes policy reasons and the LLM rationale the same way", () => {
+      expect(evil).toContain(`- blocked path ${ESCAPED}\n`);
+      expect(evil).toContain(`> ${ESCAPED}\n`);
+      expect(evil).not.toMatch(/\n::|\r/);
+    });
+
+    it("shows file names and reviewers as inline code that a backtick cannot close", () => {
+      expect(evil).toContain("- `x ::stop-commands::p | ˋyˋ <img src=x> & [ok](evil) \\| z:3` ");
+      expect(evil).toContain("**Suggested reviewers:** `aˋb <i>@c`");
+    });
+  });
+
   it("ends with a footer naming the model kind, version and project link", () => {
     const footer = md.trimEnd().split("\n").at(-1)!;
-    expect(footer).toContain("opendrs 0.1.0");
+    expect(footer).toContain("opendrs 0.1.1");
     expect(footer).toContain("default model");
     expect(footer).toContain("https://github.com/error-path/opendrs");
   });
