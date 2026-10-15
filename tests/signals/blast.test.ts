@@ -8,6 +8,7 @@ import { makeRepo, type TestRepo } from "../helpers/repo.js";
 function ctxFor(files: ChangedFile[], graph: DependencyGraph | undefined, config: OpendrsConfig = defaultConfig()): ScoringContext {
   return {
     repoDir: "/unused",
+    trust: { authorVerified: true, historyComplete: true },
     diff: { base: "base", head: "head", files },
     config,
     history: { commits: [], fileCommits: () => [], fileCreator: () => undefined, authorCommitCount: () => 0 },

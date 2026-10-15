@@ -4,6 +4,7 @@ import type { OpendrsConfig } from "./domain/config.js";
 import type { DependencyGraph, DiffInfo, HistoryIndex, LlmProvider, ModelWeights, ScoreResult, ScoringContext, Signal } from "./domain/types.js";
 import { OpendrsError } from "./domain/types.js";
 import { createBlobReader } from "./git/blobs.js";
+import { git } from "./git/exec.js";
 import { loadDiff } from "./git/diff.js";
 import { buildHistoryIndex } from "./git/history.js";
 import { buildDependencyGraph } from "./graph/graph.js";
@@ -28,6 +29,8 @@ export interface ScoreOptions {
   llm?: LlmProvider | null;
   asOf?: number;
   pr?: GateInput["pr"];
+  /** False when CI could not tie the head commit's author to the PR account. Default true. */
+  authorVerified?: boolean;
   title?: string;
   description?: string;
 }
@@ -56,6 +59,7 @@ export function makeContext(
   history: HistoryIndex,
   graph: DependencyGraph | undefined,
   asOf?: number,
+  trust: ScoringContext["trust"] = { authorVerified: true, historyComplete: true },
 ): ScoringContext {
   const read = createBlobReader(repoDir);
   return {
@@ -65,6 +69,7 @@ export function makeContext(
     history,
     graph,
     asOf,
+    trust,
     readBase: (path) => read(diff.base, path),
     readHead: (path) => read(diff.head, path),
   };
@@ -85,7 +90,11 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
         : Promise.resolve(undefined),
   ]);
 
-  const ctx = makeContext(repoDir, diff, config, history, graph, opts.asOf);
+  const shallow = (await git(repoDir, ["rev-parse", "--is-shallow-repository"])).trim() === "true";
+  const ctx = makeContext(repoDir, diff, config, history, graph, opts.asOf, {
+    authorVerified: opts.authorVerified ?? true,
+    historyComplete: !shallow,
+  });
 
   try {
     // A misconfigured judge (e.g. missing key) becomes an unknown signal, which routes to a human.

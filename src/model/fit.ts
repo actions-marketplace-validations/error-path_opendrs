@@ -2,7 +2,10 @@ export interface FitOptions {
   /** L2 penalty on standardized weights (the intercept is not penalized). */
   l2?: number;
   maxIterations?: number;
-  /** Weight to use for a column with no variation (the data cannot inform it). Default 0. */
+  /**
+   * Raw-scale prior weights. The L2 penalty pulls each weight toward its prior instead of zero,
+   * and a column with no variation (the data cannot inform it) keeps its prior. Default 0.
+   */
   priorWeights?: number[];
 }
 
@@ -14,7 +17,7 @@ export interface FitResult {
 
 /**
  * L2-regularized logistic regression by batch gradient descent on standardized features.
- * Minimizes mean log-loss + (l2/2)·‖w‖². Deterministic: no randomness inside.
+ * Minimizes mean log-loss + (l2/2)·‖w − prior‖². Deterministic: no randomness inside.
  */
 export function fitLogistic(X: number[][], y: number[], opts: FitOptions = {}): FitResult {
   const l2 = opts.l2 ?? 0.01;
@@ -33,10 +36,11 @@ export function fitLogistic(X: number[][], y: number[], opts: FitOptions = {}): 
   const step = 1 / (k / 4 + l2 + 0.25);
   const base = y.reduce((s, v) => s + v, 0) / n;
   let b = Math.log(Math.max(base, 1e-6) / Math.max(1 - base, 1e-6));
-  const w = new Array<number>(k).fill(0);
+  const centre = active.map((j) => (opts.priorWeights?.[j] ?? 0) * std[j]!);
+  const w = centre.slice();
 
   for (let iter = 0; iter < maxIterations; iter++) {
-    const gw = w.map((wj) => l2 * wj);
+    const gw = w.map((wj, a) => l2 * (wj - centre[a]!));
     let gb = 0;
     for (let i = 0; i < n; i++) {
       const z = Z[i]!;

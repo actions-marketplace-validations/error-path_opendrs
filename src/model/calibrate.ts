@@ -42,12 +42,16 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
   }
 
   const ids = [...new Set([...Object.keys(prior.weights), ...rows.flatMap((r) => r.signals.map((s) => s.id))])].sort();
-  const sample = resampleNegatives(train, (r) => r.label === 1, RESAMPLE_RATIO, RESAMPLE_SEED);
-  const fit = fitLogistic(
-    sample.map((r) => featureVector(r.signals, ids, prior.priors)),
-    sample.map((r) => r.label),
-    { priorWeights: ids.map((id) => prior.weights[id] ?? 0) },
-  );
+  const fitOn = (part: ReplayRow[], l2: number) => {
+    const sample = resampleNegatives(part, (r) => r.label === 1, RESAMPLE_RATIO, RESAMPLE_SEED);
+    const fit = fitLogistic(
+      sample.map((r) => featureVector(r.signals, ids, prior.priors)),
+      sample.map((r) => r.label),
+      { l2, priorWeights: ids.map((id) => prior.weights[id] ?? 0) },
+    );
+    return { sample, fit };
+  };
+  const { sample, fit } = fitOn(train, chooseL2(train, ids, prior, fitOn));
 
   // Prior correction (King & Zeng 2001): the fit saw the resampled positive rate; shift the
   // intercept so scores are probabilities at the repo's real base rate.
@@ -73,6 +77,32 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
     },
     metrics: evaluate(test.map(score), test.map((r) => r.label)),
   };
+}
+
+const L2_CANDIDATES = [10, 1, 0.1, 0.01];
+
+/**
+ * Pick the penalty by a second time-ordered split inside the training window, so the held-out
+ * test commits stay unseen. Strongest penalty (closest to the priors) wins unless a weaker one
+ * ranks validation commits clearly better.
+ */
+function chooseL2(
+  train: ReplayRow[],
+  ids: string[],
+  prior: ModelWeights,
+  fitOn: (part: ReplayRow[], l2: number) => { fit: { intercept: number; weights: number[] } },
+): number {
+  const { train: inner, test: validation } = timeSplit(train);
+  const labels = validation.map((r) => r.label);
+  if (!inner.some((r) => r.label === 1) || !labels.includes(1) || !labels.includes(0)) return L2_CANDIDATES[0]!;
+  let best = { l2: L2_CANDIDATES[0]!, auc: -Infinity };
+  for (const l2 of L2_CANDIDATES) {
+    const { fit } = fitOn(inner, l2);
+    const model: ModelWeights = { version: 1, intercept: fit.intercept, weights: Object.fromEntries(ids.map((id, j) => [id, fit.weights[j]!])), priors: prior.priors };
+    const { auc } = evaluate(validation.map((r) => scoreSignals(r.signals, model).score), labels);
+    if (auc > best.auc + 0.005) best = { l2, auc };
+  }
+  return best.l2;
 }
 
 /** Same value rule as scoreSignals, so fitting and scoring see identical x. */

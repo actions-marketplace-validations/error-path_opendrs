@@ -9,6 +9,7 @@ import { diffOf, file, hunk } from "./fixtures.js";
 function ctx(llm?: ScoringContext["llm"]): ScoringContext {
   return {
     repoDir: "/repo",
+    trust: { authorVerified: true, historyComplete: true },
     diff: diffOf([file("src/a.ts", [hunk(1, ["x"])])]),
     config: defaultConfig(),
     history: { commits: [], fileCommits: () => [], fileCreator: () => undefined, authorCommitCount: () => 0 },

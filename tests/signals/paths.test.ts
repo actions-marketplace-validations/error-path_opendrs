@@ -6,6 +6,7 @@ import { pathsSignals } from "../../src/signals/paths.js";
 function ctxFor(files: ChangedFile[], config: OpendrsConfig = defaultConfig()): ScoringContext {
   return {
     repoDir: "/unused",
+    trust: { authorVerified: true, historyComplete: true },
     diff: { base: "base", head: "head", files },
     config,
     history: { commits: [], fileCommits: () => [], fileCreator: () => undefined, authorCommitCount: () => 0 },
