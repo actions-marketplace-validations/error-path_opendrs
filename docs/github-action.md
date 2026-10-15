@@ -129,8 +129,17 @@ also disables auto-merge and removes the PR from the merge queue. It identifies 
 the `<!-- opendrs-approval -->` marker and the token's own user (`github-actions` and
 `github-actions[bot]` count as the same account; when the token cannot read its own login, any bot
 account with the marker counts), and never touches anyone else's review. Auto-merge is only
-turned off when opendrs had an approval to withdraw, so auto-merge a person enabled stays on. A PR that changes the opendrs config, the model or the
-workflows always needs a human.
+turned off when opendrs had an approval to withdraw, so auto-merge a person enabled stays on. A
+PR that changes the opendrs config, the model or the workflows always needs a human.
+
+### Author identity
+
+The author email on a commit is whatever the PR author typed, so opendrs does not take it on
+trust. The Action lists the PR's commits (`GET /pulls/{n}/commits`) and treats the head commit's
+author as verified only when GitHub maps its email to the account that opened the PR. Otherwise,
+and also when the clone is shallow, the author-expertise signals count as unknown, which usually
+routes the PR to a human. Suggested reviewers leave out the emails GitHub has verified for the
+PR's author, not the email the head commit claims.
 
 ## Pairing with an AI reviewer
 
