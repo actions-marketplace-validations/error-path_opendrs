@@ -1,0 +1,112 @@
+// Files written by `opendrs init`. CONFIG_TEMPLATE must parse to exactly defaultConfig()
+// (tests/cli/init-mcp.test.ts checks this), so editing a default means editing both.
+
+export const CONFIG_TEMPLATE = `# opendrs configuration. Every value below is the default; delete what you do not change.
+# In the GitHub Action this file is read from the PR's BASE commit, so a PR cannot loosen
+# its own gate. Reference: https://github.com/error-path/opendrs#configuration
+
+# Score cut-offs for the tiers (Meta's DRS gates: green / yellow / red).
+thresholds:
+  mode: absolute        # absolute: scores in 0..1; percentile: percentiles of your
+                        # calibrated history (e.g. green: 50, yellow: 90, red: 95)
+  green: 0.3            # below green: eligible for auto-approval
+  yellow: 0.6
+  red: 0.8
+
+autoApprove:
+  enabled: false        # false = comment and label only (dry run)
+  requireAiReview:      # every listed check and label must be present
+    checks: []          # check-run names that must have concluded success, e.g. ["claude-review"]
+    labels: []          # labels that must be on the PR, e.g. ["ai-reviewed"]
+  mergeMethod: queue    # queue | auto-merge | none
+  sampleRate: 0.1       # share of eligible PRs still routed to a human, to detect drift
+  maxChangedLines: 400  # never auto-approve above this, whatever the score
+
+paths:
+  # Hard block: a PR touching any of these always needs a human.
+  block:
+    - ".github/**"
+    - ".opendrs.yml"
+    - ".opendrs/**"
+    - "**/CODEOWNERS"
+    - "**/migrations/**"
+    - "**/*.tf"
+  # Raises the score (Meta's "high-criticality service" feature).
+  critical:
+    - "**/auth/**"
+    - "**/payment*/**"
+    - "**/billing/**"
+    - "**/security/**"
+  # Excluded from size and churn: lockfiles, generated and vendored code.
+  ignore:
+    - "**/*.lock"
+    - "**/package-lock.json"
+    - "**/pnpm-lock.yaml"
+    - "**/go.sum"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/*.min.js"
+    - "**/*.snap"
+  # Files that count as tests for the "source changed without tests" signal.
+  tests:
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/__tests__/**"
+    - "**/*.test.*"
+    - "**/*.spec.*"
+    - "**/*_test.*"
+    - "**/test_*.py"
+
+# Optional LLM judge, one extra signal. The diff and PR text are treated as untrusted.
+llm:
+  enabled: false
+  provider: anthropic   # anthropic | openai (any OpenAI-compatible endpoint)
+  model: claude-sonnet-5
+  # baseUrl: https://api.openai.com/v1   # for OpenAI-compatible servers (Azure, Ollama, vLLM)
+  # apiKeyEnv: MY_KEY_VAR                # default: ANTHROPIC_API_KEY or OPENAI_API_KEY
+  includeDescription: false   # the PR body is untrusted; the title only by default
+  maxDiffChars: 60000
+
+history:
+  lookbackDays: 365
+  fixPattern: "\\\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\\\d?|revert)\\\\b"
+  maxCommits: 20000
+
+# Reverse import graph used for blast radius.
+graph:
+  enabled: true
+  maxDepth: 3
+  maxFiles: 50000
+
+# Calibrated model written by \`opendrs calibrate\`; the default priors are used until it exists.
+model: .opendrs/model.json
+`;
+
+export const WORKFLOW_TEMPLATE = `# opendrs: comment a risk score on every pull request.
+# Comment-only until you set autoApprove.enabled in .opendrs.yml on the default branch.
+# Docs: https://github.com/error-path/opendrs/blob/main/docs/github-action.md
+name: opendrs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+
+jobs:
+  opendrs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history: the score uses past commits and authors
+      - uses: error-path/opendrs@v0
+        id: opendrs
+        # with:
+        #   llm-api-key: \${{ secrets.ANTHROPIC_API_KEY }}   # only used when llm.enabled
+`;
