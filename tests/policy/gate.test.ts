@@ -75,6 +75,29 @@ describe("decide: rule 1 (hard block)", () => {
     expect(out).toMatchObject({ decision: "human-review", hardBlocked: true });
   });
 
+  it("matches paths.block case-insensitively (makefile, EF Core Migrations/)", () => {
+    for (const path of ["makefile", "src/Data/Migrations/20240101_Init.cs"]) {
+      expect(decide(input({ files: [file(path)] })), path).toMatchObject({ decision: "human-review", hardBlocked: true });
+    }
+  });
+
+  it("keeps the default blocks when the config sets its own paths.block", () => {
+    const out = decide(input({ cfg: { autoApprove: { sampleRate: 0 }, paths: { block: ["infra/**"] } }, files: [file("package.json", 1, 1)] }));
+    expect(out).toMatchObject({ decision: "human-review", hardBlocked: true });
+  });
+
+  it("routes a net test deletion to human review, whatever the score", () => {
+    const signals: Signal[] = [{ id: "tests.deleted", value: 1, status: "observed", summary: "1 test file deleted", evidence: [] }];
+    const out = decide(input({ signals, score: 0.05 }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", hardBlocked: false });
+    expect(out.reasons[0]).toBe("test deletion: 1 test file deleted");
+  });
+
+  it("ignores a tests.deleted signal of 0", () => {
+    const signals: Signal[] = [{ id: "tests.deleted", value: 0, status: "observed", summary: "no test deletion", evidence: [] }];
+    expect(decide(input({ signals })).decision).toBe("auto-approve");
+  });
+
   it("matches the old path of a rename", () => {
     const renamed: ChangedFile = { ...file("src/moved.sql"), status: "renamed", oldPath: "db/migrations/001.sql" };
     expect(decide(input({ files: [renamed] })).hardBlocked).toBe(true);
@@ -103,6 +126,12 @@ describe("decide: ignored or binary files", () => {
     const out = decide(input({ files: [file("src/a.ts"), binary("gradle/wrapper/gradle-wrapper.jar")] }));
     expect(out.decision).toBe("human-review");
     expect(out.reasons[0]).toContain("gradle/wrapper/gradle-wrapper.jar");
+  });
+
+  it("never auto-approves a PR whose paths contain control characters", () => {
+    const out = decide(input({ files: [file("src/a.ts"), file("docs/x\n::notice::ok\n.md")] }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toMatch(/control characters/);
   });
 
   it("never auto-approves a PR that moves a submodule pointer, but keeps its green tier", () => {

@@ -22,19 +22,23 @@ autoApprove:
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  # Hard block: a PR touching any of these always needs a human.
+  # Hard block: a PR touching any of these always needs a human. Matched ignoring case.
+  # These defaults always apply: globs you add here extend them, and deleting a line here does
+  # not unblock it. To drop a default, list it under unblock below.
   block:
     - ".github/**"
     - ".opendrs.yml"
     - ".opendrs/**"
     - "**/CODEOWNERS"
     - "**/migrations/**"
+    - "**/migration/**"
+    - "**/migrate/**"
     - "**/*.tf"
     - ".gitmodules"
     - "**/.gitattributes"
     # Files that execute code on install, build or CI. Dependency bumps also change a lockfile,
     # which is ignored and so goes to a human anyway. To let a PR that touches one of these be
-    # auto-approved, delete its line here, deliberately.
+    # auto-approved, list it under unblock, deliberately.
     - "**/package.json"
     - "**/.npmrc"
     - "**/.yarnrc"
@@ -56,21 +60,60 @@ paths:
     - "**/Gemfile"
     - "**/Rakefile"
     - "**/*.gemspec"
+    - "**/requirements*.txt"
+    - "**/conftest.py"
+    - "**/.pre-commit-config.y*ml"
+    - "**/tox.ini"
+    - "**/noxfile.py"
+    - "**/*.csproj"
+    - "**/*.sln"
+    - "**/Directory.Build.*"
+    - "**/nuget.config"
+    - "**/CMakeLists.txt"
+    - "**/*.cmake"
+    - "**/.cargo/**"
+    - "**/.husky/**"
     - "**/Makefile"
+    - "**/GNUmakefile"
+    - "**/*.mk"
     - "**/Dockerfile*"
-    - "**/docker-compose*.yml"
+    - "**/docker-compose*.y*ml"
+    - "**/compose.y*ml"
+    - "**/Brewfile"
+    - "**/Vagrantfile"
+    - "**/Procfile"
+    - "**/*.nix"
+    - "**/flake.lock"
+    - "**/.devcontainer/**"
+    - "**/.envrc"
+    - "**/Taskfile.y*ml"
+    - "**/justfile"
     - ".gitlab-ci.yml"
     - "Jenkinsfile"
     - ".circleci/**"
     - "azure-pipelines.yml"
     - ".buildkite/**"
-  # Raises the score (Meta's "high-criticality service" feature).
+    - "**/bitbucket-pipelines.yml"
+    - "**/.drone.yml"
+    - "**/.travis.yml"
+    - "**/cloudbuild.y*ml"
+    - "**/Earthfile"
+    - "**/BUILD"
+    - "**/BUILD.bazel"
+    - "**/WORKSPACE*"
+    - "**/MODULE.bazel"
+    - "**/*.bzl"
+  # Default block globs to remove, each written exactly as above, e.g. ["**/go.mod"].
+  unblock: []
+  # Raises the score (Meta's "high-criticality service" feature). Matched ignoring case.
+  # Like block, globs you add extend these defaults.
   critical:
     - "**/auth/**"
     - "**/payment*/**"
     - "**/billing/**"
     - "**/security/**"
   # Excluded from size and churn (lockfiles, generated and vendored code); never auto-approved.
+  # Unlike block and critical, a list you set for ignore or tests replaces the default.
   ignore:
     - "**/*.lock"
     - "**/package-lock.json"

@@ -9,9 +9,79 @@ async function missing(repo: TestRepo, change: Record<string, string>) {
   repo.commit({ "seed.txt": "s\n" }, "init");
   repo.commit(change, "change");
   const signals = await testsSignals(await contextFor(repo, "HEAD~1"));
-  expect(signals.map((s) => s.id)).toEqual(["tests.missing"]);
+  expect(signals.map((s) => s.id)).toEqual(["tests.missing", "tests.deleted"]);
   return signals[0]!;
 }
+
+/** Both signals for a change on top of `base`. */
+async function both(repo: TestRepo, base: Record<string, string>, change: Record<string, string | null>) {
+  repo.commit({ "seed.txt": "s\n", ...base }, "init");
+  repo.commit(change, "change");
+  const [missingSignal, deleted] = await testsSignals(await contextFor(repo, "HEAD~1"));
+  return { missing: missingSignal!, deleted: deleted! };
+}
+
+describe("tests.missing counts only added test lines", () => {
+  let repo: TestRepo;
+  afterEach(() => repo?.cleanup());
+
+  it("is 1 when a security check and its tests are deleted together", async () => {
+    repo = makeRepo();
+    const s = await both(repo, { "src/csrf.ts": src(20), "src/csrf.test.ts": src(30) }, { "src/csrf.ts": null, "src/csrf.test.ts": null });
+    expect(s.missing).toMatchObject({ value: 1, status: "derived" });
+  });
+
+  it("ignores deleted test lines when grading the added ones", async () => {
+    repo = makeRepo();
+    // 100 source lines; the test file loses 40 lines and gains 15: only the 15 count.
+    const s = await both(repo, { "src/a.test.ts": src(40) }, { "src/a.ts": src(100), "src/a.test.ts": src(15).replace(/line/g, "new") });
+    expect(s.missing.value).toBeCloseTo(0.5);
+  });
+});
+
+describe("tests.deleted", () => {
+  let repo: TestRepo;
+  afterEach(() => repo?.cleanup());
+
+  it("is 1 and observed when a whole test file is deleted, naming it", async () => {
+    repo = makeRepo();
+    const { deleted } = await both(repo, { "src/a.ts": src(5), "src/a.test.ts": src(3) }, { "src/a.test.ts": null });
+    expect(deleted).toMatchObject({ id: "tests.deleted", value: 1, status: "observed" });
+    expect(deleted.evidence.map((e) => e.file)).toEqual(["src/a.test.ts"]);
+  });
+
+  it("is 1 when a PR deletes at least 10 more test lines than it adds", async () => {
+    repo = makeRepo();
+    const { deleted } = await both(repo, { "src/a.test.ts": src(30) }, { "src/a.test.ts": src(20) });
+    expect(deleted).toMatchObject({ value: 1, status: "observed" });
+    expect(deleted.evidence.map((e) => e.file)).toEqual(["src/a.test.ts"]);
+    expect(deleted.summary).toMatch(/10 test lines/);
+  });
+
+  it("is 1 when a test file is renamed out of the test globs", async () => {
+    repo = makeRepo();
+    const { deleted } = await both(repo, { "src/a.test.ts": src(30) }, { "src/a.test.ts": null, "src/a.fixture.ts": src(30) });
+    expect(deleted.value).toBe(1);
+    expect(deleted.evidence.map((e) => e.file)).toEqual(["src/a.fixture.ts"]);
+  });
+
+  it("is 0 for a net deletion under 10 lines", async () => {
+    repo = makeRepo();
+    const { deleted } = await both(repo, { "src/a.test.ts": src(30) }, { "src/a.test.ts": src(21) });
+    expect(deleted).toMatchObject({ value: 0, status: "observed", evidence: [] });
+  });
+
+  it("is 0 when rewritten tests are as long as before", async () => {
+    repo = makeRepo();
+    const { deleted } = await both(repo, { "src/a.test.ts": src(30) }, { "src/a.test.ts": src(30).replace(/line/g, "new") });
+    expect(deleted.value).toBe(0);
+  });
+
+  it("is 0 when tests are only added", async () => {
+    repo = makeRepo();
+    expect((await both(repo, {}, { "src/a.ts": src(10), "src/a.test.ts": src(10) })).deleted.value).toBe(0);
+  });
+});
 
 describe("testsSignals", () => {
   let repo: TestRepo;

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { matchGlob } from "../git/glob.js";
+import { matchAny } from "../git/glob.js";
 import type { HistoryIndex, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { featureValues, sigmoid } from "../model/logistic.js";
@@ -68,7 +68,7 @@ export function decide(input: GateInput): PolicyOutcome {
 
   // 1. hard block
   const blocked = diff.files
-    .filter((f) => [f.path, f.oldPath].some((p) => p !== undefined && config.paths.block.some((g) => matchGlob(g, p))))
+    .filter((f) => [f.path, f.oldPath].some((p) => p !== undefined && matchAny(config.paths.block, p, { ignoreCase: true })))
     .map((f) => f.path);
   const blockedSignal = input.signals.find((s) => s.id === "paths.blocked" && s.value >= 1);
   const hardBlocked = blocked.length > 0 || blockedSignal !== undefined;
@@ -82,11 +82,19 @@ export function decide(input: GateInput): PolicyOutcome {
   if (unread.length > 0) {
     fired.push({ decision: "human-review", reason: `ignored or binary files are never auto-approved: ${list(unread)}` });
   }
+  // Control characters in a path are never legitimate and are how log and glob tricks start.
+  const oddPaths = diff.files.flatMap((f) => [f.path, f.oldPath ?? ""]).filter((p) => /[\u0000-\u001f\u007f]/.test(p));
+  if (oddPaths.length > 0) {
+    fired.push({ decision: "human-review", reason: `paths with control characters are never auto-approved: ${list(oddPaths.map((p) => JSON.stringify(p)))}` });
+  }
   // A moved submodule pointer pulls in code the diff does not show.
   const submodules = diff.files.filter((f) => f.submodule).map((f) => f.path);
   if (submodules.length > 0) {
     fired.push({ decision: "human-review", reason: `submodule changes are never auto-approved: ${list(submodules)}` });
   }
+  // Removing tests removes the evidence a change is safe, and a calibrated model may not weigh it.
+  const testsDeleted = input.signals.find((s) => s.id === "tests.deleted" && s.value >= 1);
+  if (testsDeleted) fired.push({ decision: "human-review", reason: `test deletion: ${testsDeleted.summary}` });
 
   // 2. size cap (a binary file counts as one line)
   const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);

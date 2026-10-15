@@ -8,12 +8,12 @@ import { matchGlob } from "../git/glob.js";
 function matches(files: ChangedFile[], globs: string[], kind: string): Evidence[] {
   const out: Evidence[] = [];
   for (const f of files) {
-    const hitNew = globs.find((g) => matchGlob(g, f.path));
+    const hitNew = globs.find((g) => matchGlob(g, f.path, { ignoreCase: true }));
     if (hitNew) {
       out.push({ file: f.path, detail: `matches ${kind} glob "${hitNew}"` });
       continue;
     }
-    const hitOld = f.oldPath ? globs.find((g) => matchGlob(g, f.oldPath!)) : undefined;
+    const hitOld = f.oldPath ? globs.find((g) => matchGlob(g, f.oldPath!, { ignoreCase: true })) : undefined;
     if (hitOld) out.push({ file: f.path, detail: `renamed from ${f.oldPath}, which matches ${kind} glob "${hitOld}"` });
   }
   return out;

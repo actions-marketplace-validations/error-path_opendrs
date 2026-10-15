@@ -43,8 +43,8 @@ export async function explainFile(repoDir: string, path: string, config: Opendrs
     authors: byAuthor.size,
     directDependents: graph && supported ? graph.dependentsOf(path).length : null,
     transitiveDependents: graph && supported ? graph.transitiveDependents(path, config.graph.maxDepth).size : null,
-    critical: matchAny(config.paths.critical, path),
-    blocked: matchAny(config.paths.block, path),
+    critical: matchAny(config.paths.critical, path, { ignoreCase: true }),
+    blocked: matchAny(config.paths.block, path, { ignoreCase: true }),
     topAuthors,
   };
 }

@@ -38,6 +38,99 @@ const globs = (defaults: string[]) =>
     )
     .default(defaults);
 
+/** Default `paths.block`. A config's own `block` adds to it; only `paths.unblock` removes an entry. */
+export const DEFAULT_BLOCK: readonly string[] = [
+  ".github/**",
+  ".opendrs.yml",
+  ".opendrs/**",
+  "**/CODEOWNERS",
+  "**/migrations/**",
+  "**/migration/**",
+  "**/migrate/**",
+  "**/*.tf",
+  ".gitmodules",
+  "**/.gitattributes",
+  // Files that execute code on install, build or CI.
+  "**/package.json",
+  "**/.npmrc",
+  "**/.yarnrc",
+  "**/.yarnrc.yml",
+  "**/.pnpmfile.cjs",
+  "**/setup.py",
+  "**/setup.cfg",
+  "**/pyproject.toml",
+  "**/pip.conf",
+  "**/build.gradle",
+  "**/build.gradle.kts",
+  "**/settings.gradle*",
+  "**/gradle/wrapper/**",
+  "**/pom.xml",
+  "**/.mvn/**",
+  "**/Cargo.toml",
+  "**/build.rs",
+  "**/go.mod",
+  "**/Gemfile",
+  "**/Rakefile",
+  "**/*.gemspec",
+  "**/requirements*.txt",
+  "**/conftest.py",
+  "**/.pre-commit-config.y*ml",
+  "**/tox.ini",
+  "**/noxfile.py",
+  "**/*.csproj",
+  "**/*.sln",
+  "**/Directory.Build.*",
+  "**/nuget.config",
+  "**/CMakeLists.txt",
+  "**/*.cmake",
+  "**/.cargo/**",
+  "**/.husky/**",
+  "**/Makefile",
+  "**/GNUmakefile",
+  "**/*.mk",
+  "**/Dockerfile*",
+  "**/docker-compose*.y*ml",
+  "**/compose.y*ml",
+  "**/Brewfile",
+  "**/Vagrantfile",
+  "**/Procfile",
+  "**/*.nix",
+  "**/flake.lock",
+  "**/.devcontainer/**",
+  "**/.envrc",
+  "**/Taskfile.y*ml",
+  "**/justfile",
+  ".gitlab-ci.yml",
+  "Jenkinsfile",
+  ".circleci/**",
+  "azure-pipelines.yml",
+  ".buildkite/**",
+  "**/bitbucket-pipelines.yml",
+  "**/.drone.yml",
+  "**/.travis.yml",
+  "**/cloudbuild.y*ml",
+  "**/Earthfile",
+  "**/BUILD",
+  "**/BUILD.bazel",
+  "**/WORKSPACE*",
+  "**/MODULE.bazel",
+  "**/*.bzl",
+];
+
+/** Default `paths.critical`. A config's own `critical` adds to it. */
+export const DEFAULT_CRITICAL: readonly string[] = ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"];
+
+/** An unblock entry must name a default block glob exactly, so a typo cannot pass silently. */
+function unblockable(glob: string, ctx: z.RefinementCtx): void {
+  if (DEFAULT_BLOCK.includes(glob)) return;
+  ctx.addIssue({
+    code: "custom",
+    message: `paths.unblock entry "${glob}" is not a default paths.block glob; valid entries: ${DEFAULT_BLOCK.map((g) => `"${g}"`).join(", ")}`,
+  });
+}
+
+const union = (a: readonly string[], b: readonly string[]): string[] => [...new Set([...a, ...b])];
+
 export const configSchema = z.object({
   thresholds: thresholdsSchema.prefault({}),
   autoApprove: z
@@ -64,47 +157,9 @@ export const configSchema = z.object({
     .prefault({}),
   paths: z
     .object({
-      block: globs([
-        ".github/**",
-        ".opendrs.yml",
-        ".opendrs/**",
-        "**/CODEOWNERS",
-        "**/migrations/**",
-        "**/*.tf",
-        ".gitmodules",
-        "**/.gitattributes",
-        // Files that execute code on install, build or CI.
-        "**/package.json",
-        "**/.npmrc",
-        "**/.yarnrc",
-        "**/.yarnrc.yml",
-        "**/.pnpmfile.cjs",
-        "**/setup.py",
-        "**/setup.cfg",
-        "**/pyproject.toml",
-        "**/pip.conf",
-        "**/build.gradle",
-        "**/build.gradle.kts",
-        "**/settings.gradle*",
-        "**/gradle/wrapper/**",
-        "**/pom.xml",
-        "**/.mvn/**",
-        "**/Cargo.toml",
-        "**/build.rs",
-        "**/go.mod",
-        "**/Gemfile",
-        "**/Rakefile",
-        "**/*.gemspec",
-        "**/Makefile",
-        "**/Dockerfile*",
-        "**/docker-compose*.yml",
-        ".gitlab-ci.yml",
-        "Jenkinsfile",
-        ".circleci/**",
-        "azure-pipelines.yml",
-        ".buildkite/**",
-      ]),
-      critical: globs(["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]),
+      block: globs([]),
+      critical: globs([]),
+      unblock: z.array(z.string().superRefine(unblockable)).default([]),
       ignore: globs([
         "**/*.lock",
         "**/package-lock.json",
@@ -126,6 +181,12 @@ export const configSchema = z.object({
         "**/test_*.py",
       ]),
     })
+    // block and critical extend the defaults (ignore and tests replace theirs); unblock wins over both.
+    .transform((p) => ({
+      ...p,
+      block: union(DEFAULT_BLOCK, p.block).filter((g) => !p.unblock.includes(g)),
+      critical: union(DEFAULT_CRITICAL, p.critical),
+    }))
     .prefault({}),
   llm: z
     .object({

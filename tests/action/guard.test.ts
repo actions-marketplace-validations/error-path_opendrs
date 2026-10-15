@@ -31,6 +31,10 @@ describe("selfModifiedPaths", () => {
     expect(selfModifiedPaths(["models/drs.json", "src/a.ts"], ["models/drs.json"])).toEqual(["models/drs.json"]);
   });
 
+  it("matches extra paths case-insensitively too", () => {
+    expect(selfModifiedPaths(["Models/DRS.json"], ["models/drs.json"])).toEqual(["Models/DRS.json"]);
+  });
+
   it("cannot be disabled by passing no extra paths", () => {
     expect(selfModifiedPaths([".github/x"], [])).toEqual([".github/x"]);
   });

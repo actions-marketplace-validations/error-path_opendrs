@@ -2,17 +2,25 @@
 
 const cache = new Map<string, RegExp>();
 
-export function matchGlob(pattern: string, path: string): boolean {
-  let re = cache.get(pattern);
+export interface GlobOptions {
+  /** Ignore case, as `paths.block` and `paths.critical` do: `makefile` and `Migrations/` must not slip past. */
+  ignoreCase?: boolean;
+}
+
+export function matchGlob(pattern: string, path: string, opts: GlobOptions = {}): boolean {
+  // "s": `**` must span every character, so a path with a line break cannot dodge a block glob.
+  const flags = opts.ignoreCase ? "isu" : "su";
+  const key = `${flags}:${pattern}`;
+  let re = cache.get(key);
   if (!re) {
-    re = new RegExp(`^${translate(pattern)}$`, "u");
-    cache.set(pattern, re);
+    re = new RegExp(`^${translate(pattern)}$`, flags);
+    cache.set(key, re);
   }
   return re.test(path);
 }
 
-export function matchAny(patterns: readonly string[], path: string): boolean {
-  return patterns.some((p) => matchGlob(p, path));
+export function matchAny(patterns: readonly string[], path: string, opts: GlobOptions = {}): boolean {
+  return patterns.some((p) => matchGlob(p, path, opts));
 }
 
 function translate(glob: string): string {

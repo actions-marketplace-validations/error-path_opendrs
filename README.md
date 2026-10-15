@@ -89,7 +89,8 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Language indicators | `lang.*` | one indicator per language family present |
 | Author created the file | `expertise.owner_ratio` | share of changed files the author created or mostly wrote |
 | Author's landed diffs | `expertise.author_commits` | `log1p` of the author's prior commits; negative weight |
-| Test plan | `tests.missing` | 1 when source changed and no test lines did; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))` (a proxy) |
+| Test plan | `tests.missing` | 1 when source changed and no test lines were added; otherwise `max(0, 1 − addedTestLines / (0.3 · sourceLines))` (a proxy). Deleted test lines never count |
+| (not in Meta's list) | `tests.deleted` | 1 when a test file is deleted (or renamed out of `paths.tests`), or 10 or more test lines more are deleted than added. Also a policy rule: such a PR always goes to a human |
 | LLM risk model (iDiffLlama) | `llm.semantic` | `max(0, logit(p) − logit(0.2))` from an optional prompted LLM judge: it can only raise risk |
 | (not in Meta's list) | `blast.dependents`, `blast.public_surface` | transitive dependents of the changed files (depth 3) from the import graph; exported symbols changed in a file that has dependents |
 | (not in Meta's list) | `history.churn` | `log1p` of commits touching the files in the lookback window |
@@ -103,8 +104,8 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink) →
-   `human-review`;
+2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink), or the PR
+   deletes tests (`tests.deleted`) → `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green → `human-review`;
 5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
@@ -286,7 +287,9 @@ autoApprove:
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf",
+  # block and critical are matched ignoring case, and a list you set adds to these defaults.
+  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS",
+          "**/migrations/**", "**/migration/**", "**/migrate/**", "**/*.tf",
           ".gitmodules", "**/.gitattributes",
           # files that execute code on install, build or CI
           "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
@@ -295,9 +298,20 @@ paths:
           "**/pom.xml", "**/.mvn/**",
           "**/Cargo.toml", "**/build.rs", "**/go.mod",
           "**/Gemfile", "**/Rakefile", "**/*.gemspec",
-          "**/Makefile", "**/Dockerfile*", "**/docker-compose*.yml",
-          ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**"]
+          "**/requirements*.txt", "**/conftest.py", "**/.pre-commit-config.y*ml", "**/tox.ini",
+          "**/noxfile.py",
+          "**/*.csproj", "**/*.sln", "**/Directory.Build.*", "**/nuget.config",
+          "**/CMakeLists.txt", "**/*.cmake", "**/.cargo/**", "**/.husky/**",
+          "**/Makefile", "**/GNUmakefile", "**/*.mk",
+          "**/Dockerfile*", "**/docker-compose*.y*ml", "**/compose.y*ml",
+          "**/Brewfile", "**/Vagrantfile", "**/Procfile", "**/*.nix", "**/flake.lock",
+          "**/.devcontainer/**", "**/.envrc", "**/Taskfile.y*ml", "**/justfile",
+          ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**",
+          "**/bitbucket-pipelines.yml", "**/.drone.yml", "**/.travis.yml", "**/cloudbuild.y*ml",
+          "**/Earthfile", "**/BUILD", "**/BUILD.bazel", "**/WORKSPACE*", "**/MODULE.bazel", "**/*.bzl"]
+  unblock: []           # default block globs to drop, written exactly as above, e.g. ["**/go.mod"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
+  # ignore and tests: a list you set replaces the default.
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
            "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
@@ -328,23 +342,32 @@ model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used u
 
 **Why the default block list is long.** Besides the gate's own files, `paths.block` lists
 files that execute code on install, build or CI: package manifests and their registry settings
-(`package.json`, `.npmrc`, `setup.py`, `pyproject.toml`, ...), build scripts (`build.gradle`,
-`pom.xml`, `build.rs`, `Makefile`, `Dockerfile`, ...) and CI pipelines outside `.github/`. A
+(`package.json`, `.npmrc`, `setup.py`, `pyproject.toml`, `requirements.txt`, ...), build scripts
+and project files (`build.gradle`, `pom.xml`, `build.rs`, `Makefile`, `CMakeLists.txt`, `*.csproj`,
+`Dockerfile`, Bazel and Nix files, ...), developer hooks and environments (`.husky/`,
+`.pre-commit-config.yaml`, `conftest.py`, `.envrc`, `.devcontainer/`, ...) and CI pipelines outside
+`.github/`. Block and critical globs are matched ignoring case, so `makefile` or an EF Core
+`Migrations/` folder cannot slip past `**/Makefile` or `**/migrations/**`. A
 one-line change there (a `postinstall` hook, a registry pointed at another host, a new build
 step) scores as small and low-risk, but runs on every developer machine and CI runner. Dependency
 bumps also change a lockfile, which is in `paths.ignore` and so already goes to a human.
 
-To relax this, do it deliberately: copy the full `block` list into `.opendrs.yml` on the default
-branch and delete only the entries you accept, for example `"**/go.mod"` if you trust `go.mod`
-edits to code review alone. A `paths.block` you set replaces the default list, so leaving out an
-entry you did not mean to drop unblocks it. In the Action, the self-modification guard keeps
-`.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and `.gitattributes` blocked
-whatever the list says.
+**Your lists add to the defaults.** A `paths.block` or `paths.critical` you set extends the
+default list; it never replaces it, so `block: ["infra/**"]` blocks `infra/**` as well as
+everything above. To drop a default block entry, name it under `paths.unblock` on the default
+branch, written exactly as in the list, for example `unblock: ["**/go.mod"]` if you trust `go.mod`
+edits to code review alone. An `unblock` entry that is not a default block glob is a config error
+that lists the valid ones, so a typo cannot pass silently. `paths.unblock` wins over the same glob
+under `paths.block`. Default `critical` globs cannot be removed. `paths.ignore` and `paths.tests`
+work the other way: a list you set replaces the default. In the Action, the self-modification
+guard keeps `.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and
+`.gitattributes` blocked whatever the lists say.
 
 opendrs refuses a config that would fail silently, naming the offending value:
 
 - **Globs** are repo-relative and support `**`, `*`, `?` and `{a,b}`. A glob with `[` or `]`
   (character classes are not supported), a backslash, or a leading `/` or `./` is an error.
+- **`paths.unblock`** entries must each be a default `paths.block` glob, character for character.
 - **Thresholds** must be ordered: `0 ≤ green < yellow ≤ red ≤ 1` in absolute mode, and
   `0 < green < yellow ≤ red < 100` in percentile mode.
 
@@ -360,6 +383,10 @@ opendrs refuses a config that would fail silently, naming the offending value:
 - **The import graph is regex-based.** It misses dynamic imports, reflection, dependency
   injection, code generation, and dependencies across services or repositories.
 - **Complexity is a heuristic** that counts branch keywords; it does not parse code.
+- **Test signals count lines, not assertions.** `tests.missing` and `tests.deleted` see only files
+  matching `paths.tests`. A PR that weakens a test without shrinking it (an assertion edited into a
+  no-op) is not flagged by them, and tests outside those globs are not seen at all. Splitting a test
+  file into new ones counts as deleting a test file and goes to a human.
 - **The LLM judge is prompted, not trained.** Meta's LLM variants were fine-tuned on Meta's own
   incidents; a general model reading a diff is a weaker signal, and it costs money per PR.
 - **The score is not a code review.** It estimates the chance of an incident, not whether the

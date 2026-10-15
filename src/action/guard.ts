@@ -18,6 +18,6 @@ const GUARDED = [
 
 /** Changed files that trip the self-modification guard (case-insensitive). */
 export function selfModifiedPaths(files: readonly string[], extra: readonly string[] = []): string[] {
-  const patterns = [...GUARDED, ...extra].map((p) => p.toLowerCase());
-  return files.filter((f) => matchAny(patterns, f.toLowerCase()));
+  const patterns = [...GUARDED, ...extra];
+  return files.filter((f) => matchAny(patterns, f, { ignoreCase: true }));
 }

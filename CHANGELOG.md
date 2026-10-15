@@ -15,6 +15,13 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   A config that still lists it, even as `labels: []`, now fails to parse; list your AI reviewer's
   check run under `requireAiReview.checks` instead. The Action no longer removes AI-review labels
   on `synchronize`.
+- A `paths.block` or `paths.critical` list in `.opendrs.yml` now extends the defaults instead of
+  replacing them. Setting `block: ["infra/**"]` used to drop every default block, so a
+  `postinstall` hook in `package.json` could be auto-approved. To remove a default block glob, list
+  it under the new `paths.unblock`, exactly as written in the defaults; any other entry is a
+  config error that names the valid ones. If you copied the default list to delete entries from
+  it, move those entries to `paths.unblock`. `paths.ignore` and `paths.tests` still replace their
+  defaults.
 
 ### Security
 
@@ -36,8 +43,26 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   Bundler and Rake files, Makefiles, Dockerfiles and Compose files, and the GitLab, Jenkins,
   CircleCI, Azure Pipelines and Buildkite pipelines. An `.npmrc` registry change or a `postinstall`
   hook in `package.json` used to score as a tiny change and could be auto-approved. `opendrs init`
-  writes the same list. If your `.opendrs.yml` sets its own `paths.block`, it replaces the defaults:
-  compare it with the new list.
+  writes the same list. A `paths.block` you set now adds to this list (see Breaking).
+- `paths.block`, `paths.critical` and the Action's self-modification guard match ignoring case.
+  `makefile` and EF Core `Migrations/` folders slipped past `**/Makefile` and `**/migrations/**`
+  and were auto-approved.
+- The default `paths.block` also covers Python (`requirements*.txt`, `conftest.py`,
+  `.pre-commit-config.yaml`, `tox.ini`, `noxfile.py`), .NET (`*.csproj`, `*.sln`,
+  `Directory.Build.*`, `nuget.config`), CMake, `.cargo/`, `.husky/`, GNU make (`GNUmakefile`,
+  `*.mk`), `compose.yaml` and `docker-compose*.yaml`, Brewfile, Vagrantfile, Procfile, Nix,
+  `.devcontainer/`, `.envrc`, Taskfile, justfile, Bitbucket, Drone, Travis, Cloud Build, Earthly
+  and Bazel files, and Rails (`migrate/`) and Flyway (`migration/`) migrations. Each of these
+  could be changed in a PR that was auto-approved.
+- Deleting tests no longer lowers risk. Deleted test lines counted as test changes, so deleting a
+  CSRF check together with its tests scored 0.16 and was auto-approved. Now:
+  - `tests.missing` counts only added test lines;
+  - a new signal, `tests.deleted`, is 1 when a PR deletes a test file (or renames one out of
+    `paths.tests`) or deletes at least 10 more test lines than it adds. Its prior weight is 1.0;
+  - such a PR always goes to a human, whatever its score.
+- A path containing a line break could dodge every block glob, including `.github/**`, because
+  `**` did not match across line breaks. Globs now match any character, and a PR whose paths contain
+  control characters always goes to a human.
 - The Action's log can no longer be fed workflow commands. A changed file named
   `docs/x\n::stop-commands::…\n::notice::…` was printed verbatim in the decision reasons, so the
   runner executed the commands. Every plain log line now shows line breaks as `⏎` and gets a
