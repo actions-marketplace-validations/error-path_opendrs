@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { CommitInfo, HistoryIndex, Hunk, Incident, LabelledCommit } from "../domain/types.js";
@@ -10,7 +11,7 @@ import { matchAny } from "../git/glob.js";
 
 export const INCIDENTS_FILE = ".opendrs/incidents.jsonl";
 const MAX_FIX_COMMITS = 2000;
-const CONCURRENCY = 8;
+const CONCURRENCY = Math.max(2, availableParallelism());
 
 type Source = NonNullable<LabelledCommit["source"]>;
 const RANK: Record<Source, number> = { szz: 1, revert: 2, incident: 3 };
