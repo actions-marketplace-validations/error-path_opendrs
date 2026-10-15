@@ -1,0 +1,27 @@
+# Dogfood: score this repository's own PRs with the action as checked out (uses: ./).
+# Comment-only: autoApprove stays off in this repo, and the token below cannot merge.
+name: opendrs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+
+jobs:
+  opendrs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # required: the score reads past commits, authors and the merge-base
+      - uses: ./
+        id: opendrs
+      - env:
+          SCORE: ${{ steps.opendrs.outputs.score }}
+          TIER: ${{ steps.opendrs.outputs.tier }}
+          DECISION: ${{ steps.opendrs.outputs.decision }}
+        run: echo "score=$SCORE tier=$TIER decision=$DECISION"
