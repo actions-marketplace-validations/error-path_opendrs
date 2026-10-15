@@ -120,8 +120,9 @@ The rails that matter when the Action can approve PRs:
 - **Config comes from the base branch.** The Action reads `.opendrs.yml` and the calibrated model
   from the PR's base commit, so a PR cannot loosen its own gate.
 - **Hard blocks.** `paths.block` (by default `.github/**`, `.opendrs.yml`, `.opendrs/**`,
-  `CODEOWNERS`, migrations, Terraform, `.gitmodules` and `.gitattributes`) always sends the PR to
-  a human.
+  `CODEOWNERS`, migrations, Terraform, `.gitmodules`, `.gitattributes`, and files that execute
+  code on install, build or CI; see [Configuration](#configuration)) always sends the PR to a
+  human.
 - **Binary files cannot pass as text.** Git's own test only looks for a NUL in the first 8000 bytes
   and obeys `.gitattributes`, so opendrs also reads every changed file at the PR head and treats it
   as binary when it holds a NUL anywhere or is not valid UTF-8. With git 2.40 or later the diff
@@ -248,7 +249,16 @@ autoApprove:
 
 paths:
   block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf",
-          ".gitmodules", "**/.gitattributes"]
+          ".gitmodules", "**/.gitattributes",
+          # files that execute code on install, build or CI
+          "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
+          "**/setup.py", "**/setup.cfg", "**/pyproject.toml", "**/pip.conf",
+          "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle*", "**/gradle/wrapper/**",
+          "**/pom.xml", "**/.mvn/**",
+          "**/Cargo.toml", "**/build.rs", "**/go.mod",
+          "**/Gemfile", "**/Rakefile", "**/*.gemspec",
+          "**/Makefile", "**/Dockerfile*", "**/docker-compose*.yml",
+          ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
@@ -277,6 +287,21 @@ graph:
 
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
 ```
+
+**Why the default block list is long.** Besides the gate's own files, `paths.block` lists
+files that execute code on install, build or CI: package manifests and their registry settings
+(`package.json`, `.npmrc`, `setup.py`, `pyproject.toml`, ...), build scripts (`build.gradle`,
+`pom.xml`, `build.rs`, `Makefile`, `Dockerfile`, ...) and CI pipelines outside `.github/`. A
+one-line change there (a `postinstall` hook, a registry pointed at another host, a new build
+step) scores as small and low-risk, but runs on every developer machine and CI runner. Dependency
+bumps also change a lockfile, which is in `paths.ignore` and so already goes to a human.
+
+To relax this, do it deliberately: copy the full `block` list into `.opendrs.yml` on the default
+branch and delete only the entries you accept, for example `"**/go.mod"` if you trust `go.mod`
+edits to code review alone. A `paths.block` you set replaces the default list, so leaving out an
+entry you did not mean to drop unblocks it. In the Action, the self-modification guard keeps
+`.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and `.gitattributes` blocked
+whatever the list says.
 
 opendrs refuses a config that would fail silently, naming the offending value:
 

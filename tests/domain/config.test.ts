@@ -31,6 +31,55 @@ describe("default paths.block", () => {
   it.each([".gitattributes", "tools/.gitattributes"])("blocks %s, which can make git call a binary text", (path) => {
     expect(blocked(path)).toBe(true);
   });
+
+  it.each([
+    "package.json",
+    "web/package.json",
+    ".npmrc",
+    ".yarnrc",
+    "web/.yarnrc.yml",
+    ".pnpmfile.cjs",
+    "setup.py",
+    "pkg/setup.cfg",
+    "pyproject.toml",
+    "pip.conf",
+    "build.gradle",
+    "app/build.gradle.kts",
+    "settings.gradle",
+    "settings.gradle.kts",
+    "gradle/wrapper/gradle-wrapper.properties",
+    "sub/gradle/wrapper/gradle-wrapper.jar",
+    "pom.xml",
+    ".mvn/wrapper/maven-wrapper.properties",
+    "Cargo.toml",
+    "crates/x/build.rs",
+    "go.mod",
+    "Gemfile",
+    "Rakefile",
+    "lib/x.gemspec",
+    "Makefile",
+    "native/Makefile",
+    "Dockerfile",
+    "svc/Dockerfile.dev",
+    "docker-compose.yml",
+    "deploy/docker-compose.prod.yml",
+    ".gitlab-ci.yml",
+    "Jenkinsfile",
+    ".circleci/config.yml",
+    "azure-pipelines.yml",
+    ".buildkite/pipeline.yml",
+  ])("blocks %s, which can run code at install, build or CI time", (path) => {
+    expect(blocked(path)).toBe(true);
+  });
+
+  it("keeps the original entries and leaves ordinary source alone", () => {
+    expect(defaultConfig().paths.block).toEqual(
+      expect.arrayContaining([".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf"]),
+    );
+    for (const path of ["src/a.ts", "docs/Makefile.md", "src/package.ts", "README.md", "src/build.rs.md"]) {
+      expect(blocked(path), path).toBe(false);
+    }
+  });
 });
 
 describe("glob validation", () => {

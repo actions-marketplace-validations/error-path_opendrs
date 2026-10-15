@@ -19,6 +19,13 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   - with git 2.40 or later, attributes are read from the base commit (`--attr-source`). Older git
     ignores the global and system attribute files but still reads in-tree ones;
   - `**/.gitattributes` is blocked by default and by the self-modification guard.
+- The default `paths.block` now lists files that execute code on install, build or CI: package
+  manifests and registry settings (npm, Yarn, pnpm, pip, setuptools), Gradle, Maven, Cargo, Go,
+  Bundler and Rake files, Makefiles, Dockerfiles and Compose files, and the GitLab, Jenkins,
+  CircleCI, Azure Pipelines and Buildkite pipelines. An `.npmrc` registry change or a `postinstall`
+  hook in `package.json` used to score as a tiny change and could be auto-approved. `opendrs init`
+  writes the same list. If your `.opendrs.yml` sets its own `paths.block`, it replaces the defaults:
+  compare it with the new list.
 
 ## 0.1.0 - 2026-10-15
 

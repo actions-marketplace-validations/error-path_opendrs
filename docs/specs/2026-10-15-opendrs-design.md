@@ -174,7 +174,16 @@ autoApprove:
   maxChangedLines: 400 # never auto-approve above this, whatever the score
 paths:
   block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf", ".gitmodules",
-             "**/.gitattributes"]
+             "**/.gitattributes",
+             # files that execute code on install, build or CI (dependency bumps also touch an
+             # ignored lockfile, so they reach a human anyway)
+             "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
+             "**/setup.py", "**/setup.cfg", "**/pyproject.toml", "**/pip.conf",
+             "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle*", "**/gradle/wrapper/**",
+             "**/pom.xml", "**/.mvn/**", "**/Cargo.toml", "**/build.rs", "**/go.mod",
+             "**/Gemfile", "**/Rakefile", "**/*.gemspec",
+             "**/Makefile", "**/Dockerfile*", "**/docker-compose*.yml",
+             ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**"]
   critical: ["**/auth/**", "**/payment*/**", "**/security/**"]
   ignore:   ["**/*.lock", "**/package-lock.json", "**/dist/**", "**/vendor/**", "**/*.min.js"]
 llm:
