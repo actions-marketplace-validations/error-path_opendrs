@@ -2,6 +2,12 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.1.2 - 2026-10-16
+
+- The Action's display name is now "opendrs Diff Risk Score", so it can be listed on the GitHub
+  Marketplace. GitHub reserves a Marketplace name that matches an existing account, and an
+  `OpenDRS` organization exists. Nothing changes for users: keep `uses: error-path/opendrs@v0`.
+
 ## 0.1.1 - 2026-10-15
 
 ### Breaking

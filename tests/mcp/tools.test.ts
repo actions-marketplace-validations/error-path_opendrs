@@ -43,7 +43,7 @@ function result(): ScoreResult {
     llm: { risk: 0.6, rationale: "changes locking", riskySnippets: [] },
     diff: { base: "b", head: "h", files: 3, added: 40, deleted: 2 },
     model: "default",
-    version: "0.1.1",
+    version: "0.1.2",
   };
 }
 
