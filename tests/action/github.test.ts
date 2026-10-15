@@ -101,6 +101,26 @@ describe("GitHubClient", () => {
     expect(isSelf(user, viewer)).toBe(expected);
   });
 
+  it("reads the base branch's pull_request rules and classic review protection, URL-encoding the branch", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json(200, [
+          { type: "deletion" },
+          { type: "pull_request", parameters: { required_approving_review_count: 1, dismiss_stale_reviews_on_push: true } },
+        ]),
+      )
+      .mockResolvedValueOnce(json(200, { required_pull_request_reviews: { dismiss_stale_reviews: true, required_approving_review_count: 1 } }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await client().pullRequestRules("release/1.x")).toEqual([{ required_approving_review_count: 1, dismiss_stale_reviews_on_push: true }]);
+    expect(await client().classicReviewProtection("release/1.x")).toEqual({ dismiss_stale_reviews: true, required_approving_review_count: 1 });
+    const urls = fetch.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(urls).toEqual([
+      "https://ghe.example/api/v3/repos/o/r/rules/branches/release%2F1.x?per_page=100",
+      "https://ghe.example/api/v3/repos/o/r/branches/release%2F1.x/protection",
+    ]);
+  });
+
   it("picks the first allowed merge method and reports the merge queue", async () => {
     const fetch = vi.fn(async () =>
       json(200, { data: { repository: { mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: true, mergeQueue: { id: "MQ" } } } }),

@@ -2,6 +2,15 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Breaking
+
+- The Action approves only when the base branch requires an approval and dismisses stale
+  approvals on push (an active branch ruleset, or classic protection the token can read).
+  Otherwise it logs a warning and does not approve. Add the ruleset described in
+  docs/github-action.md, "Required: dismiss stale approvals on push".
+
 ## 0.1.0 - 2026-10-15
 
 First release.

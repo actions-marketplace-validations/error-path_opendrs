@@ -187,6 +187,19 @@ export class GitHubClient {
     return runs.filter((r) => r.conclusion === "success").map((r) => r.name);
   }
 
+  /** Parameters of the active ruleset `pull_request` rules on `branch` (readable with the default token). */
+  async pullRequestRules(branch: string): Promise<Array<{ required_approving_review_count?: number; dismiss_stale_reviews_on_push?: boolean }>> {
+    type Rule = { type: string; parameters?: { required_approving_review_count?: number; dismiss_stale_reviews_on_push?: boolean } };
+    const rules = await this.paginate<Rule>(`${this.repoPath}/rules/branches/${encodeURIComponent(branch)}`);
+    return rules.filter((r) => r.type === "pull_request").map((r) => r.parameters ?? {});
+  }
+
+  /** Classic branch protection's review settings; reading them needs administration read, which GITHUB_TOKEN lacks. */
+  async classicReviewProtection(branch: string): Promise<{ dismiss_stale_reviews?: boolean; required_approving_review_count?: number } | undefined> {
+    type Protection = { required_pull_request_reviews?: { dismiss_stale_reviews?: boolean; required_approving_review_count?: number } };
+    return (await this.rest<Protection>("GET", `${this.repoPath}/branches/${encodeURIComponent(branch)}/protection`)).required_pull_request_reviews;
+  }
+
   /** Whether `branch` has a merge queue, and the first merge method the repo allows. */
   async mergeSettings(branch: string): Promise<{ hasMergeQueue: boolean; method: MergeMethod }> {
     const { repository: r } = await this.graphql<{

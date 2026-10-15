@@ -29,6 +29,12 @@ export interface FakeCommit {
 /** How the real GITHUB_TOKEN appears on REST reviews and comments. */
 export const BOT: FakeUser = { login: "github-actions[bot]", type: "Bot" };
 
+/** A ruleset rule that requires one approval and dismisses it on a new push. */
+export const STALE_APPROVALS_DISMISSED = {
+  type: "pull_request",
+  parameters: { required_approving_review_count: 1, dismiss_stale_reviews_on_push: true },
+};
+
 export type Op =
   | "viewer"
   | "user"
@@ -45,6 +51,8 @@ export type Op =
   | "createReview"
   | "dismissReview"
   | "checkRuns"
+  | "rules"
+  | "protection"
   | "mergeSettings"
   | "enableAutoMerge"
   | "enqueue";
@@ -64,6 +72,10 @@ export interface FakeGitHub {
   labels: string[];
   reviews: FakeReview[];
   checkRuns: Array<{ name: string; conclusion: string | null }>;
+  /** GET /rules/branches/main: the active rules on the base branch. */
+  rules: Array<{ type: string; parameters?: Record<string, unknown> }>;
+  /** GET /branches/main/protection (classic); undefined answers 404 "Branch not protected". */
+  protection?: { required_pull_request_reviews?: { dismiss_stale_reviews?: boolean; required_approving_review_count?: number } };
   mergeQueue: boolean;
   mergeCommitAllowed: boolean;
   /** Operations that answer 403. */
@@ -89,6 +101,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
     labels: [],
     reviews: [],
     checkRuns: [],
+    rules: [STALE_APPROVALS_DISMISSED],
     mergeQueue: false,
     mergeCommitAllowed: true,
     forbid: new Set(),
@@ -197,6 +210,9 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
         });
       if ((m = route.match(new RegExp(`^GET ${pr}/commits/(\\w+)/check-runs$`))))
         return handle("checkRuns", path, undefined, () => json(200, { total_count: gh.checkRuns.length, check_runs: gh.checkRuns }));
+      if (route === `GET ${pr}/rules/branches/main`) return handle("rules", path, undefined, () => json(200, gh.rules));
+      if (route === `GET ${pr}/branches/main/protection`)
+        return handle("protection", path, undefined, () => (gh.protection ? json(200, gh.protection) : json(404, { message: "Branch not protected" })));
       throw new Error(`fake GitHub: unexpected ${route}`);
     }),
   );
