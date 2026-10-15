@@ -85,6 +85,12 @@ describe("explainFile", () => {
     expect(out.critical).toBe(false);
   });
 
+  it("matches blocked and critical paths case-insensitively, like the gate", async () => {
+    repo.commit({ "db/Migrations/1.sql": "create table t();\n", "lib/Auth/x.ts": "export const y = 1;\n" }, "add");
+    expect((await explainFile(repo.dir, "db/Migrations/1.sql", parseConfig({}))).blocked).toBe(true);
+    expect((await explainFile(repo.dir, "lib/Auth/x.ts", parseConfig({}))).critical).toBe(true);
+  });
+
   it("gives null dependent counts when the graph build fails", async () => {
     vi.mocked(buildDependencyGraph).mockRejectedValue(new Error("boom"));
     const out = await explainFile(repo.dir, "src/auth/login.ts", parseConfig({}));

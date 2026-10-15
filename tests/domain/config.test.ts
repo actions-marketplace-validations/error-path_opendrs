@@ -72,12 +72,64 @@ describe("default paths.block", () => {
     expect(blocked(path)).toBe(true);
   });
 
+  it.each([
+    "makefile",
+    "GNUmakefile",
+    "lib/rules.mk",
+    "compose.yaml",
+    "deploy/compose.yml",
+    "docker-compose.yaml",
+    "Data/Migrations/20240101_Init.cs",
+    "db/migrate/20240101_add_users.rb",
+    "src/main/resources/db/migration/V1__init.sql",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "tests/conftest.py",
+    ".pre-commit-config.yaml",
+    "tox.ini",
+    "noxfile.py",
+    "App/App.csproj",
+    "App.sln",
+    "Directory.Build.props",
+    "Directory.Build.targets",
+    "NuGet.Config",
+    "CMakeLists.txt",
+    "cmake/deps.cmake",
+    ".cargo/config.toml",
+    ".husky/pre-commit",
+    "Brewfile",
+    "Vagrantfile",
+    "Procfile",
+    "default.nix",
+    "flake.lock",
+    ".devcontainer/devcontainer.json",
+    ".envrc",
+    "Taskfile.yml",
+    "justfile",
+    "bitbucket-pipelines.yml",
+    ".drone.yml",
+    ".travis.yml",
+    "cloudbuild.yaml",
+    "Earthfile",
+    "pkg/BUILD",
+    "pkg/BUILD.bazel",
+    "WORKSPACE",
+    "WORKSPACE.bazel",
+    "MODULE.bazel",
+    "tools/defs.bzl",
+    "dockerfile",
+    "infra/Main.TF",
+    ".GITHUB/workflows/ci.yml",
+  ])("blocks %s, matching case-insensitively", (path) => {
+    expect(matchAny(defaultConfig().paths.block, path, { ignoreCase: true })).toBe(true);
+  });
+
   it("keeps the original entries and leaves ordinary source alone", () => {
     expect(defaultConfig().paths.block).toEqual(
       expect.arrayContaining([".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf"]),
     );
-    for (const path of ["src/a.ts", "docs/Makefile.md", "src/package.ts", "README.md", "src/build.rs.md"]) {
-      expect(blocked(path), path).toBe(false);
+    for (const path of ["src/a.ts", "docs/Makefile.md", "src/package.ts", "README.md", "src/build.rs.md", "src/build/index.ts", "docs/requirements.md"]) {
+      expect(matchAny(defaultConfig().paths.block, path, { ignoreCase: true }), path).toBe(false);
     }
   });
 });

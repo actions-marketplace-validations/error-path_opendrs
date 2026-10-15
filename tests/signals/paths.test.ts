@@ -47,6 +47,12 @@ describe("paths signals", () => {
     expect(s.evidence).toEqual([{ file: ".github/workflows/ci.yml", detail: 'matches block glob ".github/**"' }]);
   });
 
+  it("matches block and critical globs case-insensitively", async () => {
+    const signals = await pathsSignals(ctxFor([changed("Data/Migrations/1_Init.cs"), changed("src/Auth/login.ts")]));
+    expect(byId(signals, "paths.blocked").evidence).toEqual([{ file: "Data/Migrations/1_Init.cs", detail: 'matches block glob "**/migrations/**"' }]);
+    expect(byId(signals, "paths.critical").evidence.map((e) => e.file)).toEqual(["src/Auth/login.ts"]);
+  });
+
   it("checks the old path of a rename, so moving a file out of a blocked path still counts", async () => {
     const moved = changed("scripts/001_init.sql", { status: "renamed", oldPath: "db/migrations/001_init.sql" });
     const s = byId(await pathsSignals(ctxFor([moved])), "paths.blocked");

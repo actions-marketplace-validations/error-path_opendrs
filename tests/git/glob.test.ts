@@ -65,3 +65,22 @@ describe("matchAny", () => {
     expect(matchAny([], "a.ts")).toBe(false);
   });
 });
+
+describe("ignoreCase", () => {
+  it("is off by default", () => {
+    expect(matchGlob("**/Makefile", "makefile")).toBe(false);
+    expect(matchAny(["**/migrations/**"], "db/Migrations/1.sql")).toBe(false);
+  });
+
+  it("matches regardless of case when set, without leaking into case-sensitive calls", () => {
+    expect(matchGlob("**/Makefile", "makefile", { ignoreCase: true })).toBe(true);
+    expect(matchAny(["**/migrations/**"], "Data/Migrations/1.cs", { ignoreCase: true })).toBe(true);
+    expect(matchGlob("**/*.{tf,tfvars}", "infra/MAIN.TF", { ignoreCase: true })).toBe(true);
+    expect(matchGlob("**/Makefile", "makefile")).toBe(false);
+  });
+
+  it("still respects segments and literals", () => {
+    expect(matchGlob("**/Makefile", "Makefile.md", { ignoreCase: true })).toBe(false);
+    expect(matchGlob(".github/**", "src/.GITHUB/x", { ignoreCase: true })).toBe(false);
+  });
+});

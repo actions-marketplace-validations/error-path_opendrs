@@ -107,8 +107,8 @@ detail). The model, not the provider, assigns weights.
 | `lang.*` | language bools | one indicator per language family present |
 | `blast.dependents` | — (our addition) | `log1p(#transitive dependents of changed files, depth ≤ 3)` from the import graph |
 | `blast.public_surface` | — | 1 if exported or public symbols are changed in a file that has dependents |
-| `paths.critical` | high-criticality service | 1 if any changed file matches `critical` globs |
-| `paths.blocked` | — | 1 if a file matches `block` globs. **Policy hard-block**, not just a feature |
+| `paths.critical` | high-criticality service | 1 if any changed file matches `critical` globs (ignoring case) |
+| `paths.blocked` | — | 1 if a file matches `block` globs (ignoring case). **Policy hard-block**, not just a feature |
 | `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test lines changed; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))`, so a token test edit barely helps |
 | `llm.semantic` | LLM DRS | `max(0, logit(p) − logit(0.2))` from the optional LLM judge, so it can only raise risk; absent when disabled |
 
@@ -173,8 +173,9 @@ autoApprove:
   sampleRate: 0.10     # fraction of eligible PRs still routed to a human (deterministic by PR sha)
   maxChangedLines: 400 # never auto-approve above this, whatever the score
 paths:
-  block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf", ".gitmodules",
-             "**/.gitattributes",
+  # block and critical globs match ignoring case (makefile, EF Core Migrations/)
+  block:    [".github/**", "**/migrations/**", "**/migration/**", "**/migrate/**", ".opendrs.yml",
+             "**/CODEOWNERS", "**/*.tf", ".gitmodules", "**/.gitattributes",
              # files that execute code on install, build or CI (dependency bumps also touch an
              # ignored lockfile, so they reach a human anyway)
              "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
@@ -182,8 +183,16 @@ paths:
              "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle*", "**/gradle/wrapper/**",
              "**/pom.xml", "**/.mvn/**", "**/Cargo.toml", "**/build.rs", "**/go.mod",
              "**/Gemfile", "**/Rakefile", "**/*.gemspec",
-             "**/Makefile", "**/Dockerfile*", "**/docker-compose*.yml",
-             ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**"]
+             "**/requirements*.txt", "**/conftest.py", "**/.pre-commit-config.y*ml", "**/tox.ini",
+             "**/noxfile.py", "**/*.csproj", "**/*.sln", "**/Directory.Build.*", "**/nuget.config",
+             "**/CMakeLists.txt", "**/*.cmake", "**/.cargo/**", "**/.husky/**",
+             "**/Makefile", "**/GNUmakefile", "**/*.mk",
+             "**/Dockerfile*", "**/docker-compose*.y*ml", "**/compose.y*ml",
+             "**/Brewfile", "**/Vagrantfile", "**/Procfile", "**/*.nix", "**/flake.lock",
+             "**/.devcontainer/**", "**/.envrc", "**/Taskfile.y*ml", "**/justfile",
+             ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**",
+             "**/bitbucket-pipelines.yml", "**/.drone.yml", "**/.travis.yml", "**/cloudbuild.y*ml",
+             "**/Earthfile", "**/BUILD", "**/BUILD.bazel", "**/WORKSPACE*", "**/MODULE.bazel", "**/*.bzl"]
   critical: ["**/auth/**", "**/payment*/**", "**/security/**"]
   ignore:   ["**/*.lock", "**/package-lock.json", "**/dist/**", "**/vendor/**", "**/*.min.js"]
 llm:

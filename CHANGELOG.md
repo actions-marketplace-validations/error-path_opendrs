@@ -38,6 +38,16 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   hook in `package.json` used to score as a tiny change and could be auto-approved. `opendrs init`
   writes the same list. If your `.opendrs.yml` sets its own `paths.block`, it replaces the defaults:
   compare it with the new list.
+- `paths.block`, `paths.critical` and the Action's self-modification guard match ignoring case.
+  `makefile` and EF Core `Migrations/` folders slipped past `**/Makefile` and `**/migrations/**`
+  and were auto-approved.
+- The default `paths.block` also covers Python (`requirements*.txt`, `conftest.py`,
+  `.pre-commit-config.yaml`, `tox.ini`, `noxfile.py`), .NET (`*.csproj`, `*.sln`,
+  `Directory.Build.*`, `nuget.config`), CMake, `.cargo/`, `.husky/`, GNU make (`GNUmakefile`,
+  `*.mk`), `compose.yaml` and `docker-compose*.yaml`, Brewfile, Vagrantfile, Procfile, Nix,
+  `.devcontainer/`, `.envrc`, Taskfile, justfile, Bitbucket, Drone, Travis, Cloud Build, Earthly
+  and Bazel files, and Rails (`migrate/`) and Flyway (`migration/`) migrations. Each of these
+  could be changed in a PR that was auto-approved.
 
 ## 0.1.0 - 2026-10-15
 

@@ -75,6 +75,12 @@ describe("decide: rule 1 (hard block)", () => {
     expect(out).toMatchObject({ decision: "human-review", hardBlocked: true });
   });
 
+  it("matches paths.block case-insensitively (makefile, EF Core Migrations/)", () => {
+    for (const path of ["makefile", "src/Data/Migrations/20240101_Init.cs"]) {
+      expect(decide(input({ files: [file(path)] })), path).toMatchObject({ decision: "human-review", hardBlocked: true });
+    }
+  });
+
   it("matches the old path of a rename", () => {
     const renamed: ChangedFile = { ...file("src/moved.sql"), status: "renamed", oldPath: "db/migrations/001.sql" };
     expect(decide(input({ files: [renamed] })).hardBlocked).toBe(true);

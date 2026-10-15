@@ -286,7 +286,9 @@ autoApprove:
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf",
+  # block and critical are matched ignoring case.
+  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS",
+          "**/migrations/**", "**/migration/**", "**/migrate/**", "**/*.tf",
           ".gitmodules", "**/.gitattributes",
           # files that execute code on install, build or CI
           "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
@@ -295,8 +297,17 @@ paths:
           "**/pom.xml", "**/.mvn/**",
           "**/Cargo.toml", "**/build.rs", "**/go.mod",
           "**/Gemfile", "**/Rakefile", "**/*.gemspec",
-          "**/Makefile", "**/Dockerfile*", "**/docker-compose*.yml",
-          ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**"]
+          "**/requirements*.txt", "**/conftest.py", "**/.pre-commit-config.y*ml", "**/tox.ini",
+          "**/noxfile.py",
+          "**/*.csproj", "**/*.sln", "**/Directory.Build.*", "**/nuget.config",
+          "**/CMakeLists.txt", "**/*.cmake", "**/.cargo/**", "**/.husky/**",
+          "**/Makefile", "**/GNUmakefile", "**/*.mk",
+          "**/Dockerfile*", "**/docker-compose*.y*ml", "**/compose.y*ml",
+          "**/Brewfile", "**/Vagrantfile", "**/Procfile", "**/*.nix", "**/flake.lock",
+          "**/.devcontainer/**", "**/.envrc", "**/Taskfile.y*ml", "**/justfile",
+          ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**",
+          "**/bitbucket-pipelines.yml", "**/.drone.yml", "**/.travis.yml", "**/cloudbuild.y*ml",
+          "**/Earthfile", "**/BUILD", "**/BUILD.bazel", "**/WORKSPACE*", "**/MODULE.bazel", "**/*.bzl"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
@@ -328,8 +339,12 @@ model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used u
 
 **Why the default block list is long.** Besides the gate's own files, `paths.block` lists
 files that execute code on install, build or CI: package manifests and their registry settings
-(`package.json`, `.npmrc`, `setup.py`, `pyproject.toml`, ...), build scripts (`build.gradle`,
-`pom.xml`, `build.rs`, `Makefile`, `Dockerfile`, ...) and CI pipelines outside `.github/`. A
+(`package.json`, `.npmrc`, `setup.py`, `pyproject.toml`, `requirements.txt`, ...), build scripts
+and project files (`build.gradle`, `pom.xml`, `build.rs`, `Makefile`, `CMakeLists.txt`, `*.csproj`,
+`Dockerfile`, Bazel and Nix files, ...), developer hooks and environments (`.husky/`,
+`.pre-commit-config.yaml`, `conftest.py`, `.envrc`, `.devcontainer/`, ...) and CI pipelines outside
+`.github/`. Block and critical globs are matched ignoring case, so `makefile` or an EF Core
+`Migrations/` folder cannot slip past `**/Makefile` or `**/migrations/**`. A
 one-line change there (a `postinstall` hook, a registry pointed at another host, a new build
 step) scores as small and low-risk, but runs on every developer machine and CI runner. Dependency
 bumps also change a lockfile, which is in `paths.ignore` and so already goes to a human.
