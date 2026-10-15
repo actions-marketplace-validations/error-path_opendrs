@@ -109,8 +109,8 @@ detail). The model, not the provider, assigns weights.
 | `blast.public_surface` | — | 1 if exported or public symbols are changed in a file that has dependents |
 | `paths.critical` | high-criticality service | 1 if any changed file matches `critical` globs |
 | `paths.blocked` | — | 1 if a file matches `block` globs. **Policy hard-block**, not just a feature |
-| `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test file changed |
-| `llm.semantic` | LLM DRS | `logit(p)` from the optional LLM judge; absent when disabled |
+| `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test lines changed; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))`, so a token test edit barely helps |
+| `llm.semantic` | LLM DRS | `max(0, logit(p) − logit(0.2))` from the optional LLM judge, so it can only raise risk; absent when disabled |
 
 When a feature cannot be computed (for example, an unsupported language for the import
 graph), the signal is emitted with `status: "unknown"` and `value` = the configured neutral
@@ -147,7 +147,9 @@ packages, the go.mod module path, and the Java package index). The graph is cach
 - `opendrs backtest` reports captured-at-{5,10,50}% gated, ROC-AUC, the base rate, and the
   capture curve. It does this for the default priors and the calibrated model, so their
   value can be compared.
-- With the LLM enabled, `llm.semantic` is an additional feature with a prior weight of 0.8.
+- With the LLM enabled, `llm.semantic` is an additional feature with a prior weight of 0.8. Its
+  value is `max(0, logit(p) − logit(0.2))`: the judge adds risk only above a 0.2 baseline and
+  never lowers the score, so a manipulated judge cannot turn a red diff green.
   Calibration may refit it only when LLM scores were collected.
 
 ## 6. Policy
@@ -186,12 +188,18 @@ history:
 The decision is computed in this order, and the first rule that matches wins:
 
 1. any `paths.block` hit → `human-review` (hard block);
-2. changed lines > `maxChangedLines` → `human-review`;
-3. tier ≠ green → `human-review` (tier recorded);
-4. any LLM failure or `unknown` signal whose weight could have changed the tier → `human-review`;
-5. AI-review requirement not met → `waiting-ai-review`;
-6. sampled → `human-review` (sampled);
-7. otherwise `auto-approve`, plus `mergeMethod`.
+2. any changed file is ignored (`paths.ignore`) or binary → `human-review`, naming up to 3 such
+   files. These files are still scored as before (a lockfile bump keeps a low, green score), but
+   nothing reads their contents, so they are never auto-approved;
+3. changed lines > `maxChangedLines` → `human-review` (ignored files excluded; a binary file counts
+   as one line);
+4. tier ≠ green → `human-review` (tier recorded);
+5. any LLM failure, or `unknown` signals whose joint worst case could have changed the tier (the
+   logit lifts of all unknowns, each at the risky end of its plausible range, are summed) →
+   `human-review`;
+6. AI-review requirement not met → `waiting-ai-review`;
+7. sampled → `human-review` (sampled);
+8. otherwise `auto-approve`, plus `mergeMethod`.
 
 The decision also lists suggested reviewers. These are the top 3 recent authors of the changed
 files, excluding the PR author (one of Meta's DRS uses).
@@ -231,9 +239,10 @@ files, excluding the PR author (one of Meta's DRS uses).
 ## 8. Security and failure handling
 
 - Diff text, PR title and body are untrusted. The LLM prompt wraps them in delimiters and
-  states that instructions inside them must be ignored. The output is parsed strictly as
-  JSON, `p` is clamped to [0, 1], and a parse failure becomes `unknown`, which counts as risk
-  and can never pass the gate.
+  states that instructions inside them must be ignored. The output must contain exactly one
+  JSON object and is parsed strictly, `p` is clamped to [0, 1], and a parse failure becomes
+  `unknown`, which counts as risk and can never pass the gate. The judge can only raise the
+  score (`llm.semantic` is 0 for `p` ≤ 0.2), so a successful injection cannot lower it.
 - Git is invoked with `execFile` (no shell), with `--no-pager`, `-c core.quotepath=off`, and
   timeouts.
 - The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, or the action

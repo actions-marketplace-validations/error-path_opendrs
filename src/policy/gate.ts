@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { matchGlob } from "../git/glob.js";
 import type { HistoryIndex, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
-import { sigmoid } from "../model/logistic.js";
+import { featureValues, sigmoid } from "../model/logistic.js";
 import { suggestReviewers } from "./reviewers.js";
 
 export interface GateInput {
@@ -21,7 +21,7 @@ export interface GateInput {
 
 /**
  * Plausible [low, high] feature values (~10th/90th percentile of real diffs). Rule 4 asks whether
- * an unknown signal at the riskier end of its range would change the tier.
+ * the unknown signals, all at the riskier end of their ranges at once, would change the tier.
  */
 const PLAUSIBLE_RANGE: Record<string, [number, number]> = {
   "size.churn": [0, Math.log1p(1000)],
@@ -41,7 +41,7 @@ const PLAUSIBLE_RANGE: Record<string, [number, number]> = {
   "paths.critical": [0, 1],
   "paths.blocked": [0, 1],
   "tests.missing": [0, 1],
-  "llm.semantic": [Math.log(0.1 / 0.9), Math.log(0.9 / 0.1)],
+  "llm.semantic": [0, Math.log(0.9 / 0.1) - Math.log(0.2 / 0.8)],
 };
 
 const rangeOf = (id: string): [number, number] | undefined => PLAUSIBLE_RANGE[id] ?? (id.startsWith("lang.") ? [0, 1] : undefined);
@@ -77,8 +77,14 @@ export function decide(input: GateInput): PolicyOutcome {
     fired.push({ decision: "human-review", reason: `hard block: ${what}` });
   }
 
-  // 2. size cap
-  const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + f.added + f.deleted, 0);
+  // 1b. ignored or binary files: scored as low risk, but nothing reads their contents, so a human must
+  const unread = diff.files.filter((f) => f.ignored || f.binary).map((f) => f.path);
+  if (unread.length > 0) {
+    fired.push({ decision: "human-review", reason: `ignored or binary files are never auto-approved: ${list(unread)}` });
+  }
+
+  // 2. size cap (a binary file counts as one line)
+  const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
   if (changedLines > auto.maxChangedLines) {
     fired.push({ decision: "human-review", reason: `${changedLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
   }
@@ -93,6 +99,9 @@ export function decide(input: GateInput): PolicyOutcome {
 
   // 4. LLM failure, or an unknown whose plausible worst case changes the tier
   if (input.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
+  // Unknowns can all be wrong at once, so their worst cases are summed before checking the tier.
+  const used = featureValues(input.signals, model.priors);
+  const lifts: Array<{ id: string; lift: number }> = [];
   for (const s of input.signals) {
     const weight = model.weights[s.id] ?? 0;
     if (s.status !== "unknown" || weight === 0) continue;
@@ -101,12 +110,22 @@ export function decide(input: GateInput): PolicyOutcome {
       fired.push({ decision: "human-review", reason: `unknown ${s.id} has no known plausible range; treated as risk` });
       continue;
     }
-    const lift = Math.max(0, weight * (range[0] - s.value), weight * (range[1] - s.value));
-    const worst = sigmoid(input.logit + lift);
-    const worstTier = tierOf(worst, thresholds);
-    if (worstTier !== tier) {
-      fired.push({ decision: "human-review", reason: `unknown ${s.id} could raise the score to ${worst.toFixed(2)} (${worstTier})` });
-    }
+    const value = used.get(s.id)!;
+    const lift = Math.max(0, weight * (range[0] - value), weight * (range[1] - value));
+    if (lift > 0) lifts.push({ id: s.id, lift });
+  }
+  const worst = sigmoid(input.logit + lifts.reduce((n, l) => n + l.lift, 0));
+  const worstTier = tierOf(worst, thresholds);
+  if (worstTier !== tier) {
+    const alone = lifts
+      .sort((a, b) => b.lift - a.lift)
+      .map((l) => `${l.id} → ${sigmoid(input.logit + l.lift).toFixed(2)}`)
+      .join(", ");
+    const reason =
+      lifts.length === 1
+        ? `unknown ${lifts[0]!.id} could raise the score to ${worst.toFixed(2)} (${worstTier})`
+        : `unknown signals could together raise the score to ${worst.toFixed(2)} (${worstTier}); alone: ${alone}`;
+    fired.push({ decision: "human-review", reason });
   }
 
   // 5. AI review

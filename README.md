@@ -89,8 +89,8 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Language indicators | `lang.*` | one indicator per language family present |
 | Author created the file | `expertise.owner_ratio` | share of changed files the author created or mostly wrote |
 | Author's landed diffs | `expertise.author_commits` | `log1p` of the author's prior commits; negative weight |
-| Test plan | `tests.missing` | 1 when source changed and no test file did (a proxy) |
-| LLM risk model (iDiffLlama) | `llm.semantic` | `logit(p)` from an optional prompted LLM judge |
+| Test plan | `tests.missing` | 1 when source changed and no test lines did; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))` (a proxy) |
+| LLM risk model (iDiffLlama) | `llm.semantic` | `max(0, logit(p) − logit(0.2))` from an optional prompted LLM judge: it can only raise risk |
 | (not in Meta's list) | `blast.dependents`, `blast.public_surface` | transitive dependents of the changed files (depth 3) from the import graph; exported symbols changed in a file that has dependents |
 | (not in Meta's list) | `history.churn` | `log1p` of commits touching the files in the lookback window |
 
@@ -103,12 +103,14 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. more than `maxChangedLines` changed → `human-review`;
-3. tier is not green → `human-review`;
-4. the LLM judge failed, or an `unknown` signal could have changed the tier → `human-review`;
-5. the required AI-review checks or labels are missing → `waiting-ai-review`;
-6. the PR is sampled for human review → `human-review`;
-7. otherwise `auto-approve`.
+2. a changed file is ignored (`paths.ignore`) or binary → `human-review`;
+3. more than `maxChangedLines` changed → `human-review`;
+4. tier is not green → `human-review`;
+5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
+   the tier → `human-review`;
+6. the required AI-review checks or labels are missing → `waiting-ai-review`;
+7. the PR is sampled for human review → `human-review`;
+8. otherwise `auto-approve`.
 
 The decision also suggests three reviewers: the most frequent recent authors of the changed files.
 
@@ -130,8 +132,9 @@ The rails that matter when the Action can approve PRs:
   earlier approval ("Risk increased: yellow 0.45").
 - **Prompt injection.** The diff, PR title and PR body are untrusted. The LLM prompt wraps them in
   delimiters and tells the model to ignore instructions inside them; the PR body is not sent at
-  all unless `llm.includeDescription` is true. The answer is parsed strictly as JSON and clamped to
-  [0, 1]. Risk claims written in the PR text never change the score directly.
+  all unless `llm.includeDescription` is true. The answer must be exactly one JSON object and is
+  clamped to [0, 1]. The judge can only raise the score, never lower it, so talking it into
+  "risk 0" gains nothing. Risk claims written in the PR text never change the score directly.
 
 ## Calibrate and backtest: measure your threshold
 
@@ -163,7 +166,12 @@ Backtest results on public repos: coming soon.
 ## LLM judge (optional)
 
 opendrs works without an LLM. With one, a prompted model reads the title and diff and returns a
-probability of incident; it enters the model as one more signal (`llm.semantic`, prior weight 0.8).
+probability of incident `p`; it enters the model as one more signal (`llm.semantic`, prior weight
+0.8) with the value `max(0, logit(p) − logit(0.2))`. The judge can only add risk above a 0.2
+baseline: an answer of 0.2 or less adds nothing, and no answer can lower the score. A diff that
+someone talks the judge into calling safe therefore scores exactly as it would without an LLM.
+The reply must contain exactly one JSON object. When the diff exceeds `maxDiffChars`, every file
+first gets its first hunk and only then do larger files get more, and truncated files are marked.
 
 ```yaml
 llm:
@@ -230,8 +238,9 @@ autoApprove:
 paths:
   block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
+  # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
-           "**/build/**", "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
+           "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
   tests: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*",
           "**/*_test.*", "**/test_*.py"]
 
@@ -257,6 +266,13 @@ graph:
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
 ```
 
+opendrs refuses a config that would fail silently, naming the offending value:
+
+- **Globs** are repo-relative and support `**`, `*`, `?` and `{a,b}`. A glob with `[` or `]`
+  (character classes are not supported), a backslash, or a leading `/` or `./` is an error.
+- **Thresholds** must be ordered: `0 ≤ green < yellow ≤ red ≤ 1` in absolute mode, and
+  `0 < green < yellow ≤ red < 100` in percentile mode.
+
 ## Limitations
 
 - **The default weights are not fit to your code.** They are priors chosen to rank obvious cases
@@ -276,7 +292,9 @@ model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used u
 - **Required checks are matched by name.** opendrs does not verify which app produced a check run,
   so protect the names you list (see [docs/github-action.md](docs/github-action.md)).
 - **GitHub only.** The core is host-agnostic, but only a GitHub Action exists today. The Action
-  needs full history (`fetch-depth: 0`).
+  needs full history (`fetch-depth: 0`). In a shallow clone, `diffusion.authors` and `history.*`
+  are reported as `unknown` ("shallow clone: history incomplete"), keeping what they saw as a lower
+  bound, so a missing history never reads as low risk.
 
 ## Prior art and credits
 

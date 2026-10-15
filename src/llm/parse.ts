@@ -19,28 +19,37 @@ const outputSchema = z.object({
     .default([]),
 });
 
-/** The first balanced {...} in text, skipping braces inside JSON strings. */
-function firstJsonObject(text: string): string | undefined {
-  const start = text.indexOf("{");
-  if (start < 0) return undefined;
+/** Every top-level balanced {...} in text, skipping braces inside JSON strings; an unclosed one counts too. */
+function topLevelObjects(text: string): string[] {
+  const found: string[] = [];
+  let start = -1;
   let depth = 0;
   let inString = false;
-  for (let i = start; i < text.length; i++) {
+  for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (inString) {
+    if (depth === 0) {
+      if (c === "{") {
+        start = i;
+        depth = 1;
+      }
+    } else if (inString) {
       if (c === "\\") i++;
       else if (c === '"') inString = false;
     } else if (c === '"') inString = true;
     else if (c === "{") depth++;
-    else if (c === "}" && --depth === 0) return text.slice(start, i + 1);
+    else if (c === "}" && --depth === 0) found.push(text.slice(start, i + 1));
   }
-  return undefined;
+  if (depth > 0) found.push(text.slice(start));
+  return found;
 }
 
 /** Strictly parse the judge's reply. Snippets are kept only for files that are in the diff. */
 export function parseJudgement(text: string, files: string[]): LlmJudgement {
-  const json = firstJsonObject(text);
-  if (json === undefined) throw new OpendrsError("LLM reply contained no JSON object", "llm");
+  const objects = topLevelObjects(text);
+  if (objects.length === 0) throw new OpendrsError("LLM reply contained no JSON object", "llm");
+  // A second object (e.g. one quoted from the diff) could be the attacker's; refuse to pick one.
+  if (objects.length > 1) throw new OpendrsError(`LLM reply must contain exactly one JSON object, found ${objects.length}`, "llm");
+  const json = objects[0]!;
 
   let raw: unknown;
   try {

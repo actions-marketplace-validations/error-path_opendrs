@@ -37,14 +37,13 @@ paths:
     - "**/payment*/**"
     - "**/billing/**"
     - "**/security/**"
-  # Excluded from size and churn: lockfiles, generated and vendored code.
+  # Excluded from size and churn (lockfiles, generated and vendored code); never auto-approved.
   ignore:
     - "**/*.lock"
     - "**/package-lock.json"
     - "**/pnpm-lock.yaml"
     - "**/go.sum"
     - "**/dist/**"
-    - "**/build/**"
     - "**/vendor/**"
     - "**/node_modules/**"
     - "**/*.min.js"

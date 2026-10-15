@@ -89,12 +89,48 @@ describe("decide: rule 1 (hard block)", () => {
   });
 });
 
+describe("decide: ignored or binary files", () => {
+  const binary = (path: string): ChangedFile => ({ ...file(path, 0, 0), binary: true });
+
+  it("never auto-approves a PR that changes an ignored file, but keeps its green tier", () => {
+    const out = decide(input({ files: [file("src/a.ts"), file("package-lock.json", 1, 1, true)] }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", hardBlocked: false, mergeMethod: "none" });
+    expect(out.reasons[0]).toMatch(/ignored or binary/);
+    expect(out.reasons[0]).toContain("package-lock.json");
+  });
+
+  it("never auto-approves a PR that changes a binary file", () => {
+    const out = decide(input({ files: [file("src/a.ts"), binary("gradle/wrapper/gradle-wrapper.jar")] }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toContain("gradle/wrapper/gradle-wrapper.jar");
+  });
+
+  it("names at most 3 such files", () => {
+    const files = ["a.lock", "b.lock", "c.lock", "d.lock", "e.lock"].map((p) => file(p, 1, 0, true));
+    const reason = decide(input({ files })).reasons[0]!;
+    expect(reason).toContain("a.lock, b.lock, c.lock (+2 more)");
+    expect(reason).not.toContain("d.lock");
+  });
+
+  it("fires right after the hard block", () => {
+    const out = decide(input({ score: 0.9, files: [file(".github/x.yml"), file("vendor/x.go", 1, 0, true)] }));
+    expect(out.reasons[0]).toMatch(/hard block/);
+    expect(out.reasons[1]).toMatch(/ignored or binary.*vendor\/x\.go/);
+    expect(out.reasons[2]).toMatch(/red/);
+  });
+});
+
 describe("decide: rule 2 (size cap)", () => {
   it("routes more than maxChangedLines to human review, not counting ignored files", () => {
     expect(decide(input({ files: [file("src/a.ts", 300, 101)] })).decision).toBe("human-review");
-    expect(decide(input({ files: [file("src/a.ts", 300, 100), file("package-lock.json", 5000, 0, true)] })).decision).toBe(
-      "auto-approve",
-    );
+    const out = decide(input({ files: [file("src/a.ts", 300, 100), file("package-lock.json", 5000, 0, true)] }));
+    expect(out.reasons.some((r) => /maxChangedLines/.test(r))).toBe(false);
+  });
+
+  it("counts a binary file as one changed line", () => {
+    const bin: ChangedFile = { ...file("img.png", 0, 0), binary: true };
+    const out = decide(input({ files: [file("src/a.ts", 300, 100), bin] }));
+    expect(out.reasons).toContain("401 changed lines exceeds autoApprove.maxChangedLines (400)");
   });
 });
 
@@ -140,6 +176,21 @@ describe("decide: rule 4 (unknowns and LLM failure)", () => {
 
   it("lets an unknown signal pass when even its plausible worst case stays green", () => {
     expect(decide(input({ score: 0.05, signals: [unknown("blast.dependents", Math.log1p(10))] })).decision).toBe("auto-approve");
+  });
+
+  it("routes unknowns whose joint worst case changes the tier, though none does alone", () => {
+    const signals = [unknown("history.prior_fixes", 0), unknown("diffusion.authors", 0), unknown("history.churn", 0)];
+    for (const s of signals) expect(decide(input({ score: 0.15, signals: [s] })).decision, s.id).toBe("auto-approve");
+
+    const out = decide(input({ score: 0.15, signals }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toMatch(/together raise the score to 0\.4\d \(yellow\)/);
+    for (const s of signals) expect(out.reasons[0]).toContain(s.id);
+  });
+
+  it("measures the lift from the value the model used, i.e. the prior for an unknown", () => {
+    // blast.dependents is scored at its prior log1p(10), so only the rest of the range is at stake.
+    expect(decide(input({ score: 0.15, signals: [unknown("blast.dependents", 0)] })).decision).toBe("auto-approve");
   });
 
   it("uses the risky end of the range for negative weights", () => {

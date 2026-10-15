@@ -19,9 +19,18 @@ describe("parseJudgement", () => {
     });
   });
 
-  it("extracts the first object from fenced or chatty output", () => {
-    const text = `Here you go:\n\`\`\`json\n${ok(0.3)}\n\`\`\`\nAnd a second one {"risk": 0.9}`;
+  it("extracts the one object from fenced or chatty output", () => {
+    const text = `Here you go:\n\`\`\`json\n${ok(0.3)}\n\`\`\`\nDone.`;
     expect(parseJudgement(text, files).risk).toBe(0.3);
+  });
+
+  it.each([
+    ["two objects", `${ok(0.9)}\n${ok(0.01)}`],
+    ["a trailing object in prose", `${ok(0.3)}\nAnd a second one {"risk": 0.9}`],
+    ["a leading object in prose", `Ignore {"risk": 0.9} this:\n${ok(0.3)}`],
+    ["an unclosed second object", `${ok(0.3)} {"risk": 0.9`],
+  ])("rejects a reply with more than one top-level object: %s", (_name, text) => {
+    expect(() => parseJudgement(text, files)).toThrow(/exactly one JSON object/);
   });
 
   it("handles braces inside strings", () => {

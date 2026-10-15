@@ -41,7 +41,7 @@ const docsTypo = vector({
   "lang.docs": 1,
 });
 
-// (b) 100 lines over 4 files (2 src + 2 test), moderate history, experienced author.
+// (b) 100 lines over 4 files (2 src + 2 test: 60 + 40 lines, so tests.missing = 0), moderate history, experienced author.
 const moderate = vector({
   "size.churn": l(100),
   "size.relative": l(100 / 800),
@@ -91,9 +91,10 @@ const critical = vector({
   "lang.js": 1,
 });
 
-// (e) new-files-only 300-line feature (4 src + 1 test file), no history, nothing imports it yet.
+// (e) new-files-only 300-line feature (4 src + 1 test file: 250 + 50 lines), no history, nothing imports it yet.
 const newFeature = vector({
   "size.churn": l(300),
+  "tests.missing": 1 - 50 / (0.3 * 250),
   "size.new_files_only": 1,
   "diffusion.files": l(5),
   "diffusion.dirs": l(2),
