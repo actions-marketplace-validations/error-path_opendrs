@@ -10,7 +10,7 @@ import { labelCommits, loadIncidents } from "./label.js";
 /** One historical commit with its point-in-time signals and label. */
 export interface ReplayRow {
   sha: string;
-  /** Unix seconds (author date). */
+  /** Unix seconds (committer date: rebases and cherry-picks keep old author dates). */
   time: number;
   label: 0 | 1;
   signals: Signal[];
