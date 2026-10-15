@@ -92,3 +92,19 @@ describe("calibrate + backtest on a real repo", () => {
     expect(report.calibrated!.capturedAt["50"]).toBeGreaterThan(0.5);
   }, 180_000);
 });
+
+describe("fitModel: llm.semantic stays raise-only", () => {
+  it("clamps a negative fitted llm.semantic weight to 0", () => {
+    // Positives have LOW llm values, so an unconstrained fit would go negative.
+    const rows = Array.from({ length: 300 }, (_, i) => {
+      const label = (i % 5 === 0 ? 1 : 0) as 0 | 1;
+      return {
+        sha: String(i),
+        time: i,
+        label,
+        signals: [{ id: "llm.semantic", value: label ? 0 : 2, status: "inferred" as const, summary: "", evidence: [] }],
+      };
+    });
+    expect(fitModel(rows).weights["llm.semantic"]).toBe(0);
+  });
+});

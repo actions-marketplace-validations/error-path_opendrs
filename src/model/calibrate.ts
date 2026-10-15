@@ -62,7 +62,8 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
   const model: ModelWeights = {
     version: 1,
     intercept: fit.intercept - correction,
-    weights: Object.fromEntries(ids.map((id, j) => [id, fit.weights[j]!])),
+    // The LLM may only add risk (spec §8), so its weight can never turn negative.
+    weights: Object.fromEntries(ids.map((id, j) => [id, id === "llm.semantic" ? Math.max(0, fit.weights[j]!) : fit.weights[j]!])),
     ...(prior.priors ? { priors: prior.priors } : {}),
   };
   const score = (r: ReplayRow) => scoreSignals(r.signals, model).score;
