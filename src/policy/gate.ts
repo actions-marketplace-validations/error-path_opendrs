@@ -87,6 +87,9 @@ export function decide(input: GateInput): PolicyOutcome {
   if (submodules.length > 0) {
     fired.push({ decision: "human-review", reason: `submodule changes are never auto-approved: ${list(submodules)}` });
   }
+  // Removing tests removes the evidence a change is safe, and a calibrated model may not weigh it.
+  const testsDeleted = input.signals.find((s) => s.id === "tests.deleted" && s.value >= 1);
+  if (testsDeleted) fired.push({ decision: "human-review", reason: `test deletion: ${testsDeleted.summary}` });
 
   // 2. size cap (a binary file counts as one line)
   const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);

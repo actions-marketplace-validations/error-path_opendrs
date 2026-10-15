@@ -86,6 +86,18 @@ describe("decide: rule 1 (hard block)", () => {
     expect(out).toMatchObject({ decision: "human-review", hardBlocked: true });
   });
 
+  it("routes a net test deletion to human review, whatever the score", () => {
+    const signals: Signal[] = [{ id: "tests.deleted", value: 1, status: "observed", summary: "1 test file deleted", evidence: [] }];
+    const out = decide(input({ signals, score: 0.05 }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", hardBlocked: false });
+    expect(out.reasons[0]).toBe("test deletion: 1 test file deleted");
+  });
+
+  it("ignores a tests.deleted signal of 0", () => {
+    const signals: Signal[] = [{ id: "tests.deleted", value: 0, status: "observed", summary: "no test deletion", evidence: [] }];
+    expect(decide(input({ signals })).decision).toBe("auto-approve");
+  });
+
   it("matches the old path of a rename", () => {
     const renamed: ChangedFile = { ...file("src/moved.sql"), status: "renamed", oldPath: "db/migrations/001.sql" };
     expect(decide(input({ files: [renamed] })).hardBlocked).toBe(true);

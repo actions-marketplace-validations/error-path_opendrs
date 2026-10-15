@@ -89,7 +89,8 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Language indicators | `lang.*` | one indicator per language family present |
 | Author created the file | `expertise.owner_ratio` | share of changed files the author created or mostly wrote |
 | Author's landed diffs | `expertise.author_commits` | `log1p` of the author's prior commits; negative weight |
-| Test plan | `tests.missing` | 1 when source changed and no test lines did; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))` (a proxy) |
+| Test plan | `tests.missing` | 1 when source changed and no test lines were added; otherwise `max(0, 1 − addedTestLines / (0.3 · sourceLines))` (a proxy). Deleted test lines never count |
+| (not in Meta's list) | `tests.deleted` | 1 when a test file is deleted (or renamed out of `paths.tests`), or 10 or more test lines more are deleted than added. Also a policy rule: such a PR always goes to a human |
 | LLM risk model (iDiffLlama) | `llm.semantic` | `max(0, logit(p) − logit(0.2))` from an optional prompted LLM judge: it can only raise risk |
 | (not in Meta's list) | `blast.dependents`, `blast.public_surface` | transitive dependents of the changed files (depth 3) from the import graph; exported symbols changed in a file that has dependents |
 | (not in Meta's list) | `history.churn` | `log1p` of commits touching the files in the lookback window |
@@ -103,8 +104,8 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink) →
-   `human-review`;
+2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink), or the PR
+   deletes tests (`tests.deleted`) → `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green → `human-review`;
 5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
@@ -382,6 +383,10 @@ opendrs refuses a config that would fail silently, naming the offending value:
 - **The import graph is regex-based.** It misses dynamic imports, reflection, dependency
   injection, code generation, and dependencies across services or repositories.
 - **Complexity is a heuristic** that counts branch keywords; it does not parse code.
+- **Test signals count lines, not assertions.** `tests.missing` and `tests.deleted` see only files
+  matching `paths.tests`. A PR that weakens a test without shrinking it (an assertion edited into a
+  no-op) is not flagged by them, and tests outside those globs are not seen at all. Splitting a test
+  file into new ones counts as deleting a test file and goes to a human.
 - **The LLM judge is prompted, not trained.** Meta's LLM variants were fine-tuned on Meta's own
   incidents; a general model reading a diff is a weaker signal, and it costs money per PR.
 - **The score is not a code review.** It estimates the chance of an incident, not whether the

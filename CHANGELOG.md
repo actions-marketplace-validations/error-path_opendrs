@@ -54,6 +54,12 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   `.devcontainer/`, `.envrc`, Taskfile, justfile, Bitbucket, Drone, Travis, Cloud Build, Earthly
   and Bazel files, and Rails (`migrate/`) and Flyway (`migration/`) migrations. Each of these
   could be changed in a PR that was auto-approved.
+- Deleting tests no longer lowers risk. Deleted test lines counted as test changes, so deleting a
+  CSRF check together with its tests scored 0.16 and was auto-approved. Now:
+  - `tests.missing` counts only added test lines;
+  - a new signal, `tests.deleted`, is 1 when a PR deletes a test file (or renames one out of
+    `paths.tests`) or deletes at least 10 more test lines than it adds. Its prior weight is 1.0;
+  - such a PR always goes to a human, whatever its score.
 
 ## 0.1.0 - 2026-10-15
 

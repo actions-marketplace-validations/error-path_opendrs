@@ -109,7 +109,8 @@ detail). The model, not the provider, assigns weights.
 | `blast.public_surface` | — | 1 if exported or public symbols are changed in a file that has dependents |
 | `paths.critical` | high-criticality service | 1 if any changed file matches `critical` globs (ignoring case) |
 | `paths.blocked` | — | 1 if a file matches `block` globs (ignoring case). **Policy hard-block**, not just a feature |
-| `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test lines changed; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))`, so a token test edit barely helps |
+| `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test lines were added; otherwise `max(0, 1 − addedTestLines / (0.3 · sourceLines))`, so a token test edit barely helps. Deleted test lines never count |
+| `tests.deleted` | — (our addition) | 1 (`observed`) if a test file is deleted or renamed out of the `tests` globs, or deleted test lines exceed added ones by 10 or more; evidence names the files. **Policy rule**, not just a feature |
 | `llm.semantic` | LLM DRS | `max(0, logit(p) − logit(0.2))` from the optional LLM judge, so it can only raise risk; absent when disabled |
 
 When a feature cannot be computed (for example, an unsupported language for the import
@@ -215,7 +216,9 @@ The decision is computed in this order, and the first rule that matches wins:
    files. These files are still scored as before (a lockfile bump keeps a low, green score), but
    nothing reads their contents, so they are never auto-approved. Likewise any submodule change
    (`ChangedFile.submodule`: a side has the gitlink mode 160000) → `human-review`, because the new
-   pointer pulls in code the diff does not show;
+   pointer pulls in code the diff does not show. Likewise a net test deletion (`tests.deleted` = 1)
+   → `human-review`, because removing tests removes the evidence that a change is safe, and a
+   calibrated model may not weigh it;
 3. changed lines > `maxChangedLines` → `human-review` (ignored files excluded; a binary file counts
    as one line);
 4. tier ≠ green → `human-review` (tier recorded);
