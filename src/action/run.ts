@@ -5,7 +5,7 @@ import { scoreDiff } from "../engine.js";
 import { git, gitMaybe } from "../git/exec.js";
 import { renderMarkdown } from "../report/markdown.js";
 import { reconcileApproval } from "./approval.js";
-import { unlessForbidden, type GitHubClient } from "./github.js";
+import { isSelf, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
 
 export { APPROVAL_MARKER } from "./approval.js";
@@ -135,6 +135,7 @@ export async function runAction(d: ActionDeps): Promise<ActionOutcome> {
 
   const files = await changedFiles(d.repoDir, pr.base.sha, pr.head.sha);
   const viewer = await client.viewerLogin();
+  if (viewer === undefined) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
   const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config, result, files, viewer }));
 
   const report = renderMarkdown(result);
@@ -144,7 +145,7 @@ export async function runAction(d: ActionDeps): Promise<ActionOutcome> {
     await unlessForbidden(
       async () => {
         const mine = (await client.listComments(pr.number)).find(
-          (c) => c.user?.login.toLowerCase() === viewer.toLowerCase() && (c.body ?? "").includes(COMMENT_MARKER),
+          (c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER),
         );
         if (mine) await client.updateComment(mine.id, body);
         else await client.createComment(pr.number, body);

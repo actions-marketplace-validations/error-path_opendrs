@@ -24,18 +24,39 @@ export async function unlessForbidden<T>(fn: () => Promise<T>, onForbidden: (e: 
   }
 }
 
+export interface GitHubUser {
+  login: string;
+  /** "Bot" for GitHub App installations such as GITHUB_TOKEN. */
+  type?: string;
+}
+
 export interface IssueComment {
   id: number;
   body?: string | null;
-  user: { login: string } | null;
+  user: GitHubUser | null;
 }
 
 export interface Review {
   id: number;
   body?: string | null;
   state: string;
-  user: { login: string } | null;
+  user: GitHubUser | null;
   commit_id: string;
+}
+
+/** GraphQL names GITHUB_TOKEN "github-actions" while REST shows "github-actions[bot]". */
+const normaliseLogin = (login: string) => login.toLowerCase().replace(/\[bot\]$/, "");
+
+export const sameLogin = (a: string | undefined, b: string | undefined): boolean =>
+  a !== undefined && b !== undefined && normaliseLogin(a) === normaliseLogin(b);
+
+/**
+ * Whether `user` is this token's account. When the identity is unknown (`viewer` undefined),
+ * any bot account counts; callers also require the opendrs marker in the body.
+ */
+export function isSelf(user: GitHubUser | null, viewer: string | undefined): boolean {
+  if (!user) return false;
+  return viewer === undefined ? user.type === "Bot" : sameLogin(user.login, viewer);
 }
 
 export type MergeMethod = "MERGE" | "SQUASH" | "REBASE";
@@ -99,12 +120,15 @@ export class GitHubClient {
     return `/repos/${this.opts.owner}/${this.opts.repo}`;
   }
 
-  /** Login of the token's own user (e.g. "github-actions[bot]"). */
-  async viewerLogin(): Promise<string> {
+  /** Login of the token's own user, or undefined when neither GraphQL nor GET /user tells. */
+  async viewerLogin(): Promise<string | undefined> {
     try {
       return (await this.graphql<{ viewer: { login: string } }>("query { viewer { login } }")).viewer.login;
     } catch {
-      return (await this.rest<{ login: string }>("GET", "/user")).login;
+      return this.rest<{ login: string }>("GET", "/user").then(
+        (u) => u.login,
+        () => undefined,
+      );
     }
   }
 

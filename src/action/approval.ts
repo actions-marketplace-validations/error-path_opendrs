@@ -1,6 +1,6 @@
 import type { OpendrsConfig } from "../domain/config.js";
 import type { ScoreResult } from "../domain/types.js";
-import { GitHubError, unlessForbidden, type GitHubClient, type Review } from "./github.js";
+import { GitHubError, isSelf, unlessForbidden, type GitHubClient, type Review } from "./github.js";
 import { selfModifiedPaths } from "./guard.js";
 import type { PullRequest } from "./run.js";
 import type { WorkflowIO } from "./workflow.js";
@@ -19,8 +19,8 @@ export interface ApprovalInput {
   result: ScoreResult;
   /** Every path the PR changes (both sides of renames). */
   files: string[];
-  /** Login of the token's user; only its own marked approvals are ever dismissed. */
-  viewer: string;
+  /** Login of the token's user (undefined = unknown); only its own marked approvals are ever dismissed. */
+  viewer: string | undefined;
 }
 
 const isFork = (pr: PullRequest) => pr.head.repo?.full_name !== pr.base.repo.full_name;
@@ -44,9 +44,8 @@ function blockers({ config, result, files, pr }: ApprovalInput): string[] {
  */
 export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: boolean; status: string }> {
   const { client, io, pr, result } = a;
-  const viewer = a.viewer.toLowerCase();
   const own = (await client.listReviews(pr.number)).filter(
-    (r: Review) => r.state === "APPROVED" && r.user?.login.toLowerCase() === viewer && (r.body ?? "").includes(APPROVAL_MARKER),
+    (r: Review) => r.state === "APPROVED" && isSelf(r.user, a.viewer) && (r.body ?? "").includes(APPROVAL_MARKER),
   );
 
   const reasons = blockers(a);
