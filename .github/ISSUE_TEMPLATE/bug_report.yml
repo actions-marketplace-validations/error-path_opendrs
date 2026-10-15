@@ -1,0 +1,23 @@
+name: Bug report
+description: Something opendrs did wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "A way to get a PR approved that should not be? Don't file it here. Use Security → Report a vulnerability."
+  - type: input
+    id: version
+    attributes: { label: opendrs version, description: "`opendrs --version` or the action ref" }
+    validations: { required: true }
+  - type: dropdown
+    id: surface
+    attributes: { label: Where, options: [CLI, GitHub Action, MCP server, calibrate/backtest, other] }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened and what you expected }
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes: { label: Steps to reproduce, description: "Commands, a minimal diff, your .opendrs.yml, and output (use --json)." }
+    validations: { required: true }
