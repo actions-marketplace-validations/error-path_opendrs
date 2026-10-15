@@ -146,6 +146,24 @@ describe("scoring", () => {
     expect(t.scoreArgs().pr!.samplingKey).toBe("o/r#7#");
   });
 
+  it("warns in the log and the comment that sampling is predictable when auto-approval samples without a salt", async () => {
+    const t = await run();
+    await t.promise;
+    expect(t.log()).toMatch(/^::warning::sampling is predictable; set sample-salt to a secret/m);
+    expect(t.gh.comments[0]!.body).toContain("sampling is predictable; set sample-salt to a secret");
+  });
+
+  it.each([
+    ["sample-salt is set", { inputs: { sampleSalt: "s3cret" } }],
+    ["auto-approval is off", { baseConfig: { autoApprove: { enabled: false } } }],
+    ["sampleRate is 0", { baseConfig: { autoApprove: { enabled: true, sampleRate: 0 } } }],
+  ])("does not warn about predictable sampling when %s", async (_, o) => {
+    const t = await run(o);
+    await t.promise;
+    expect(t.log()).not.toContain("sampling is predictable");
+    expect(t.gh.comments[0]!.body).not.toContain("sampling is predictable");
+  });
+
   it("sets the score, tier and decision outputs and writes the job summary", async () => {
     const t = await run({ result: result(0.4567, "yellow", "human-review") });
     await t.promise;
@@ -680,7 +698,11 @@ describe("dismissal", () => {
   });
 
   it("also disables auto-merge and leaves the merge queue when it withdraws its approval", async () => {
-    const t = await run({ result: result(0.4512, "yellow", "human-review"), gh: { reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] } });
+    const t = await run({
+      result: result(0.4512, "yellow", "human-review"),
+      inputs: { sampleSalt: "s" },
+      gh: { reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] },
+    });
     await t.promise;
     expect(t.gh.ops("disableAutoMerge").map((e) => e.body)).toEqual([{ id: "PR_node7" }]);
     expect(t.gh.ops("dequeue").map((e) => e.body)).toEqual([{ id: "PR_node7" }]);
@@ -692,6 +714,7 @@ describe("dismissal", () => {
     async (message) => {
       const t = await run({
         result: result(0.4512, "yellow", "human-review"),
+        inputs: { sampleSalt: "s" },
         gh: { mergeStateError: message, reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] },
       });
       await t.promise;

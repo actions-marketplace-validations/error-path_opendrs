@@ -55,7 +55,7 @@ opendrs checks out and reads the PR's code. opendrs only works on events that ca
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). |
 | `labels` | `true` | Set the risk label and remove stale ones. |
-| `sample-salt` | empty | Set to a secret to make sampling unpredictable, e.g. `${{ secrets.OPENDRS_SAMPLE_SALT }}`. The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
+| `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 
 | Output | Values |
 |---|---|
@@ -103,6 +103,23 @@ entry, so an error never leaves an earlier approval in force.
 
 If you require review from code owners, opendrs cannot satisfy it, because the bot is not a code
 owner.
+
+### Set sample-salt
+
+`autoApprove.sampleRate` sends a share of the PRs that would be approved to a human anyway. Which
+PRs is decided by a hash of the repository, the PR number and the `sample-salt` input. **With the
+default empty salt, anyone can compute it**: for example, that `acme/app#107` is sampled and
+`#108` is not, and so open a risky PR when the next number is one that will not be sampled. Store
+a random secret and pass it:
+
+```yaml
+      - uses: error-path/opendrs@v0
+        with:
+          sample-salt: ${{ secrets.OPENDRS_SAMPLE_SALT }}
+```
+
+While `autoApprove.enabled` is true, `sampleRate` is above 0 and no salt is set, every run logs the
+warning "sampling is predictable; set sample-salt to a secret" and repeats it in the PR comment.
 
 ### Required: dismiss stale approvals on push
 
@@ -278,6 +295,7 @@ warnings. Fork PRs are never approved, whatever the token can do. Do not switch 
 | `GitHub refused the approval (403)` | Enable *Allow GitHub Actions to create and approve pull requests*, and grant `pull-requests: write`. |
 | `Could not read check runs (403)` | Add `checks: read`. Until then, required AI-review checks count as missing. |
 | `Could not write the PR comment (403)` | Add `pull-requests: write`. Expected on fork PRs. |
+| `sampling is predictable; set sample-salt to a secret` | Pass a secret as `sample-salt`; see [Set sample-salt](#set-sample-salt). |
 | `could not confirm that ... dismisses it when new commits are pushed` | Add the branch ruleset from [Required: dismiss stale approvals on push](#required-dismiss-stale-approvals-on-push). |
 | `enabling auto-merge failed` | Enable *Allow auto-merge*, grant `contents: write`, or check the branch's merge queue. |
 | `opendrs needs a pull_request event` | Run the workflow on `pull_request` only. |

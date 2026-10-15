@@ -14,6 +14,9 @@ import type { WorkflowIO } from "./workflow.js";
 export { APPROVAL_MARKER } from "./approval.js";
 export const COMMENT_MARKER = "<!-- opendrs -->";
 const RISK_LABELS = ["risk:green", "risk:yellow", "risk:red"];
+const PREDICTABLE_SAMPLING =
+  "sampling is predictable; set sample-salt to a secret. Without it, anyone can compute which PR numbers " +
+  "autoApprove.sampleRate sends to a human, and time a risky PR for one that is not sampled.";
 
 export interface ActionInputs {
   token: string;
@@ -159,6 +162,8 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
 
   const { config, model } = await io.group("Configuration", () => loadSettings(d, pr.base.sha));
   if (d.inputs.llmApiKey) d.env[llmKeyEnv(config)] = d.inputs.llmApiKey;
+  const predictable = config.autoApprove.enabled && config.autoApprove.sampleRate > 0 && !d.inputs.sampleSalt;
+  if (predictable) io.warning(PREDICTABLE_SAMPLING);
 
   const successfulChecks =
     (await unlessForbidden(
@@ -204,7 +209,8 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config, result, files, viewer }));
 
   const report = renderMarkdown(result);
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}\n\n**Auto-approval:** ${cell(approval.status)}`;
+  const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
+  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}`;
 
   if (d.inputs.comment) {
     await unlessForbidden(

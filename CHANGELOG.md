@@ -47,6 +47,10 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   reasons, the auto-approval line, LLM rationale): `&`, `<`, `>`, `|`, backticks, brackets and
   backslashes are escaped and line breaks removed, so a file name cannot break the table or inject
   HTML or links. File names and reviewers in inline code have backticks replaced by `ˋ`.
+- The Action warns when drift sampling is predictable. With `autoApprove.enabled`, a
+  `sampleRate` above 0 and no `sample-salt`, anyone can compute which PR numbers get sampled
+  (`acme/app#107` is, `#108` is not). It now logs "sampling is predictable; set sample-salt to a
+  secret" and repeats it in the PR comment; docs/github-action.md, "Set sample-salt", shows how.
 
 ## 0.1.0 - 2026-10-15
 
