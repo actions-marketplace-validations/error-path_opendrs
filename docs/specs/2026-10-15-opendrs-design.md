@@ -166,14 +166,24 @@ thresholds:            # tiers, mirrors Meta's gates
   # or percentiles from calibration: { mode: percentile, green: 50, yellow: 90, red: 95 }
 autoApprove:
   enabled: false       # default: comment-only dry run
-  requireAiReview:     # any of (all listed must pass)
-    checks: []         # check-run names that must have concluded success, e.g. ["claude-review"]
-    labels: []         # labels that must be present, e.g. ["ai-reviewed"]
+  requireAiReview:     # all listed must pass
+    checks: []         # check-run names that must have concluded success on the head sha, e.g. ["claude-review"]
+                       # (labels were removed in 0.1.1: not tied to a commit, addable with triage access)
   mergeMethod: queue   # queue | auto-merge | none
   sampleRate: 0.10     # fraction of eligible PRs still routed to a human (deterministic by PR sha)
   maxChangedLines: 400 # never auto-approve above this, whatever the score
 paths:
-  block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf"]
+  block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf", ".gitmodules",
+             "**/.gitattributes",
+             # files that execute code on install, build or CI (dependency bumps also touch an
+             # ignored lockfile, so they reach a human anyway)
+             "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
+             "**/setup.py", "**/setup.cfg", "**/pyproject.toml", "**/pip.conf",
+             "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle*", "**/gradle/wrapper/**",
+             "**/pom.xml", "**/.mvn/**", "**/Cargo.toml", "**/build.rs", "**/go.mod",
+             "**/Gemfile", "**/Rakefile", "**/*.gemspec",
+             "**/Makefile", "**/Dockerfile*", "**/docker-compose*.yml",
+             ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**"]
   critical: ["**/auth/**", "**/payment*/**", "**/security/**"]
   ignore:   ["**/*.lock", "**/package-lock.json", "**/dist/**", "**/vendor/**", "**/*.min.js"]
 llm:
@@ -191,7 +201,9 @@ The decision is computed in this order, and the first rule that matches wins:
 1. any `paths.block` hit → `human-review` (hard block);
 2. any changed file is ignored (`paths.ignore`) or binary → `human-review`, naming up to 3 such
    files. These files are still scored as before (a lockfile bump keeps a low, green score), but
-   nothing reads their contents, so they are never auto-approved;
+   nothing reads their contents, so they are never auto-approved. Likewise any submodule change
+   (`ChangedFile.submodule`: a side has the gitlink mode 160000) → `human-review`, because the new
+   pointer pulls in code the diff does not show;
 3. changed lines > `maxChangedLines` → `human-review` (ignored files excluded; a binary file counts
    as one line);
 4. tier ≠ green → `human-review` (tier recorded);
@@ -246,8 +258,22 @@ files, excluding the PR author (one of Meta's DRS uses).
   score (`llm.semantic` is 0 for `p` ≤ 0.2), so a successful injection cannot lower it.
 - Git is invoked with `execFile` (no shell), with `--no-pager`, `-c core.quotepath=off`, and
   timeouts.
-- The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, or the action
-  itself. The config is read from base.
+- The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, `.gitmodules`,
+  any `.gitattributes`, or the action itself. The config is read from base.
+- Binary detection does not trust the PR. Git's heuristic only looks for a NUL in the first 8000
+  bytes and obeys `.gitattributes` (`* diff` prints a binary as text). So:
+  - with git ≥ 2.40 (detected once per process from `git version`), the diff runs with
+    `--attr-source=<base sha>`, so attributes come from the base, not the PR's work tree;
+  - with older git it runs with `-c core.attributesFile=/dev/null` and `GIT_ATTR_NOSYSTEM=1`,
+    which drops the global and system files. In-tree attributes are still read there;
+  - after parsing, every non-deleted, non-submodule file that git called text has its head blob
+    read through one batched `git cat-file --batch`. It becomes binary when it holds a NUL
+    anywhere, is not valid UTF-8, or cannot be read (a path with a line break).
+- The diff is generated with `--submodule=short --ignore-submodules=none`, so neither git config
+  nor a submodule's `ignore` setting in `.gitmodules` can hide or summarise a gitlink change. The
+  parser marks a file as a submodule (`ChangedFile.submodule`, an additive field) from an `index`,
+  `new file mode`, `deleted file mode`, `old mode` or `new mode` line with mode 160000, or from a
+  `Subproject commit` patch line.
 - All errors use `Result`-style returns inside the engine. The CLI prints the reason and
   exits 2 on operational errors.
 

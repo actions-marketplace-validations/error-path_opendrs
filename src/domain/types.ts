@@ -44,6 +44,8 @@ export interface ChangedFile {
   hunks: Hunk[];
   /** True when the file matched `paths.ignore` (lockfiles, generated, vendored). */
   ignored: boolean;
+  /** Set when either side is a gitlink (mode 160000): the change moves a submodule pointer. */
+  submodule?: true;
 }
 
 export interface DiffInfo {

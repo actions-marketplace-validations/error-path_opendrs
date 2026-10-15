@@ -103,7 +103,8 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. a changed file is ignored (`paths.ignore`) or binary → `human-review`;
+2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink) →
+   `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green → `human-review`;
 5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
@@ -119,10 +120,21 @@ The rails that matter when the Action can approve PRs:
 - **Config comes from the base branch.** The Action reads `.opendrs.yml` and the calibrated model
   from the PR's base commit, so a PR cannot loosen its own gate.
 - **Hard blocks.** `paths.block` (by default `.github/**`, `.opendrs.yml`, `.opendrs/**`,
-  `CODEOWNERS`, migrations and Terraform) always sends the PR to a human.
+  `CODEOWNERS`, migrations, Terraform, `.gitmodules`, `.gitattributes`, and files that execute
+  code on install, build or CI; see [Configuration](#configuration)) always sends the PR to a
+  human.
+- **Binary files cannot pass as text.** Git's own test only looks for a NUL in the first 8000 bytes
+  and obeys `.gitattributes`, so opendrs also reads every changed file at the PR head and treats it
+  as binary when it holds a NUL anywhere or is not valid UTF-8. With git 2.40 or later the diff
+  reads attributes from the base commit (`--attr-source`), so the PR's own `.gitattributes` has no
+  effect. Older git ignores only the global and system attribute files and still reads the ones in
+  the checkout; the content check above still catches binaries there.
+- **Submodules.** Moving a submodule pointer pulls in code the diff does not show, so any gitlink
+  change goes to a human, whatever `diff.submodule`, `diff.ignoreSubmodules` or a submodule's
+  `ignore` setting says. Repointing a submodule's URL changes `.gitmodules`, which is blocked.
 - **Self-modification guard.** Independently of any config, the Action never approves a PR that
-  adds, changes, deletes or renames `.opendrs.yml`, `.opendrs/**`, `.github/**`, `action.yml` or
-  `action/**`, or the configured model file. It also never approves PRs from forks.
+  adds, changes, deletes or renames `.opendrs.yml`, `.opendrs/**`, `.github/**`, `action.yml`,
+  `action/**`, `.gitmodules` or any `.gitattributes`, or the configured model file. It also never approves PRs from forks.
 - **Sampling.** `sampleRate` (default 10 %) of eligible PRs still go to a human, chosen
   deterministically from the head commit, so you keep measuring what the gate lets through.
 - **Unknown is not safe.** A signal that cannot be computed is reported under "Unknowns" and blocks
@@ -130,6 +142,10 @@ The rails that matter when the Action can approve PRs:
   same way.
 - **Withdrawn approvals.** When a new push makes the PR ineligible, the Action dismisses its own
   earlier approval ("Risk increased: yellow 0.45").
+- **Stale approvals are blocked by branch rules.** The Action approves only if the base branch
+  requires at least one approval and dismisses stale approvals on push. Without that rule, an
+  approval for one commit could carry over to a later, riskier push. See
+  [docs/github-action.md](docs/github-action.md) for the ruleset.
 - **Prompt injection.** The diff, PR title and PR body are untrusted. The LLM prompt wraps them in
   delimiters and tells the model to ignore instructions inside them; the PR body is not sent at
   all unless `llm.includeDescription` is true. The answer must be exactly one JSON object and is
@@ -270,7 +286,17 @@ autoApprove:
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf"]
+  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf",
+          ".gitmodules", "**/.gitattributes",
+          # files that execute code on install, build or CI
+          "**/package.json", "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/.pnpmfile.cjs",
+          "**/setup.py", "**/setup.cfg", "**/pyproject.toml", "**/pip.conf",
+          "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle*", "**/gradle/wrapper/**",
+          "**/pom.xml", "**/.mvn/**",
+          "**/Cargo.toml", "**/build.rs", "**/go.mod",
+          "**/Gemfile", "**/Rakefile", "**/*.gemspec",
+          "**/Makefile", "**/Dockerfile*", "**/docker-compose*.yml",
+          ".gitlab-ci.yml", "Jenkinsfile", ".circleci/**", "azure-pipelines.yml", ".buildkite/**"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
@@ -299,6 +325,21 @@ graph:
 
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
 ```
+
+**Why the default block list is long.** Besides the gate's own files, `paths.block` lists
+files that execute code on install, build or CI: package manifests and their registry settings
+(`package.json`, `.npmrc`, `setup.py`, `pyproject.toml`, ...), build scripts (`build.gradle`,
+`pom.xml`, `build.rs`, `Makefile`, `Dockerfile`, ...) and CI pipelines outside `.github/`. A
+one-line change there (a `postinstall` hook, a registry pointed at another host, a new build
+step) scores as small and low-risk, but runs on every developer machine and CI runner. Dependency
+bumps also change a lockfile, which is in `paths.ignore` and so already goes to a human.
+
+To relax this, do it deliberately: copy the full `block` list into `.opendrs.yml` on the default
+branch and delete only the entries you accept, for example `"**/go.mod"` if you trust `go.mod`
+edits to code review alone. A `paths.block` you set replaces the default list, so leaving out an
+entry you did not mean to drop unblocks it. In the Action, the self-modification guard keeps
+`.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and `.gitattributes` blocked
+whatever the list says.
 
 opendrs refuses a config that would fail silently, naming the offending value:
 
