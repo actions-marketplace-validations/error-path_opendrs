@@ -103,12 +103,13 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. more than `maxChangedLines` changed → `human-review`;
-3. tier is not green → `human-review`;
-4. the LLM judge failed, or an `unknown` signal could have changed the tier → `human-review`;
-5. the required AI-review checks or labels are missing → `waiting-ai-review`;
-6. the PR is sampled for human review → `human-review`;
-7. otherwise `auto-approve`.
+2. a changed file is ignored (`paths.ignore`) or binary → `human-review`;
+3. more than `maxChangedLines` changed → `human-review`;
+4. tier is not green → `human-review`;
+5. the LLM judge failed, or an `unknown` signal could have changed the tier → `human-review`;
+6. the required AI-review checks or labels are missing → `waiting-ai-review`;
+7. the PR is sampled for human review → `human-review`;
+8. otherwise `auto-approve`.
 
 The decision also suggests three reviewers: the most frequent recent authors of the changed files.
 
@@ -230,8 +231,9 @@ autoApprove:
 paths:
   block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
+  # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
-           "**/build/**", "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
+           "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
   tests: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*",
           "**/*_test.*", "**/test_*.py"]
 

@@ -186,12 +186,16 @@ history:
 The decision is computed in this order, and the first rule that matches wins:
 
 1. any `paths.block` hit → `human-review` (hard block);
-2. changed lines > `maxChangedLines` → `human-review`;
-3. tier ≠ green → `human-review` (tier recorded);
-4. any LLM failure or `unknown` signal whose weight could have changed the tier → `human-review`;
-5. AI-review requirement not met → `waiting-ai-review`;
-6. sampled → `human-review` (sampled);
-7. otherwise `auto-approve`, plus `mergeMethod`.
+2. any changed file is ignored (`paths.ignore`) or binary → `human-review`, naming up to 3 such
+   files. These files are still scored as before (a lockfile bump keeps a low, green score), but
+   nothing reads their contents, so they are never auto-approved;
+3. changed lines > `maxChangedLines` → `human-review` (ignored files excluded; a binary file counts
+   as one line);
+4. tier ≠ green → `human-review` (tier recorded);
+5. any LLM failure or `unknown` signal whose weight could have changed the tier → `human-review`;
+6. AI-review requirement not met → `waiting-ai-review`;
+7. sampled → `human-review` (sampled);
+8. otherwise `auto-approve`, plus `mergeMethod`.
 
 The decision also lists suggested reviewers. These are the top 3 recent authors of the changed
 files, excluding the PR author (one of Meta's DRS uses).

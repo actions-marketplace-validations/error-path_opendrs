@@ -46,7 +46,6 @@ export const configSchema = z.object({
         "**/pnpm-lock.yaml",
         "**/go.sum",
         "**/dist/**",
-        "**/build/**",
         "**/vendor/**",
         "**/node_modules/**",
         "**/*.min.js",

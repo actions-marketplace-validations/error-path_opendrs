@@ -77,8 +77,14 @@ export function decide(input: GateInput): PolicyOutcome {
     fired.push({ decision: "human-review", reason: `hard block: ${what}` });
   }
 
-  // 2. size cap
-  const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + f.added + f.deleted, 0);
+  // 1b. ignored or binary files: scored as low risk, but nothing reads their contents, so a human must
+  const unread = diff.files.filter((f) => f.ignored || f.binary).map((f) => f.path);
+  if (unread.length > 0) {
+    fired.push({ decision: "human-review", reason: `ignored or binary files are never auto-approved: ${list(unread)}` });
+  }
+
+  // 2. size cap (a binary file counts as one line)
+  const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
   if (changedLines > auto.maxChangedLines) {
     fired.push({ decision: "human-review", reason: `${changedLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
   }
