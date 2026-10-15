@@ -59,6 +59,13 @@ export function isSelf(user: GitHubUser | null, viewer: string | undefined): boo
   return viewer === undefined ? user.type === "Bot" : sameLogin(user.login, viewer);
 }
 
+/** An entry of GET /pulls/{n}/commits. `author` is GitHub's verified email-to-account mapping. */
+export interface PullCommit {
+  sha: string;
+  author: { login: string } | null;
+  commit: { author: { email: string } | null };
+}
+
 export type MergeMethod = "MERGE" | "SQUASH" | "REBASE";
 
 export interface GitHubClientOptions {
@@ -152,6 +159,11 @@ export class GitHubClient {
     } catch (e) {
       if (!(e instanceof GitHubError && e.status === 404)) throw e;
     }
+  }
+
+  /** The PR's commits, oldest first (GitHub lists at most 250). */
+  listPullCommits(pr: number) {
+    return this.paginate<PullCommit>(`${this.repoPath}/pulls/${pr}/commits`);
   }
 
   listReviews(pr: number) {

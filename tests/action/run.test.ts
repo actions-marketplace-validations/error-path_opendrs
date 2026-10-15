@@ -16,6 +16,7 @@ vi.mock("../../src/engine.js", () => ({ scoreDiff: vi.fn() }));
 vi.mock("../../src/report/markdown.js", () => ({ renderMarkdown: vi.fn(() => "<!-- opendrs -->\n## Risk report") }));
 
 const { scoreDiff } = await import("../../src/engine.js");
+const { renderMarkdown } = await import("../../src/report/markdown.js");
 const { runAction, COMMENT_MARKER, APPROVAL_MARKER } = await import("../../src/action/run.js");
 
 const ENABLED = { autoApprove: { enabled: true } };
@@ -159,6 +160,56 @@ describe("scoring", () => {
     await expect(
       runAction({ repoDir: repo.dir, event: { push: {} }, inputs: { token: "t", baseConfig: true, comment: true, labels: true }, client, io, env: {} }),
     ).rejects.toBeInstanceOf(OpendrsError);
+  });
+});
+
+describe("author verification", () => {
+  it("trusts the head commit's author when GitHub maps it to the PR's account", async () => {
+    const t = await run();
+    await t.promise;
+    expect(t.gh.ops("listCommits")).toHaveLength(1);
+    expect(t.scoreArgs().authorVerified).toBe(true);
+  });
+
+  it.each([
+    ["belongs to another account (a faked maintainer email)", (sha: string) => [prCommit(sha, "maintainer", "maintainer@example.com")]],
+    ["has no GitHub account", (sha: string) => [prCommit(sha, null, "maintainer@example.com")]],
+    ["is not the last listed commit (over 250 commits)", (sha: string) => [prCommit(sha), prCommit("f".repeat(40))]],
+  ])("does not trust the author when the head commit %s", async (_, commits) => {
+    const t = await run({ gh: { commits: [] } });
+    t.gh.commits = commits(t.headSha);
+    await t.promise;
+    expect(t.scoreArgs().authorVerified).toBe(false);
+    expect(t.log()).toMatch(/not verified/);
+  });
+
+  it("does not trust the author, with a warning, when the PR's commits cannot be read", async () => {
+    const t = await run({ gh: { forbid: new Set(["listCommits"]) } });
+    await t.promise;
+    expect(t.scoreArgs().authorVerified).toBe(false);
+    expect(t.log()).toMatch(/::warning::.*commits/);
+  });
+
+  const reviewersShown = () => vi.mocked(renderMarkdown).mock.calls[0]![0].policy.suggestedReviewers;
+  const history = (repo: TestRepo) => {
+    repo.commit({ "src/a.ts": "0\n" }, "maintainer", { name: "M", email: "maintainer@example.com" });
+    repo.commit({ "src/a.ts": "00\n" }, "octocat", { name: "O", email: PR_EMAIL });
+  };
+
+  it("suggests reviewers without excluding a faked head-commit email, and never suggests the PR's author", async () => {
+    const t = await run({ before: history, gh: { commits: [] } });
+    // The head commit claims the maintainer's email; an earlier commit is verified as the PR author's.
+    t.gh.commits = [prCommit("e".repeat(40)), prCommit(t.headSha, "maintainer", "maintainer@example.com")];
+    await t.promise;
+    expect(reviewersShown()).toContain("maintainer@example.com");
+    expect(reviewersShown()).not.toContain(PR_EMAIL);
+  });
+
+  it("excludes the PR author's verified email from suggested reviewers", async () => {
+    const t = await run({ before: history });
+    await t.promise;
+    expect(reviewersShown()).toContain("maintainer@example.com");
+    expect(reviewersShown()).not.toContain(PR_EMAIL);
   });
 });
 
