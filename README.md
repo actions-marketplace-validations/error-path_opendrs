@@ -159,9 +159,44 @@ not numbers your repository should be expected to match.
 
 ## Results on public repositories
 
-Backtest results on public repos: coming soon.
+We ran `opendrs calibrate` and then `opendrs backtest --max-commits 4000` on nine open-source
+repositories with opendrs v0.1.0, without changing any configuration. Labels come from reverts and
+SZZ blame on fix commits only, since none of these repos publish an incident list. Read them as
+"later needed a fix", not as production incidents.
 
-<!-- results -->
+**Held-out commits** are the commits newer than the calibration window, and so unseen by the fitted
+model. That is the fair comparison between the default priors and a calibrated model:
+
+| Repository | Language | Commits | Positives | AUC: default priors (held-out) | AUC: calibrated (held-out) | Caught in riskiest 10 %: default, all commits |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| [expressjs/express](https://github.com/expressjs/express) | JavaScript | 4,000 | 628 | 0.62 | **0.73** | 17.8 % |
+| [pallets/flask](https://github.com/pallets/flask) | Python | 3,828 | 793 | 0.75 | **0.78** | 12.5 % |
+| [django/django](https://github.com/django/django) | Python | 4,000 | 1,102 | 0.63 | **0.70** | 19.6 % |
+| [gin-gonic/gin](https://github.com/gin-gonic/gin) | Go | 1,806 | 380 | 0.63 | **0.67** | 15.0 % |
+| [prometheus/prometheus](https://github.com/prometheus/prometheus) | Go | 4,000 | 619 | 0.59 | **0.62** | 24.7 % |
+| [rust-lang/cargo](https://github.com/rust-lang/cargo) | Rust | 4,000 | 1,163 | 0.61 | **0.75** | 15.2 % |
+| [spring-projects/spring-boot](https://github.com/spring-projects/spring-boot) | Java | 4,000 | 152 | 0.61 | **0.62** | 32.9 % |
+| [quarkusio/quarkus](https://github.com/quarkusio/quarkus) | Java | 6,000 | 497 | 0.65 | **0.66** | 28.2 % |
+| [rails/rails](https://github.com/rails/rails) | Ruby | 4,000 | 351 | 0.63 | **0.71** | 17.9 % |
+
+What this shows:
+
+- **Calibration beat the default priors on held-out commits in all nine repositories.** The median
+  AUC gain is +0.04, but on spring-boot and quarkus the gain is too small to matter. Fit the
+  model on your own history; don't rely on the defaults.
+- The default priors alone rank risk better than chance everywhere. Their AUC over all replayed
+  commits ranges from 0.58 to 0.70. On quarkus, gating the riskiest 5 % and 10 % caught 18.5 % and
+  28.2 % of positives. For orientation only, Meta reports 18.7 % and 27.9 % for its internal
+  logistic-regression baseline. Different code, labels and population make this an analogy, not a
+  comparison.
+- Positive rates range from 4 % (spring-boot) to 29 % (cargo). SZZ labels are noisy, and a project's
+  fix-commit habits shape them. Your own incident list (`.opendrs/incidents.jsonl`) is the
+  strongest label you can add.
+- Two known approximations, both reported by `backtest`: the import graph comes from the newest
+  commit, and the newest commits' labels are incomplete.
+
+Reproduce a row: `git clone <repo> && cd <repo> && npx github:error-path/opendrs calibrate --max-commits 4000 && npx github:error-path/opendrs backtest --max-commits 4000`.
+Runs took 1 to 16 minutes per repository on a 4-core Linux machine.
 
 ## LLM judge (optional)
 
