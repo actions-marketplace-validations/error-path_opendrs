@@ -88,6 +88,7 @@ describe("opendrs backtest", () => {
       default: metrics(0.12, 0.2, 0.7, 0.64),
       calibrated: metrics(0.2, 0.31, 0.88, 0.74),
       curve: [[0, 0], [1, 1]],
+      notes: [],
     });
   });
 
@@ -99,7 +100,7 @@ describe("opendrs backtest", () => {
 
   it("passes no model when only the default priors exist", async () => {
     vi.mocked(loadModel).mockResolvedValue({ model: { version: 1, intercept: -3, weights: {} }, kind: "default" });
-    vi.mocked(backtest).mockResolvedValue({ default: metrics(0.12, 0.2, 0.7, 0.64), curve: [] });
+    vi.mocked(backtest).mockResolvedValue({ default: metrics(0.12, 0.2, 0.7, 0.64), curve: [], notes: [] });
     const t = testIo(repo.dir);
     await runCli(["backtest", "--since", "2026-01-01"], t.io);
     expect(vi.mocked(backtest).mock.calls[0]![0]).toMatchObject({ model: undefined, since: "2026-01-01" });

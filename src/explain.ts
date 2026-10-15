@@ -1,6 +1,6 @@
 import type { OpendrsConfig } from "./domain/config.js";
 import { OpendrsError } from "./domain/types.js";
-import { matchAny } from "./cli/glob-lite.js";
+import { matchAny } from "./git/glob.js";
 import { gitMaybe } from "./git/exec.js";
 import { buildHistoryIndex } from "./git/history.js";
 import { buildDependencyGraph } from "./graph/graph.js";

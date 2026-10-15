@@ -1,4 +1,4 @@
-import { matchAny } from "../cli/glob-lite.js";
+import { matchAny } from "../git/glob.js";
 
 /**
  * Paths a PR may never change and still be auto-approved: the gate's own config, model and

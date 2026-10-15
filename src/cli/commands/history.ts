@@ -106,6 +106,7 @@ ${HISTORY_OPTIONS}
     io.out("");
     if (!report.calibrated) io.out(`No calibrated model at ${opts.config.model}. Run \`opendrs calibrate\` to fit one.`);
     io.out("captured@X%: share of incident-linked commits that fall in the riskiest X % of commits.");
+    for (const note of report.notes) io.out(`Note: ${note}`);
     io.out(
       "* Meta's in-house results for its LR baseline on Meta's own diffs and SEVs (arXiv 2410.06351). " +
         "Shown for orientation only: different code, labels and population, so not comparable data.",

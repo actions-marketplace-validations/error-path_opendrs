@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchAny, matchGlob } from "../../src/cli/glob-lite.js";
+import { matchAny, matchGlob } from "../../src/git/glob.js";
 
 describe("matchGlob", () => {
   it.each([

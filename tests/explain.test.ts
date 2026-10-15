@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CommitInfo, DependencyGraph, HistoryIndex } from "../src/domain/types.js";
+import type { CommitInfo, HistoryIndex } from "../src/domain/types.js";
+import type { RepoGraph } from "../src/graph/graph.js";
 import { OpendrsError } from "../src/domain/types.js";
 import { parseConfig } from "../src/domain/config.js";
 import { makeRepo, type TestRepo } from "./helpers/repo.js";
@@ -24,8 +25,9 @@ function fakeHistory(commits: CommitInfo[]): HistoryIndex {
   };
 }
 
-function fakeGraph(supported: boolean): DependencyGraph {
+function fakeGraph(supported: boolean): RepoGraph {
   return {
+    coverage: { files: 10, total: 10 },
     dependentsOf: () => ["a.ts", "b.ts"],
     transitiveDependents: (_p, depth) => new Set(depth >= 3 ? ["a.ts", "b.ts", "c.ts", "d.ts"] : ["a.ts", "b.ts"]),
     supports: () => supported,
