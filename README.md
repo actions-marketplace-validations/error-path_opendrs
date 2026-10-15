@@ -106,7 +106,8 @@ The decision rules run in this order; the first that matches wins:
 2. a changed file is ignored (`paths.ignore`) or binary → `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green → `human-review`;
-5. the LLM judge failed, or an `unknown` signal could have changed the tier → `human-review`;
+5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
+   the tier → `human-review`;
 6. the required AI-review checks or labels are missing → `waiting-ai-review`;
 7. the PR is sampled for human review → `human-review`;
 8. otherwise `auto-approve`.

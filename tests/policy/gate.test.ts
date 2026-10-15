@@ -178,6 +178,21 @@ describe("decide: rule 4 (unknowns and LLM failure)", () => {
     expect(decide(input({ score: 0.05, signals: [unknown("blast.dependents", Math.log1p(10))] })).decision).toBe("auto-approve");
   });
 
+  it("routes unknowns whose joint worst case changes the tier, though none does alone", () => {
+    const signals = [unknown("history.prior_fixes", 0), unknown("diffusion.authors", 0), unknown("history.churn", 0)];
+    for (const s of signals) expect(decide(input({ score: 0.15, signals: [s] })).decision, s.id).toBe("auto-approve");
+
+    const out = decide(input({ score: 0.15, signals }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toMatch(/together raise the score to 0\.4\d \(yellow\)/);
+    for (const s of signals) expect(out.reasons[0]).toContain(s.id);
+  });
+
+  it("measures the lift from the value the model used, i.e. the prior for an unknown", () => {
+    // blast.dependents is scored at its prior log1p(10), so only the rest of the range is at stake.
+    expect(decide(input({ score: 0.15, signals: [unknown("blast.dependents", 0)] })).decision).toBe("auto-approve");
+  });
+
   it("uses the risky end of the range for negative weights", () => {
     const out = decide(input({ score: 0.2, signals: [unknown("expertise.author_commits", Math.log1p(100))] }));
     expect(out.decision).toBe("human-review");

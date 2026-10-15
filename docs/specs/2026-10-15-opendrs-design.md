@@ -194,7 +194,9 @@ The decision is computed in this order, and the first rule that matches wins:
 3. changed lines > `maxChangedLines` → `human-review` (ignored files excluded; a binary file counts
    as one line);
 4. tier ≠ green → `human-review` (tier recorded);
-5. any LLM failure or `unknown` signal whose weight could have changed the tier → `human-review`;
+5. any LLM failure, or `unknown` signals whose joint worst case could have changed the tier (the
+   logit lifts of all unknowns, each at the risky end of its plausible range, are summed) →
+   `human-review`;
 6. AI-review requirement not met → `waiting-ai-review`;
 7. sampled → `human-review` (sampled);
 8. otherwise `auto-approve`, plus `mergeMethod`.
