@@ -35,6 +35,18 @@ describe("opendrs score", () => {
     expect(t.stdout()).toBe("TEXT REPORT");
   });
 
+  it("warns on stderr, in one line, when the repository is a shallow clone", async () => {
+    const t = testIo(repo.dir);
+    await runCli(["score", "--json"], t.io);
+    expect(t.stderr()).toBe("");
+
+    writeFileSync(join(repo.dir, ".git", "shallow"), `${repo.git("rev-parse", "HEAD")}\n`);
+    const shallow = testIo(repo.dir);
+    expect(await runCli(["score", "--json"], shallow.io)).toBe(0);
+    expect(shallow.stderr()).toMatch(/^opendrs: warning: .*shallow clone.*git fetch --unshallow.*fetch-depth: 0[^\n]*$/);
+    expect(JSON.parse(shallow.stdout()).score).toBe(0.42);
+  });
+
   it("falls back to master when there is no main", async () => {
     repo.git("branch", "-m", "main", "master");
     const t = testIo(repo.dir);

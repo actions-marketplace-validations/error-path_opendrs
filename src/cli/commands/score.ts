@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { loadConfig } from "../../domain/config.js";
 import { OpendrsError } from "../../domain/types.js";
 import { scoreDiff } from "../../engine.js";
+import { git } from "../../git/exec.js";
 import { renderMarkdown, renderText } from "../../report/markdown.js";
 import { parseScoreArg } from "../args.js";
 import { defaultBase, repoRoot } from "../repo.js";
@@ -42,6 +43,11 @@ Exit codes: 0 ok, 1 score above --fail-above, 2 error.`,
     const failAbove = values["fail-above"] === undefined ? undefined : parseScoreArg("--fail-above", values["fail-above"]);
 
     const repoDir = await repoRoot(io.cwd);
+    if ((await git(repoDir, ["rev-parse", "--is-shallow-repository"])).trim() === "true") {
+      io.err(
+        "opendrs: warning: this is a shallow clone, so history signals are incomplete; run `git fetch --unshallow` (in CI: actions/checkout with fetch-depth: 0)",
+      );
+    }
     const config = await loadConfig(repoDir);
     const result = await scoreDiff({
       repoDir,
