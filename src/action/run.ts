@@ -6,7 +6,7 @@ import { git, gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
 import { suggestReviewers } from "../policy/reviewers.js";
-import { renderMarkdown } from "../report/markdown.js";
+import { cell, renderMarkdown } from "../report/markdown.js";
 import { ownApprovals, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
@@ -204,7 +204,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config, result, files, viewer }));
 
   const report = renderMarkdown(result);
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}\n\n**Auto-approval:** ${approval.status}`;
+  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}\n\n**Auto-approval:** ${cell(approval.status)}`;
 
   if (d.inputs.comment) {
     await unlessForbidden(

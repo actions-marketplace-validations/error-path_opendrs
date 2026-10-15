@@ -38,6 +38,15 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   hook in `package.json` used to score as a tiny change and could be auto-approved. `opendrs init`
   writes the same list. If your `.opendrs.yml` sets its own `paths.block`, it replaces the defaults:
   compare it with the new list.
+- The Action's log can no longer be fed workflow commands. A changed file named
+  `docs/x\n::stop-commands::…\n::notice::…` was printed verbatim in the decision reasons, so the
+  runner executed the commands. Every plain log line now shows line breaks as `⏎` and gets a
+  visible `›` before a leading `::` or a legacy `##[`; the Action's own `::group::`, `::warning::`,
+  `::notice::` and `::error::` commands still %-escape their message.
+- The PR comment and job summary escape untrusted text (file paths, signal summaries, policy
+  reasons, the auto-approval line, LLM rationale): `&`, `<`, `>`, `|`, backticks, brackets and
+  backslashes are escaped and line breaks removed, so a file name cannot break the table or inject
+  HTML or links. File names and reviewers in inline code have backticks replaced by `ˋ`.
 
 ## 0.1.0 - 2026-10-15
 

@@ -14,7 +14,10 @@ import { fakeResult } from "../cli/helpers.js";
 import { API, BOT, STALE_APPROVALS_DISMISSED, installFakeGitHub, type FakeGitHub } from "./fake-github.js";
 
 vi.mock("../../src/engine.js", () => ({ scoreDiff: vi.fn() }));
-vi.mock("../../src/report/markdown.js", () => ({ renderMarkdown: vi.fn(() => "<!-- opendrs -->\n## Risk report") }));
+vi.mock("../../src/report/markdown.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/report/markdown.js")>()),
+  renderMarkdown: vi.fn(() => "<!-- opendrs -->\n## Risk report"),
+}));
 
 const { scoreDiff } = await import("../../src/engine.js");
 const { renderMarkdown } = await import("../../src/report/markdown.js");
@@ -216,6 +219,31 @@ describe("AI review", () => {
     await expect(t.promise).rejects.toThrow(/requireAiReview\.labels was removed in 0\.1\.1/);
     expect(t.gh.ops("createReview")).toEqual([]);
     expect(t.gh.ops("dismissReview")).toHaveLength(1);
+  });
+});
+
+describe("untrusted text", () => {
+  const NASTY = ".github/x\n::stop-commands::pwned\n::notice title=opendrs::approved, all rails passed\n.md";
+
+  it("cannot inject workflow commands through a changed file's name in the reasons and the log", async () => {
+    const r = result(0.12, "green", "auto-approve");
+    r.policy.reasons.push(`blocked path ${NASTY}`);
+    const t = await run({ headFiles: { "src/a.ts": "2\n", [NASTY]: "x\n" }, result: r });
+    await t.promise;
+    const commands = t.log().split("\n").filter((l) => /^\s*::/.test(l));
+    expect(commands.length).toBeGreaterThan(0);
+    for (const line of commands) expect(line).toMatch(/^::(group|endgroup|warning|notice|error)::/);
+    expect(t.log()).toContain("::stop-commands::pwned");
+  });
+
+  it("escapes a changed file's name on the comment's auto-approval line", async () => {
+    const name = ".github/x <img src=x onerror=alert(1)> | [ok](evil.example) `y` & z.md";
+    const t = await run({ headFiles: { "src/a.ts": "2\n", [name]: "x\n" } });
+    await t.promise;
+    expect(t.gh.comments[0]!.body.split("\n").at(-1)).toBe(
+      "**Auto-approval:** not approved: self-modification guard: the PR changes " +
+        ".github/x &lt;img src=x onerror=alert(1)&gt; \\| \\[ok\\](evil.example) \\`y\\` &amp; z.md.",
+    );
   });
 });
 
