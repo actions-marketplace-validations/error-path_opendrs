@@ -229,6 +229,19 @@ describe("decide: rule 5 (AI review)", () => {
     expect(decide(input({ cfg, pr: { successfulChecks: ["claude-review", "security-review"] } })).decision).toBe("auto-approve");
   });
 
+  it("accepts { name, app } entries and reports them by name", () => {
+    const pinned = { autoApprove: { sampleRate: 0, requireAiReview: { checks: [{ name: "claude-review", app: "coderabbitai" }, "security-review"] } } };
+    expect(decide(input({ cfg: pinned, pr: { successfulChecks: ["security-review"] } })).reasons[0]).toBe("AI review pending: missing check claude-review");
+    expect(decide(input({ cfg: pinned, pr: { successfulChecks: ["claude-review", "security-review"] } })).decision).toBe("auto-approve");
+  });
+
+  it.each([[{ name: "claude-review" }], [{ name: "claude-review", app: "" }], [{ name: "claude-review", app: "x", extra: 1 }]])(
+    "rejects a check entry %j that is not a name or { name, app }",
+    (entry) => {
+      expect(() => parseConfig({ autoApprove: { requireAiReview: { checks: [entry] } } })).toThrow(/requireAiReview/);
+    },
+  );
+
   it("passes when no checks are configured", () => {
     expect(decide(input()).decision).toBe("auto-approve");
   });

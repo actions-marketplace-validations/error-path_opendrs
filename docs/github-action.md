@@ -55,7 +55,7 @@ opendrs checks out and reads the PR's code. opendrs only works on events that ca
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). |
 | `labels` | `true` | Set the risk label and remove stale ones. |
-| `sample-salt` | empty | Set to a secret to make sampling unpredictable, e.g. `${{ secrets.OPENDRS_SAMPLE_SALT }}`. The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
+| `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 
 | Output | Values |
 |---|---|
@@ -103,6 +103,23 @@ entry, so an error never leaves an earlier approval in force.
 
 If you require review from code owners, opendrs cannot satisfy it, because the bot is not a code
 owner.
+
+### Set sample-salt
+
+`autoApprove.sampleRate` sends a share of the PRs that would be approved to a human anyway. Which
+PRs is decided by a hash of the repository, the PR number and the `sample-salt` input. **With the
+default empty salt, anyone can compute it**: for example, that `acme/app#107` is sampled and
+`#108` is not, and so open a risky PR when the next number is one that will not be sampled. Store
+a random secret and pass it:
+
+```yaml
+      - uses: error-path/opendrs@v0
+        with:
+          sample-salt: ${{ secrets.OPENDRS_SAMPLE_SALT }}
+```
+
+While `autoApprove.enabled` is true, `sampleRate` is above 0 and no salt is set, every run logs the
+warning "sampling is predictable; set sample-salt to a secret" and repeats it in the PR comment.
 
 ### Required: dismiss stale approvals on push
 
@@ -195,7 +212,7 @@ mean "the AI review passed":
 autoApprove:
   enabled: true
   requireAiReview:
-    checks: ["claude-review"]
+    checks: [{ name: "claude-review", app: "github-actions" }]
 ```
 
 If the AI review has not finished when opendrs runs, the decision is `waiting-ai-review`. The
@@ -239,14 +256,35 @@ issue. opendrs counts a check when the latest check run with that exact name con
 on the PR's head commit; runs on earlier commits never count. It never counts its own job: the
 names of the opendrs workflow run's unfinished jobs, the opendrs job among them, are left out, so
 do not list the opendrs job's name, and run the review in an earlier job (`needs:`) as above.
-Beyond that, opendrs does not verify which app created a check. Any workflow on the PR's head
-commit can create a check with that name, which is one reason PRs that change `.github/**` are
-never approved.
 
 Only check runs count. A check run belongs to one commit, so a new push starts without it. PR
 labels are not supported: a label is not tied to a commit, stays on the PR across pushes, and
 anyone with triage access can add one. `requireAiReview.labels` was removed in 0.1.1, and a config
 that still lists it fails with an error; make your AI reviewer report a check run instead.
+
+### Pin a check to the app that publishes it
+
+A check is matched by name, and any workflow or GitHub App with `checks: write` can publish a check
+run under any name. When your reviewer is a GitHub App, pin the check to it with `{ name, app }`,
+where `app` is the app's slug (the `app.slug` of its check runs, as in `github.com/apps/<slug>`):
+
+```yaml
+autoApprove:
+  requireAiReview:
+    checks:
+      - { name: "ai-review", app: "my-review-app" }   # published by your GitHub App
+      - { name: "claude-review", app: "github-actions" }
+      - security-review          # a plain name still matches a check from any app
+```
+
+A pinned check counts only when a check run with that name, from that app, concluded `success` on
+the head commit; a same-named check from another app is ignored.
+
+For a check produced by a GitHub Actions job (`app: github-actions`), the pin cannot tell one
+workflow from another. A PR cannot add its own fake reviewer workflow: a PR that changes
+`.github/**` is never auto-approved. The remaining risk is a job with the same name in another
+workflow that already exists on the base branch, so give the reviewer job a name no other job uses,
+such as `claude-review`, not `review` or `test`.
 
 ## Rollout
 
@@ -278,6 +316,7 @@ warnings. Fork PRs are never approved, whatever the token can do. Do not switch 
 | `GitHub refused the approval (403)` | Enable *Allow GitHub Actions to create and approve pull requests*, and grant `pull-requests: write`. |
 | `Could not read check runs (403)` | Add `checks: read`. Until then, required AI-review checks count as missing. |
 | `Could not write the PR comment (403)` | Add `pull-requests: write`. Expected on fork PRs. |
+| `sampling is predictable; set sample-salt to a secret` | Pass a secret as `sample-salt`; see [Set sample-salt](#set-sample-salt). |
 | `could not confirm that ... dismisses it when new commits are pushed` | Add the branch ruleset from [Required: dismiss stale approvals on push](#required-dismiss-stale-approvals-on-push). |
 | `enabling auto-merge failed` | Enable *Allow auto-merge*, grant `contents: write`, or check the branch's merge queue. |
 | `opendrs needs a pull_request event` | Run the workflow on `pull_request` only. |

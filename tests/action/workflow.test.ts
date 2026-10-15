@@ -20,6 +20,26 @@ describe("createWorkflowIO", () => {
     expect(written).toBe("::warning::100%25 bad%0A::error::injected%0D\n");
   });
 
+  it("prints untrusted text on one line that the runner cannot read as a command", () => {
+    const io = createWorkflowIO({}, write);
+    io.info("  - docs/x\n::stop-commands::pwned\r\n::notice title=opendrs::approved, all rails passed\r.md");
+    io.info("::error::forged");
+    io.info("  ::warning::forged");
+    io.info("legacy ##[add-mask]secret");
+    expect(written).toBe(
+      "  - docs/x⏎::stop-commands::pwned⏎::notice title=opendrs::approved, all rails passed⏎.md\n" +
+        "›::error::forged\n" +
+        "  ›::warning::forged\n" +
+        "legacy #›#[add-mask]secret\n",
+    );
+  });
+
+  it("escapes a group name like command data", async () => {
+    const io = createWorkflowIO({}, write);
+    await io.group("a\n::stop-commands::x", async () => undefined);
+    expect(written).toBe("::group::a%0A::stop-commands::x\n::endgroup::\n");
+  });
+
   it("emits notice and error commands", () => {
     const io = createWorkflowIO({}, write);
     io.notice("hi");

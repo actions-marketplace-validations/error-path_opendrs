@@ -14,7 +14,10 @@ import { fakeResult } from "../cli/helpers.js";
 import { API, BOT, STALE_APPROVALS_DISMISSED, installFakeGitHub, type FakeGitHub } from "./fake-github.js";
 
 vi.mock("../../src/engine.js", () => ({ scoreDiff: vi.fn() }));
-vi.mock("../../src/report/markdown.js", () => ({ renderMarkdown: vi.fn(() => "<!-- opendrs -->\n## Risk report") }));
+vi.mock("../../src/report/markdown.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/report/markdown.js")>()),
+  renderMarkdown: vi.fn(() => "<!-- opendrs -->\n## Risk report"),
+}));
 
 const { scoreDiff } = await import("../../src/engine.js");
 const { renderMarkdown } = await import("../../src/report/markdown.js");
@@ -143,6 +146,24 @@ describe("scoring", () => {
     expect(t.scoreArgs().pr!.samplingKey).toBe("o/r#7#");
   });
 
+  it("warns in the log and the comment that sampling is predictable when auto-approval samples without a salt", async () => {
+    const t = await run();
+    await t.promise;
+    expect(t.log()).toMatch(/^::warning::sampling is predictable; set sample-salt to a secret/m);
+    expect(t.gh.comments[0]!.body).toContain("sampling is predictable; set sample-salt to a secret");
+  });
+
+  it.each([
+    ["sample-salt is set", { inputs: { sampleSalt: "s3cret" } }],
+    ["auto-approval is off", { baseConfig: { autoApprove: { enabled: false } } }],
+    ["sampleRate is 0", { baseConfig: { autoApprove: { enabled: true, sampleRate: 0 } } }],
+  ])("does not warn about predictable sampling when %s", async (_, o) => {
+    const t = await run(o);
+    await t.promise;
+    expect(t.log()).not.toContain("sampling is predictable");
+    expect(t.gh.comments[0]!.body).not.toContain("sampling is predictable");
+  });
+
   it("sets the score, tier and decision outputs and writes the job summary", async () => {
     const t = await run({ result: result(0.4567, "yellow", "human-review") });
     await t.promise;
@@ -200,6 +221,31 @@ describe("AI review", () => {
     expect(t.scoreArgs().pr!.successfulChecks).toEqual(["claude-review"]);
   });
 
+  const pinned = { autoApprove: { enabled: true, requireAiReview: { checks: [{ name: "claude-review", app: "coderabbitai" }] } } };
+
+  it("counts a check pinned to an app when that app published it", async () => {
+    const t = await run({
+      baseConfig: pinned,
+      gh: { checkRuns: [{ name: "claude-review", conclusion: "success", app: { slug: "coderabbitai" } }, { name: "lint", conclusion: "success" }] },
+    });
+    await t.promise;
+    expect(t.scoreArgs().pr!.successfulChecks).toEqual(["claude-review", "lint"]);
+  });
+
+  it("does not count a same-named check from another app for a check pinned to an app", async () => {
+    const t = await run({
+      baseConfig: pinned,
+      gh: {
+        checkRuns: [
+          { name: "claude-review", conclusion: "success" }, // a workflow job named like the reviewer (github-actions)
+          { name: "claude-review", conclusion: "failure", app: { slug: "coderabbitai" } },
+        ],
+      },
+    });
+    await t.promise;
+    expect(t.scoreArgs().pr!.successfulChecks).toEqual([]);
+  });
+
   it("does not touch AI-review labels on synchronize", async () => {
     const t = await run({ labels: ["ai-reviewed"], action: "synchronize" });
     await t.promise;
@@ -216,6 +262,31 @@ describe("AI review", () => {
     await expect(t.promise).rejects.toThrow(/requireAiReview\.labels was removed in 0\.1\.1/);
     expect(t.gh.ops("createReview")).toEqual([]);
     expect(t.gh.ops("dismissReview")).toHaveLength(1);
+  });
+});
+
+describe("untrusted text", () => {
+  const NASTY = ".github/x\n::stop-commands::pwned\n::notice title=opendrs::approved, all rails passed\n.md";
+
+  it("cannot inject workflow commands through a changed file's name in the reasons and the log", async () => {
+    const r = result(0.12, "green", "auto-approve");
+    r.policy.reasons.push(`blocked path ${NASTY}`);
+    const t = await run({ headFiles: { "src/a.ts": "2\n", [NASTY]: "x\n" }, result: r });
+    await t.promise;
+    const commands = t.log().split("\n").filter((l) => /^\s*::/.test(l));
+    expect(commands.length).toBeGreaterThan(0);
+    for (const line of commands) expect(line).toMatch(/^::(group|endgroup|warning|notice|error)::/);
+    expect(t.log()).toContain("::stop-commands::pwned");
+  });
+
+  it("escapes a changed file's name on the comment's auto-approval line", async () => {
+    const name = ".github/x <img src=x onerror=alert(1)> | [ok](evil.example) `y` & z.md";
+    const t = await run({ headFiles: { "src/a.ts": "2\n", [name]: "x\n" } });
+    await t.promise;
+    expect(t.gh.comments[0]!.body.split("\n").at(-1)).toBe(
+      "**Auto-approval:** not approved: self-modification guard: the PR changes " +
+        ".github/x &lt;img src=x onerror=alert(1)&gt; \\| \\[ok\\](evil.example) \\`y\\` &amp; z.md.",
+    );
   });
 });
 
@@ -652,7 +723,11 @@ describe("dismissal", () => {
   });
 
   it("also disables auto-merge and leaves the merge queue when it withdraws its approval", async () => {
-    const t = await run({ result: result(0.4512, "yellow", "human-review"), gh: { reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] } });
+    const t = await run({
+      result: result(0.4512, "yellow", "human-review"),
+      inputs: { sampleSalt: "s" },
+      gh: { reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] },
+    });
     await t.promise;
     expect(t.gh.ops("disableAutoMerge").map((e) => e.body)).toEqual([{ id: "PR_node7" }]);
     expect(t.gh.ops("dequeue").map((e) => e.body)).toEqual([{ id: "PR_node7" }]);
@@ -664,6 +739,7 @@ describe("dismissal", () => {
     async (message) => {
       const t = await run({
         result: result(0.4512, "yellow", "human-review"),
+        inputs: { sampleSalt: "s" },
         gh: { mergeStateError: message, reviews: [review(1, "github-actions[bot]", `${APPROVAL_MARKER}\nok`)] },
       });
       await t.promise;

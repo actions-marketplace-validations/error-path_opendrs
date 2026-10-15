@@ -72,7 +72,7 @@ export interface FakeGitHub {
   labels: string[];
   reviews: FakeReview[];
   /** Check runs on the requested commit; `head_sha`, `status` and `app` default to that commit, completed, github-actions. */
-  checkRuns: Array<{ name: string; conclusion: string | null; status?: string; details_url?: string }>;
+  checkRuns: Array<{ name: string; conclusion: string | null; status?: string; details_url?: string; app?: { slug: string } }>;
   /** GET /rules/branches/main: the active rules on the base branch. */
   rules: Array<{ type: string; parameters?: Record<string, unknown> }>;
   /** GET /branches/main/protection (classic); undefined answers 404 "Branch not protected". */

@@ -6,7 +6,7 @@ import { git, gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
 import { suggestReviewers } from "../policy/reviewers.js";
-import { renderMarkdown } from "../report/markdown.js";
+import { cell, renderMarkdown } from "../report/markdown.js";
 import { ownApprovals, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
@@ -14,6 +14,9 @@ import type { WorkflowIO } from "./workflow.js";
 export { APPROVAL_MARKER } from "./approval.js";
 export const COMMENT_MARKER = "<!-- opendrs -->";
 const RISK_LABELS = ["risk:green", "risk:yellow", "risk:red"];
+const PREDICTABLE_SAMPLING =
+  "sampling is predictable; set sample-salt to a secret. Without it, anyone can compute which PR numbers " +
+  "autoApprove.sampleRate sends to a human, and time a risky PR for one that is not sampled.";
 
 export interface ActionInputs {
   token: string;
@@ -159,12 +162,17 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
 
   const { config, model } = await io.group("Configuration", () => loadSettings(d, pr.base.sha));
   if (d.inputs.llmApiKey) d.env[llmKeyEnv(config)] = d.inputs.llmApiKey;
+  const predictable = config.autoApprove.enabled && config.autoApprove.sampleRate > 0 && !d.inputs.sampleSalt;
+  if (predictable) io.warning(PREDICTABLE_SAMPLING);
 
-  const successfulChecks =
+  const checkRuns =
     (await unlessForbidden(
-      () => client.successfulCheckNames(pr.head.sha, d.env.GITHUB_RUN_ID),
+      () => client.successfulChecks(pr.head.sha, d.env.GITHUB_RUN_ID),
       () => io.warning("Could not read check runs (403): give the job `checks: read`. Required AI-review checks count as missing."),
     )) ?? [];
+  // Anyone can publish a check run under any name: a check pinned to an app counts only from that app.
+  const pinned = new Map(config.autoApprove.requireAiReview.checks.flatMap((c) => (typeof c === "string" ? [] : [[c.name, c.app] as const])));
+  const successfulChecks = checkRuns.filter((r) => !pinned.has(r.name) || pinned.get(r.name) === r.app).map((r) => r.name);
 
   const author = await prAuthor(d, pr);
   const mergeBase = (await git(d.repoDir, ["merge-base", pr.base.sha, pr.head.sha])).trim();
@@ -204,7 +212,8 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config, result, files, viewer }));
 
   const report = renderMarkdown(result);
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}\n\n**Auto-approval:** ${approval.status}`;
+  const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
+  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}`;
 
   if (d.inputs.comment) {
     await unlessForbidden(

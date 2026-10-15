@@ -47,13 +47,13 @@ describe("GitHubClient", () => {
       )
       .mockResolvedValueOnce(json(200, { check_runs: [checkRun("test", null), checkRun("build", "success")] }));
     vi.stubGlobal("fetch", fetch);
-    expect(await client().successfulCheckNames("abc")).toEqual(["claude-review", "build"]);
+    expect((await client().successfulChecks("abc")).map((c) => c.name)).toEqual(["claude-review", "build"]);
     expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("https://ghe.example/api/v3/repos/o/r/commits/abc/check-runs?filter=latest&per_page=100");
   });
 
   it("ignores check runs for any other commit than the one asked for", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(200, { check_runs: [checkRun("claude-review", "success", { head_sha: "def" })] })));
-    expect(await client().successfulCheckNames("abc")).toEqual([]);
+    expect((await client().successfulChecks("abc")).map((c) => c.name)).toEqual([]);
   });
 
   it("never counts opendrs's own job: a check named like an unfinished Actions job of this workflow run", async () => {
@@ -65,7 +65,10 @@ describe("GitHubClient", () => {
       checkRun("other-app", "success", { app: { slug: "some-ci" } }),
     ];
     vi.stubGlobal("fetch", vi.fn(async () => json(200, { check_runs: runs })));
-    expect(await client().successfulCheckNames("abc", "42")).toEqual(["claude-review", "other-app"]);
+    expect(await client().successfulChecks("abc", "42")).toEqual([
+      { name: "claude-review", app: "github-actions" },
+      { name: "other-app", app: "some-ci" },
+    ]);
   });
 
   it("does not take another app's unfinished check for opendrs's own job", async () => {
@@ -74,7 +77,7 @@ describe("GitHubClient", () => {
       checkRun("claude-review", "success"),
     ];
     vi.stubGlobal("fetch", vi.fn(async () => json(200, { check_runs: runs })));
-    expect(await client().successfulCheckNames("abc", "42")).toEqual(["claude-review"]);
+    expect((await client().successfulChecks("abc", "42")).map((c) => c.name)).toEqual(["claude-review"]);
   });
 
   it("throws GitHubError carrying the HTTP status", async () => {

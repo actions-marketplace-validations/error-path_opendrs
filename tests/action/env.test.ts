@@ -6,7 +6,10 @@ import { fakeResult } from "../cli/helpers.js";
 import { installFakeGitHub } from "./fake-github.js";
 
 vi.mock("../../src/engine.js", () => ({ scoreDiff: vi.fn() }));
-vi.mock("../../src/report/markdown.js", () => ({ renderMarkdown: vi.fn(() => "<!-- opendrs -->\nreport") }));
+vi.mock("../../src/report/markdown.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/report/markdown.js")>()),
+  renderMarkdown: vi.fn(() => "<!-- opendrs -->\nreport"),
+}));
 
 const { scoreDiff } = await import("../../src/engine.js");
 const { readInputs, runFromEnv } = await import("../../src/action/env.js");

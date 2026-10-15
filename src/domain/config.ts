@@ -45,7 +45,8 @@ export const configSchema = z.object({
       enabled: z.boolean().default(false),
       requireAiReview: z
         .object({
-          checks: z.array(z.string()).default([]),
+          // A check name, or { name, app } to also require the GitHub App (slug) that published the check run.
+          checks: z.array(z.union([z.string(), z.strictObject({ name: z.string(), app: z.string().min(1) })])).default([]),
           // Removed in 0.1.1; kept only so that a config still listing it fails with a clear error.
           labels: z
             .undefined({
