@@ -227,6 +227,45 @@ What this shows:
 - Two known approximations, both reported by `backtest`: the import graph comes from the newest
   commit, and the newest commits' labels are incomplete.
 
+### A broader run: 18 more repositories
+
+A second, shorter run used the newest 1,200–1,500 commits of each of 18 more repositories, again
+without any configuration. "Caught" is the share of later-fixed commits that fall in the riskiest
+10 % of commits; a random ranking catches 10 %.
+
+| Repository | Positives | Default: caught / AUC (all commits) | Held-out AUC: default → calibrated |
+| --- | ---: | ---: | ---: |
+| [tiangolo/fastapi](https://github.com/tiangolo/fastapi) | 29 | 44.8 % / 0.78 | 0.73 → 0.70 |
+| [ktorio/ktor](https://github.com/ktorio/ktor) | 261 | 26.4 % / 0.78 | 0.77 → **0.84** |
+| [square/okhttp](https://github.com/square/okhttp) | 82 | 31.7 % / 0.76 | 0.66 → **0.70** |
+| [hashicorp/terraform](https://github.com/hashicorp/terraform) | 96 | 36.5 % / 0.75 | 0.48 → 0.50 |
+| [alacritty/alacritty](https://github.com/alacritty/alacritty) | 462 | 20.6 % / 0.74 | 0.69 → **0.76** |
+| [eslint/eslint](https://github.com/eslint/eslint) | 119 | 31.1 % / 0.74 | 0.48 → 0.40 |
+| [python-poetry/poetry](https://github.com/python-poetry/poetry) | 372 | 23.9 % / 0.73 | 0.71 → **0.79** |
+| [laravel/framework](https://github.com/laravel/framework) | 58 | 31.0 % / 0.72 | 0.73 → 0.71 |
+| [celery/celery](https://github.com/celery/celery) | 144 | 26.4 % / 0.72 | 0.77 → **0.81** |
+| [prettier/prettier](https://github.com/prettier/prettier) | 86 | 25.6 % / 0.71 | 0.71 → **0.85** |
+| [gohugoio/hugo](https://github.com/gohugoio/hugo) | 180 | 23.9 % / 0.69 | 0.64 → **0.72** |
+| [sveltejs/svelte](https://github.com/sveltejs/svelte) | 325 | 21.2 % / 0.69 | 0.63 → **0.66** |
+| [pydantic/pydantic](https://github.com/pydantic/pydantic) | 156 | 23.1 % / 0.68 | 0.79 → 0.77 |
+| [tokio-rs/tokio](https://github.com/tokio-rs/tokio) | 87 | 40.2 % / 0.68 | 0.45 → 0.45 |
+| [psf/requests](https://github.com/psf/requests) | 104 | 23.1 % / 0.67 | 0.79 → 0.71 |
+| [etcd-io/etcd](https://github.com/etcd-io/etcd) | 127 | 22.8 % / 0.65 | 0.63 → **0.76** |
+| [sinatra/sinatra](https://github.com/sinatra/sinatra) | 229 | 15.3 % / 0.60 | 0.59 → 0.56 |
+| [serde-rs/serde](https://github.com/serde-rs/serde) | 92 | 15.2 % / 0.51 | 0.50 → **0.63** |
+
+What this adds:
+
+- **Untuned, the score ranks risk better than chance in 17 of 18 repositories.** The median AUC
+  over all replayed commits is 0.71, and the riskiest 10 % of commits hold 15–45 % of the
+  later-fixed ones, against 10 % for a random pick. serde (0.51) is the exception.
+- **Calibration helped in 11, was flat in 1 and hurt in 6.** Small held-out windows make these
+  numbers noisy: fastapi and laravel have fewer than 15 positives in theirs. Since this run,
+  `calibrate` keeps the default priors when the fitted weights do not beat them on a validation
+  slice of your own history. Either way, run `backtest` before you trust a threshold.
+- Held-out AUCs near 0.45–0.50 (tokio, terraform, eslint) come from the newest commits, whose
+  bugs mostly haven't been found and fixed yet. Expect labels there to be incomplete.
+
 Reproduce a row: `git clone <repo> && cd <repo> && npx github:error-path/opendrs calibrate --max-commits 4000 && npx github:error-path/opendrs backtest --max-commits 4000`.
 Runs took 1 to 16 minutes per repository on a 4-core Linux machine.
 
