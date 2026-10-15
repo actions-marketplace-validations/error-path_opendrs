@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import type { ChangedFile, CommitInfo, Evidence, HistoryIndex, Incident, ScoringContext, Signal, SignalProvider } from "../domain/types.js";
 import { INCIDENTS_FILE, loadIncidents } from "../model/label.js";
-import { asOfOrNow, countedFiles, historyAvailable, historyPath, plural, topEvidence, unknown } from "./util.js";
+import { asOfOrNow, countedFiles, historyAvailable, historyPath, plural, shallowAware, topEvidence, unknown } from "./util.js";
 
 /** Spec §4 "history.*" signals. */
 export const historySignals: SignalProvider = async (ctx) => {
@@ -44,7 +44,7 @@ export const historySignals: SignalProvider = async (ctx) => {
     summary: `${plural(recent.size, "commit")} touched these files ${window}`,
     evidence: topEvidence(perFile.sort((a, b) => b.n - a.n).map(({ file, n }) => ({ file, detail: `${plural(n, "commit")} ${window}` }))),
   };
-  return [priorFixes, await incidentSignal(ctx, files), churn];
+  return [priorFixes, await incidentSignal(ctx, files), churn].map((s) => shallowAware(ctx, s));
 };
 
 /** A past incident: when it became known, and which files and folders it implicates. */

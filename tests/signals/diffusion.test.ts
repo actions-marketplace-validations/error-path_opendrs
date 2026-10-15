@@ -63,4 +63,17 @@ describe("diffusionSignals", () => {
     const signals = await diffusionSignals(await contextFor(repo, "HEAD"));
     expect(signals.map((s) => s.value)).toEqual([0, 0, 0]);
   });
+
+  it("reports diffusion.authors as unknown in a shallow clone, keeping the count as a lower bound", async () => {
+    repo = makeRepo();
+    repo.commit({ "src/a.ts": "1\n" }, "init", ALICE, T + 100);
+    repo.commit({ "src/a.ts": "2\n" }, "edit", BOB, T + 200);
+    repo.commit({ "src/a.ts": "3\n" }, "change", CAROL, T + 300);
+    const ctx = await contextFor(repo, "HEAD~1");
+    const signals = await diffusionSignals({ ...ctx, trust: { authorVerified: true, historyComplete: false } });
+    const authors = byId(signals, "diffusion.authors");
+    expect(authors).toMatchObject({ status: "unknown", value: Math.log1p(2) });
+    expect(authors.summary).toContain("shallow clone: history incomplete");
+    expect(byId(signals, "diffusion.files").status).toBe("observed");
+  });
 });

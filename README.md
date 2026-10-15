@@ -284,7 +284,9 @@ model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used u
 - **Required checks are matched by name.** opendrs does not verify which app produced a check run,
   so protect the names you list (see [docs/github-action.md](docs/github-action.md)).
 - **GitHub only.** The core is host-agnostic, but only a GitHub Action exists today. The Action
-  needs full history (`fetch-depth: 0`).
+  needs full history (`fetch-depth: 0`). In a shallow clone, `diffusion.authors` and `history.*`
+  are reported as `unknown` ("shallow clone: history incomplete"), keeping what they saw as a lower
+  bound, so a missing history never reads as low risk.
 
 ## Prior art and credits
 

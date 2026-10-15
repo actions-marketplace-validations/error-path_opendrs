@@ -79,4 +79,17 @@ describe("historySignals", () => {
     const signals = await historySignals(await contextFor(repo, EMPTY_TREE, first));
     expect(signals.map((s) => s.status)).toEqual(["unknown", "unknown", "unknown"]);
   });
+
+  it("is unknown in a shallow clone, keeping what it saw as a lower bound", async () => {
+    repo = makeRepo();
+    repo.commit({ "src/a.ts": "0\n" }, "init", undefined, T - 30 * DAY);
+    repo.commit({ "src/a.ts": "1\n" }, "fix: bug", undefined, T - 10 * DAY);
+    repo.commit({ "src/a.ts": "2\n" }, "feat: scored change", undefined, T);
+    const ctx = await contextFor(repo, "HEAD~1", "HEAD", { asOf: T });
+    const signals = await historySignals({ ...ctx, trust: { authorVerified: true, historyComplete: false } });
+    expect(signals.map((s) => s.status)).toEqual(["unknown", "unknown", "unknown"]);
+    for (const s of signals) expect(s.summary, s.id).toContain("shallow clone: history incomplete");
+    expect(byId(signals, "history.prior_fixes").value).toBe(Math.log1p(1));
+    expect(byId(signals, "history.churn").value).toBe(Math.log1p(2));
+  });
 });

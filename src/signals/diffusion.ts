@@ -1,5 +1,5 @@
 import type { Signal, SignalProvider } from "../domain/types.js";
-import { countedFiles, historyAvailable, historyPath, plural, topEvidence, unknown } from "./util.js";
+import { countedFiles, historyAvailable, historyPath, plural, shallowAware, topEvidence, unknown } from "./util.js";
 
 /** Spec §4 "diffusion.*" signals. */
 export const diffusionSignals: SignalProvider = async (ctx) => {
@@ -24,13 +24,13 @@ export const diffusionSignals: SignalProvider = async (ctx) => {
       for (const e of emails) all.add(e);
       return { file: f.path, detail: `${plural(emails.size, "author")} in history`, n: emails.size };
     });
-    authorSignal = {
+    authorSignal = shallowAware(ctx, {
       id: "diffusion.authors",
       value: Math.log1p(all.size),
       status: "derived",
       summary: `${plural(all.size, "distinct author")} have touched these files`,
       evidence: topEvidence(perFile.filter((e) => e.n > 0).sort((a, b) => b.n - a.n).map(({ file, detail }) => ({ file, detail }))),
-    };
+    });
   }
 
   return [
