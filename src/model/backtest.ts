@@ -20,8 +20,10 @@ export interface BacktestReport {
 
 /** Replay history point-in-time and report capture@{5,10,50}% and AUC (spec §5). */
 export async function backtest(opts: HistoryRunOptions & { model?: ModelWeights }): Promise<BacktestReport> {
-  const report = backtestRows(await replayHistory(opts), opts.model);
+  const { rows, warnings } = await replayHistory(opts);
+  const report = backtestRows(rows, opts.model);
   if (opts.config.graph.enabled) report.notes.push(GRAPH_APPROXIMATION_NOTE);
+  report.notes.push(...warnings);
   return report;
 }
 

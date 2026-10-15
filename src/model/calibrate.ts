@@ -18,9 +18,10 @@ export interface HistoryRunOptions {
   onProgress?: (done: number, total: number) => void;
 }
 
-/** Fit weights on the repo's own labelled history (spec §5). */
-export async function calibrate(opts: HistoryRunOptions): Promise<ModelWeights> {
-  return fitModel(await replayHistory(opts), DEFAULT_WEIGHTS, basename(opts.repoDir));
+/** Fit weights on the repo's own labelled history (spec §5). `warnings` are the replay's (see ReplayResult). */
+export async function calibrate(opts: HistoryRunOptions): Promise<{ model: ModelWeights; warnings: string[] }> {
+  const { rows, warnings } = await replayHistory(opts);
+  return { model: fitModel(rows, DEFAULT_WEIGHTS, basename(opts.repoDir)), warnings };
 }
 
 const RESAMPLE_RATIO = 5;

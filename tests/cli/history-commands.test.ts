@@ -34,7 +34,7 @@ let repo: TestRepo;
 beforeEach(() => {
   repo = makeRepo();
   repo.commit({ "a.ts": "1\n" }, "init");
-  vi.mocked(calibrate).mockResolvedValue(MODEL);
+  vi.mocked(calibrate).mockResolvedValue({ model: MODEL, warnings: [] });
 });
 afterEach(() => {
   repo.cleanup();
@@ -74,8 +74,15 @@ describe("opendrs calibrate", () => {
     expect(t.stdout()).toContain("AUC 0.74");
   });
 
+  it("prints replay warnings (skipped commits, unresolved incidents) to stderr", async () => {
+    vi.mocked(calibrate).mockResolvedValue({ model: MODEL, warnings: ["3 commits skipped (unreadable)"] });
+    const t = testIo(repo.dir);
+    expect(await runCli(["calibrate"], t.io)).toBe(0);
+    expect(t.stderr()).toContain("warning: 3 commits skipped (unreadable)");
+  });
+
   it("says when metrics are missing", async () => {
-    vi.mocked(calibrate).mockResolvedValue({ version: 1, intercept: 0, weights: {} });
+    vi.mocked(calibrate).mockResolvedValue({ model: { version: 1, intercept: 0, weights: {} }, warnings: [] });
     const t = testIo(repo.dir);
     expect(await runCli(["calibrate"], t.io)).toBe(0);
     expect(t.stdout()).toContain("no held-out metrics");

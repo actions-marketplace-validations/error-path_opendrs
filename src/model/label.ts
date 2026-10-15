@@ -57,6 +57,8 @@ export async function labelCommits(
   history: HistoryIndex,
   config: OpendrsConfig,
   incidents: Incident[],
+  /** Called for each incident sha that cannot be used, so the caller can show it. */
+  warn: (message: string) => void = () => {},
 ): Promise<LabelledCommit[]> {
   const sources = new Map<string, Source>();
   const mark = (sha: string | undefined, source: Source) => {
@@ -67,13 +69,23 @@ export async function labelCommits(
   const resolve = shaResolver(history.commits);
 
   for (const c of history.commits) if (c.revertsSha) mark(resolve(c.revertsSha), "revert");
-  for (const inc of incidents) if (inc.inducing) mark(resolve(inc.inducing), "incident");
+  for (const inc of incidents) {
+    if (!inc.inducing) continue;
+    const sha = resolve(inc.inducing);
+    if (sha) mark(sha, "incident");
+    else warn(`${INCIDENTS_FILE}: inducing commit ${inc.inducing} is not in the indexed history; not counted`);
+  }
 
   const jobs: Array<{ sha: string; source: Source }> = history.commits
     .filter((c) => c.isFix && c.parents.length === 1)
     .slice(0, MAX_FIX_COMMITS)
     .map((c) => ({ sha: c.sha, source: "szz" }));
-  for (const inc of incidents) if (inc.fix) jobs.push({ sha: resolve(inc.fix) ?? inc.fix, source: "incident" });
+  for (const inc of incidents) {
+    if (!inc.fix) continue;
+    const sha = resolve(inc.fix) ?? (await gitMaybe(repoDir, ["rev-parse", "--verify", "--quiet", `${inc.fix}^{commit}`]))?.trim();
+    if (sha) jobs.push({ sha, source: "incident" });
+    else warn(`${INCIDENTS_FILE}: fix commit ${inc.fix} does not resolve in this repository; not counted`);
+  }
 
   await runPool(jobs, CONCURRENCY, async ({ sha, source }) => {
     for (const blamed of await blameFix(repoDir, sha, config.paths.ignore)) mark(resolve(blamed), source);

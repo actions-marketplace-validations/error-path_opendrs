@@ -51,7 +51,10 @@ fixed it, or both:
 | `note` | free text for people; ignored by opendrs. |
 
 Use full 40-character shas of commits reachable from the default branch. A postmortem template that asks
-for "the commit that caused this" makes the file cheap to maintain.
+for "the commit that caused this" makes the file cheap to maintain. `calibrate` and `backtest` warn
+about an `inducing` sha that is not in the indexed history or a `fix` sha that does not resolve in
+the repository, and do not count it. They also report how many commits they skipped because they
+could not be read (for example objects missing from a partial clone).
 
 ## Reading the metrics
 

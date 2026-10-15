@@ -47,8 +47,9 @@ ${HISTORY_OPTIONS}`,
 
   async run(args, io) {
     const { opts } = await historyRun(args, io, "calibrate");
-    const model = await calibrate(opts);
+    const { model, warnings } = await calibrate(opts);
     io.progress("");
+    for (const w of warnings) io.err(`opendrs: warning: ${w}`);
     const file = join(opts.repoDir, opts.config.model);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, JSON.stringify(model, null, 2) + "\n");
