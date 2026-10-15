@@ -119,7 +119,8 @@ prior. The report lists it under "Unknowns".
 The blast radius uses regex-based import extractors for TS/JS, Python, Go, Java/Kotlin,
 Rust and Ruby, with path resolution (relative paths, tsconfig `baseUrl`/`paths`, Python
 packages, the go.mod module path, and the Java package index). The graph is cached in
-`.opendrs/cache/graph-<treeSHA>.json`.
+`$(git rev-parse --git-common-dir)/opendrs-cache/graph-<treeSHA>.json`, outside the work
+tree, so it cannot be committed by accident (`.opendrs/**` is a blocked path).
 
 ## 5. Model
 

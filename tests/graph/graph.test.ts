@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultConfig, parseConfig } from "../../src/domain/config.js";
@@ -116,14 +116,16 @@ describe("buildDependencyGraph: skipped files", () => {
 });
 
 describe("buildDependencyGraph: cache", () => {
-  const cachePath = (r: TestRepo) => join(r.dir, ".opendrs", "cache", `graph-${r.git("rev-parse", "HEAD^{tree}")}.json`);
+  const cachePath = (r: TestRepo) => join(r.dir, ".git", "opendrs-cache", `graph-${r.git("rev-parse", "HEAD^{tree}")}.json`);
 
-  it("writes the graph keyed by tree sha and loads it on the next build", async () => {
+  it("writes the graph keyed by tree sha inside the git dir (never the work tree) and loads it on the next build", async () => {
     const r = repo();
     r.commit({ "a.ts": 'import "./b";\n', "b.ts": "" }, "init");
     await buildDependencyGraph(r.dir, "HEAD", defaultConfig());
     const path = cachePath(r);
     expect(existsSync(path)).toBe(true);
+    expect(existsSync(join(r.dir, ".opendrs"))).toBe(false);
+    expect(r.git("status", "--porcelain")).toBe("");
 
     // Prove the second build reads the cache: blank out its edges and observe the effect.
     const cached = JSON.parse(readFileSync(path, "utf8")) as { edges: number[][] };
@@ -131,6 +133,19 @@ describe("buildDependencyGraph: cache", () => {
     writeFileSync(path, JSON.stringify(cached));
     const g = await buildDependencyGraph(r.dir, "HEAD", defaultConfig());
     expect(g.dependentsOf("b.ts")).toEqual([]);
+  });
+
+  it("shares one cache across linked worktrees (the common git dir)", async () => {
+    const r = repo();
+    r.commit({ "a.ts": 'import "./b";\n', "b.ts": "" }, "init");
+    const linked = `${r.dir}-linked`;
+    r.git("worktree", "add", "-q", "--detach", linked);
+    try {
+      await buildDependencyGraph(linked, "HEAD", defaultConfig());
+      expect(existsSync(cachePath(r))).toBe(true);
+    } finally {
+      rmSync(linked, { recursive: true, force: true });
+    }
   });
 
   it("rebuilds when the tree changes or the graph config changes", async () => {
