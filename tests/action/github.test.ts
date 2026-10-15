@@ -29,19 +29,52 @@ describe("GitHubClient", () => {
     expect(fetch.mock.calls[1]![0]).toBe("https://ghe.example/api/v3/next?page=2");
   });
 
-  it("returns only successful check-run names across pages", async () => {
+  const checkRun = (name: string, conclusion: string | null, over: Record<string, unknown> = {}) => ({
+    name,
+    head_sha: "abc",
+    status: conclusion === null ? "in_progress" : "completed",
+    conclusion,
+    app: { slug: "github-actions" },
+    details_url: "https://github.com/o/r/actions/runs/41/job/1",
+    ...over,
+  });
+
+  it("returns only successful check-run names across pages, asking for the latest run of each check", async () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(
-        json(
-          200,
-          { check_runs: [{ name: "claude-review", conclusion: "success" }, { name: "lint", conclusion: "failure" }] },
-          { link: '<https://ghe.example/api/v3/p2>; rel="next"' },
-        ),
+        json(200, { check_runs: [checkRun("claude-review", "success"), checkRun("lint", "failure")] }, { link: '<https://ghe.example/api/v3/p2>; rel="next"' }),
       )
-      .mockResolvedValueOnce(json(200, { check_runs: [{ name: "test", conclusion: null }, { name: "build", conclusion: "success" }] }));
+      .mockResolvedValueOnce(json(200, { check_runs: [checkRun("test", null), checkRun("build", "success")] }));
     vi.stubGlobal("fetch", fetch);
     expect(await client().successfulCheckNames("abc")).toEqual(["claude-review", "build"]);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("https://ghe.example/api/v3/repos/o/r/commits/abc/check-runs?filter=latest&per_page=100");
+  });
+
+  it("ignores check runs for any other commit than the one asked for", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, { check_runs: [checkRun("claude-review", "success", { head_sha: "def" })] })));
+    expect(await client().successfulCheckNames("abc")).toEqual([]);
+  });
+
+  it("never counts opendrs's own job: a check named like an unfinished Actions job of this workflow run", async () => {
+    const own = { details_url: "https://github.com/o/r/actions/runs/42/job/9" };
+    const runs = [
+      checkRun("opendrs", null, own),
+      checkRun("opendrs", "success"), // the same job in an earlier run for this commit
+      checkRun("claude-review", "success", { details_url: "https://github.com/o/r/actions/runs/42/job/8" }),
+      checkRun("other-app", "success", { app: { slug: "some-ci" } }),
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, { check_runs: runs })));
+    expect(await client().successfulCheckNames("abc", "42")).toEqual(["claude-review", "other-app"]);
+  });
+
+  it("does not take another app's unfinished check for opendrs's own job", async () => {
+    const runs = [
+      checkRun("claude-review", null, { app: { slug: "some-ci" }, details_url: "https://github.com/o/r/actions/runs/42/job/9" }),
+      checkRun("claude-review", "success"),
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, { check_runs: runs })));
+    expect(await client().successfulCheckNames("abc", "42")).toEqual(["claude-review"]);
   });
 
   it("throws GitHubError carrying the HTTP status", async () => {

@@ -35,6 +35,8 @@ interface Options {
   baseSha?: string;
   /** The webhook's `action`, e.g. "synchronize". */
   action?: string;
+  /** Process environment the Action sees, e.g. GITHUB_RUN_ID. */
+  env?: NodeJS.ProcessEnv;
   /** Commits made before the base commit, e.g. to give files a history of authors. */
   before?: (repo: TestRepo) => void;
 }
@@ -84,7 +86,7 @@ async function run(o: Options = {}) {
 
   const gh = installFakeGitHub({ labels: [...(o.labels ?? [])], headSha, commits: [prCommit(headSha)], ...o.gh });
   vi.mocked(scoreDiff).mockResolvedValue(o.result ?? result(0.12, "green", "auto-approve"));
-  const env: NodeJS.ProcessEnv = {};
+  const env: NodeJS.ProcessEnv = { ...o.env };
   const event = {
     action: o.action ?? "opened",
     pull_request: {
@@ -181,6 +183,21 @@ describe("AI review", () => {
     await t.promise;
     expect(t.scoreArgs().pr).not.toHaveProperty("labels");
     expect(t.scoreArgs().pr!.successfulChecks).toEqual([]);
+  });
+
+  it("does not count its own job's check run, from this or an earlier run, as the AI review", async () => {
+    const t = await run({
+      env: { GITHUB_RUN_ID: "42" },
+      gh: {
+        checkRuns: [
+          { name: "opendrs", conclusion: null, status: "in_progress", details_url: "https://github.com/o/r/actions/runs/42/job/9" },
+          { name: "opendrs", conclusion: "success", details_url: "https://github.com/o/r/actions/runs/41/job/3" },
+          { name: "claude-review", conclusion: "success", details_url: "https://github.com/o/r/actions/runs/42/job/8" },
+        ],
+      },
+    });
+    await t.promise;
+    expect(t.scoreArgs().pr!.successfulChecks).toEqual(["claude-review"]);
   });
 
   it("does not touch AI-review labels on synchronize", async () => {

@@ -71,7 +71,8 @@ export interface FakeGitHub {
   comments: FakeComment[];
   labels: string[];
   reviews: FakeReview[];
-  checkRuns: Array<{ name: string; conclusion: string | null }>;
+  /** Check runs on the requested commit; `head_sha`, `status` and `app` default to that commit, completed, github-actions. */
+  checkRuns: Array<{ name: string; conclusion: string | null; status?: string; details_url?: string }>;
   /** GET /rules/branches/main: the active rules on the base branch. */
   rules: Array<{ type: string; parameters?: Record<string, unknown> }>;
   /** GET /branches/main/protection (classic); undefined answers 404 "Branch not protected". */
@@ -209,7 +210,10 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
           return json(200, r);
         });
       if ((m = route.match(new RegExp(`^GET ${pr}/commits/(\\w+)/check-runs$`))))
-        return handle("checkRuns", path, undefined, () => json(200, { total_count: gh.checkRuns.length, check_runs: gh.checkRuns }));
+        return handle("checkRuns", path, undefined, () => {
+          const runs = gh.checkRuns.map((r) => ({ head_sha: m![1], status: "completed", app: { slug: "github-actions" }, ...r }));
+          return json(200, { total_count: runs.length, check_runs: runs });
+        });
       if (route === `GET ${pr}/rules/branches/main`) return handle("rules", path, undefined, () => json(200, gh.rules));
       if (route === `GET ${pr}/branches/main/protection`)
         return handle("protection", path, undefined, () => (gh.protection ? json(200, gh.protection) : json(404, { message: "Branch not protected" })));

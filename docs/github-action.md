@@ -235,9 +235,13 @@ jobs:
 ```
 
 A check that merely ran is not a passed review: make the review job fail when it finds a blocking
-issue. opendrs matches checks by name only and does not verify which app created them. Any
-workflow on the PR's head commit can create a check with that name, which is one reason PRs that
-change `.github/**` are never approved.
+issue. opendrs counts a check when the latest check run with that exact name concluded `success`
+on the PR's head commit; runs on earlier commits never count. It never counts its own job: the
+names of the opendrs workflow run's unfinished jobs, the opendrs job among them, are left out, so
+do not list the opendrs job's name, and run the review in an earlier job (`needs:`) as above.
+Beyond that, opendrs does not verify which app created a check. Any workflow on the PR's head
+commit can create a check with that name, which is one reason PRs that change `.github/**` are
+never approved.
 
 Only check runs count. A check run belongs to one commit, so a new push starts without it. PR
 labels are not supported: a label is not tied to a commit, stays on the PR across pushes, and

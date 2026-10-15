@@ -162,7 +162,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
 
   const successfulChecks =
     (await unlessForbidden(
-      () => client.successfulCheckNames(pr.head.sha),
+      () => client.successfulCheckNames(pr.head.sha, d.env.GITHUB_RUN_ID),
       () => io.warning("Could not read check runs (403): give the job `checks: read`. Required AI-review checks count as missing."),
     )) ?? [];
 
