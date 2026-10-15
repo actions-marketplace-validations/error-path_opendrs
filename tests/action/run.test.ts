@@ -163,6 +163,32 @@ describe("scoring", () => {
   });
 });
 
+describe("AI-review labels", () => {
+  const cfg = { autoApprove: { enabled: true, requireAiReview: { labels: ["ai-reviewed"] } } };
+
+  it("on synchronize, removes the required labels from the PR and scores as if they were absent", async () => {
+    const t = await run({ baseConfig: cfg, labels: ["ai-reviewed", "bug"], action: "synchronize" });
+    await t.promise;
+    expect(t.gh.ops("removeLabel").map((e) => decodeURIComponent(e.path.split("/").pop()!))).toContain("ai-reviewed");
+    expect(t.gh.labels).not.toContain("ai-reviewed");
+    expect(t.scoreArgs().pr!.labels).toEqual(["bug"]);
+  });
+
+  it("counts them on other events", async () => {
+    const t = await run({ baseConfig: cfg, labels: ["ai-reviewed"], action: "labeled" });
+    await t.promise;
+    expect(t.scoreArgs().pr!.labels).toEqual(["ai-reviewed"]);
+    expect(t.gh.labels).toContain("ai-reviewed");
+  });
+
+  it("still treats them as absent when removing them is forbidden", async () => {
+    const t = await run({ baseConfig: cfg, labels: ["ai-reviewed"], action: "synchronize", gh: { forbid: new Set(["removeLabel"]) } });
+    await t.promise;
+    expect(t.scoreArgs().pr!.labels).toEqual([]);
+    expect(t.log()).toMatch(/::warning::.*ai-reviewed/);
+  });
+});
+
 describe("author verification", () => {
   it("trusts the head commit's author when GitHub maps it to the PR's account", async () => {
     const t = await run();
