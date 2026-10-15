@@ -53,6 +53,7 @@ opendrs checks out and reads the PR's code. opendrs only works on events that ca
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). |
 | `labels` | `true` | Set the risk label and remove stale ones. |
+| `sample-salt` | empty | Set to a secret to make sampling unpredictable, e.g. `${{ secrets.OPENDRS_SAMPLE_SALT }}`. The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 
 | Output | Values |
 |---|---|

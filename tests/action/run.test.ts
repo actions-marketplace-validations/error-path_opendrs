@@ -129,6 +129,18 @@ describe("scoring", () => {
     });
   });
 
+  it("samples by repository and PR number, salted by sample-salt, so a new push cannot re-roll it", async () => {
+    const t = await run({ inputs: { sampleSalt: "s3cret" } });
+    await t.promise;
+    expect(t.scoreArgs().pr!.samplingKey).toBe("o/r#7#s3cret");
+  });
+
+  it("uses an empty salt when sample-salt is not set", async () => {
+    const t = await run();
+    await t.promise;
+    expect(t.scoreArgs().pr!.samplingKey).toBe("o/r#7#");
+  });
+
   it("sets the score, tier and decision outputs and writes the job summary", async () => {
     const t = await run({ result: result(0.4567, "yellow", "human-review") });
     await t.promise;

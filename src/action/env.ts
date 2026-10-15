@@ -22,6 +22,7 @@ export function readInputs(env: NodeJS.ProcessEnv): ActionInputs {
     llmApiKey: get("llm-api-key") || undefined,
     comment: bool("comment", true),
     labels: bool("labels", true),
+    sampleSalt: get("sample-salt"),
   };
 }
 

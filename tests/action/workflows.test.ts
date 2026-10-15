@@ -31,6 +31,11 @@ describe("workflows that run the Action", () => {
     expect(Object.keys(on)).not.toContain("pull_request_target");
   });
 
+  it("action.yml declares and the docs describe the sample-salt input", () => {
+    expect(parse(read("action.yml")).inputs["sample-salt"]).toMatchObject({ required: false, default: "" });
+    expect(docs).toMatch(/\| `sample-salt` \|.*secret/);
+  });
+
   it("the docs warn against pull_request_target", () => {
     expect(docs).toMatch(/`pull_request_target`[^.]*secrets/);
   });

@@ -22,6 +22,8 @@ export interface ActionInputs {
   llmApiKey?: string;
   comment: boolean;
   labels: boolean;
+  /** Mixed into the drift-sampling key; a secret makes the sample unpredictable. */
+  sampleSalt?: string;
 }
 
 /** The fields of the `pull_request` webhook payload the action uses. */
@@ -190,7 +192,8 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
       authorVerified: author.verified,
       title: pr.title,
       description: pr.body ?? undefined,
-      pr: { labels, successfulChecks, number: pr.number },
+      // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.
+      pr: { labels, successfulChecks, number: pr.number, samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}` },
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
