@@ -12,7 +12,7 @@ while riskier PRs still need a human.
 
 Success criteria:
 
-1. `npx opendrs score` works in any git repo with **zero configuration and no API key**. It
+1. `npx github:error-path/opendrs score` works in any git repo with **zero configuration and no API key**. It
    returns a score, a tier, and an evidence-backed explanation in under 10 s for a typical PR
    in a repo of up to 20k files.
 2. `opendrs backtest` replays a repo's own history and reports Meta's metric, the share of

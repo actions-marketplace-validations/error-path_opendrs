@@ -1,0 +1,13 @@
+{
+  "name": "opendrs",
+  "owner": { "name": "error-path", "url": "https://github.com/error-path" },
+  "metadata": { "description": "opendrs: PR blast radius and risk scoring for risk-based auto-approval." },
+  "plugins": [
+    {
+      "name": "opendrs",
+      "source": "./",
+      "description": "Blast radius and risk score (0-1) for every pull request, with a skill and an MCP server.",
+      "category": "code-review"
+    }
+  ]
+}

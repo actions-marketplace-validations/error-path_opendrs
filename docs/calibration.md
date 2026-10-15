@@ -6,10 +6,10 @@ repository. `opendrs backtest` tells you how well a model ranks your past commit
 `opendrs calibrate` fits the weights to them.
 
 ```sh
-npx opendrs backtest                      # default priors on your history
-npx opendrs calibrate                     # writes .opendrs/model.json
-npx opendrs backtest                      # default vs calibrated
-npx opendrs calibrate --since 2025-10-01 --max-commits 5000
+npx github:error-path/opendrs backtest                      # default priors on your history
+npx github:error-path/opendrs calibrate                     # writes .opendrs/model.json
+npx github:error-path/opendrs backtest                      # default vs calibrated
+npx github:error-path/opendrs calibrate --since 2025-10-01 --max-commits 5000
 ```
 
 Commit `.opendrs/model.json`. It is used from then on, and the GitHub Action reads it from the PR's

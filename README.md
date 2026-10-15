@@ -1,28 +1,43 @@
-# opendrs
+# opendrs: PR blast radius analyzer and risk score for safe auto-approval
 
-**Open Diff Risk Score: a calibrated 0-1 risk score for every pull request.**
+**A calibrated 0-1 risk score for every pull request, so AI-reviewed, low-blast-radius PRs can be
+auto-approved into the merge queue while risky ones still wait for a human.**
+
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-opendrs%20Diff%20Risk%20Score-2ea44f?logo=github)](https://github.com/marketplace/actions/opendrs-diff-risk-score)
+[![CI](https://github.com/error-path/opendrs/actions/workflows/ci.yml/badge.svg)](https://github.com/error-path/opendrs/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 AI agents now write and review code faster than people can read it, so human review has become
-the bottleneck. Most pull requests are low risk, and a few cause most incidents. opendrs scores
-each PR by how likely it is to cause an incident, using signals from your own git history. A team
-then sets a policy: for example, a PR that scores below 0.3 and has passed an AI review is
-approved and sent to the merge queue, while riskier PRs still wait for a human. The idea comes
-from Meta's Diff Risk Score (DRS); opendrs is an independent, open-source implementation that runs
-in any git repository, with no service to host.
+the bottleneck. Most pull requests are low risk, and a few cause most incidents. opendrs measures
+each PR's **blast radius** and risk: what the change touches, how many files depend on it, the
+history of the files it changes, author experience, missing tests and critical paths. It turns
+that into a 0-1 score using signals from your own git history. A team then sets a policy.
+For example, a PR that scores below 0.3 and has passed an AI review (Claude, CodeRabbit, Copilot
+or any check run) is approved and sent to the merge queue or auto-merge. Riskier PRs still wait
+for a human. The approach follows Meta's Diff Risk Score (DRS); opendrs is an independent,
+open-source implementation that runs in any git repository, with no service to host.
+
+Use it as:
+
+- **a GitHub Action**: [`error-path/opendrs@v0`](https://github.com/marketplace/actions/opendrs-diff-risk-score), which comments, labels and, optionally, approves and merges;
+- **a CLI**: `npx github:error-path/opendrs score`;
+- **a Claude Code plugin** (skill plus MCP server): `/plugin marketplace add error-path/opendrs`, then `/plugin install opendrs@opendrs`;
+- **an agent skill** for Claude Code, Cursor, Codex and others: `npx skills add error-path/opendrs`;
+- **an MCP server** for any agent: `npx -y github:error-path/opendrs mcp`.
 
 ## Quick start
 
 Score your current branch against the default branch. No configuration or API key is needed:
 
 ```sh
-npx opendrs score
+npx github:error-path/opendrs score
 ```
 
 You get a score, a tier (green, yellow or red), the signals that drove it with their evidence,
 and the policy decision. `--json` prints the full result, and `--fail-above 0.6` makes the
 command exit 1 above a threshold.
 
-To score every pull request, add `.github/workflows/opendrs.yml` (or run `npx opendrs init`):
+To score every pull request, add `.github/workflows/opendrs.yml` (or run `npx github:error-path/opendrs init`):
 
 ```yaml
 name: opendrs
@@ -159,9 +174,9 @@ The default weights are priors. Before you let the score approve anything, measu
 history:
 
 ```sh
-npx opendrs backtest     # how well do the default priors rank your past commits?
-npx opendrs calibrate    # fit weights to your history, write .opendrs/model.json
-npx opendrs backtest     # compare default and calibrated models
+npx github:error-path/opendrs backtest     # how well do the default priors rank your past commits?
+npx github:error-path/opendrs calibrate    # fit weights to your history, write .opendrs/model.json
+npx github:error-path/opendrs backtest     # compare default and calibrated models
 ```
 
 The backtest replays past commits point-in-time (each commit sees only the history before it) and

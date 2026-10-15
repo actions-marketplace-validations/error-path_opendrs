@@ -1,6 +1,6 @@
 ---
 name: opendrs
-description: Score the risk of a code change with opendrs (Diff Risk Score, a calibrated 0-1 probability that a change causes an incident). Use before opening or updating a pull request, when asked about the risk, safety or blast radius of a change, or when deciding whether to split a large change into smaller PRs.
+description: PR blast radius analyzer and risk score. opendrs gives a code change a calibrated 0-1 risk score (blast radius, dependents, file history, author experience, missing tests, critical paths) and the auto-approve decision. Use before opening or updating a pull request; when asked about the risk, safety or blast radius of a change; when deciding whether a PR is safe to auto-approve, auto-merge or send to a merge queue; or when deciding whether to split a large change into smaller PRs.
 ---
 
 # opendrs: diff risk score
@@ -12,8 +12,8 @@ judge. It returns a score, a tier and the gate decision the repo's CI will apply
 ## Score before you open a PR
 
 ```bash
-npx opendrs score --base origin/main          # human-readable report
-npx opendrs score --base origin/main --json   # machine-readable
+npx github:error-path/opendrs score --base origin/main          # human-readable report
+npx github:error-path/opendrs score --base origin/main --json   # machine-readable
 ```
 
 Read the output in this order:
@@ -41,7 +41,7 @@ Split the PR, or ask the user whether to, when:
 ## Explain one file
 
 ```bash
-npx opendrs explain src/path/to/file.ts
+npx github:error-path/opendrs explain src/path/to/file.ts
 ```
 
 This shows the file's history, bug-fix count, authors, direct and transitive dependents, and
@@ -49,7 +49,7 @@ whether it is on a critical or blocked path. Run it before editing a file you do
 
 ## MCP tools
 
-When the `opendrs` MCP server is connected (`npx opendrs mcp`, stdio), prefer these tools to
+When the `opendrs` MCP server is connected (`npx github:error-path/opendrs mcp`, stdio), prefer these tools to
 shelling out:
 
 - `score_diff {repoDir, base?, head?}`: same as `score`. The base defaults to origin/HEAD, then main.
