@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { OpendrsConfig } from "../domain/config.js";
 import type { DependencyGraph } from "../domain/types.js";
 import { git } from "../git/exec.js";
-import { globMatchAny } from "./glob-lite.js";
+import { matchAny } from "../git/glob.js";
 import { extractImports, languageOf } from "./imports.js";
 import { baseName } from "./path-util.js";
 import { createResolver } from "./resolve.js";
@@ -45,7 +45,7 @@ export async function buildDependencyGraph(repoDir: string, ref: string, config:
 
 async function computeGraph(repoDir: string, treeSha: string, config: OpendrsConfig, key: string): Promise<GraphData> {
   const all = (await listTree(repoDir, treeSha))
-    .filter((e) => !globMatchAny(config.paths.ignore, e.path))
+    .filter((e) => !matchAny(config.paths.ignore, e.path))
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const covered = all.slice(0, config.graph.maxFiles);
   const files = covered.map((e) => e.path);

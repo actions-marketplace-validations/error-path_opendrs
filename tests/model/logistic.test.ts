@@ -48,10 +48,10 @@ describe("scoreSignals", () => {
     expect(scoreSignals([], model).contributions).toEqual([]);
   });
 
-  it("uses an unknown signal's own value (already the neutral prior)", () => {
+  it("uses the model prior for an unknown signal, else the signal's own value", () => {
     const withPrior: ModelWeights = { ...model, priors: { a: 10 } };
-    const r = scoreSignals([sig("a", 0.25, "unknown")], withPrior);
-    expect(r.logit).toBeCloseTo(-1 + 0.5, 12);
+    expect(scoreSignals([sig("a", 0.25, "unknown")], withPrior).logit).toBeCloseTo(-1 + 2 * 10, 12);
+    expect(scoreSignals([sig("a", 0.25, "unknown")], model).logit).toBeCloseTo(-1 + 0.5, 12);
   });
 
   it("sorts contributions by |contribution| descending, ties by id", () => {

@@ -4,7 +4,7 @@ import { OpendrsError } from "../domain/types.js";
 import type { OpendrsConfig } from "../domain/config.js";
 import { DEFAULT_WEIGHTS } from "./defaults.js";
 import { fitLogistic, resampleNegatives, timeSplit } from "./fit.js";
-import { scoreSignals } from "./logistic.js";
+import { featureValues, scoreSignals } from "./logistic.js";
 import { evaluate, percentiles } from "./metrics.js";
 import { replayHistory, type ReplayRow } from "./replay.js";
 
@@ -49,9 +49,14 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
     { priorWeights: ids.map((id) => prior.weights[id] ?? 0) },
   );
 
+  // Prior correction (King & Zeng 2001): the fit saw the resampled positive rate; shift the
+  // intercept so scores are probabilities at the repo's real base rate.
+  const sampleRate = sample.filter((r) => r.label === 1).length / sample.length;
+  const trueRate = positives / train.length;
+  const correction = trueRate < 1 && sampleRate < 1 ? Math.log(((1 - trueRate) / trueRate) * (sampleRate / (1 - sampleRate))) : 0;
   const model: ModelWeights = {
     version: 1,
-    intercept: fit.intercept,
+    intercept: fit.intercept - correction,
     weights: Object.fromEntries(ids.map((id, j) => [id, fit.weights[j]!])),
     ...(prior.priors ? { priors: prior.priors } : {}),
   };
@@ -70,9 +75,9 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
   };
 }
 
-/** Same missing-value rule as scoreSignals, so fitting and scoring see identical x. */
+/** Same value rule as scoreSignals, so fitting and scoring see identical x. */
 function featureVector(signals: Signal[], ids: string[], priors: Record<string, number> | undefined): number[] {
-  const values = new Map(signals.map((s) => [s.id, s.value]));
+  const values = featureValues(signals, priors);
   return ids.map((id) => values.get(id) ?? priors?.[id] ?? 0);
 }
 

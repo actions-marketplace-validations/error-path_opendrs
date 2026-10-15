@@ -43,16 +43,22 @@ export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayRow[
   const labelled = await labelCommits(repoDir, history, config, await loadIncidents(repoDir));
   const labels = new Map(labelled.map((l) => [l.sha, l.label]));
 
-  return mapLimit(
+  const rows = await mapLimit(
     commits,
     CONCURRENCY,
-    async (c): Promise<ReplayRow> => {
-      const diff = await loadDiff(repoDir, c.parents[0]!, c.sha, config);
-      const ctx = makeContext(repoDir, diff, config, history, graph, c.time);
-      return { sha: c.sha, time: c.time, label: labels.get(c.sha) ?? 0, signals: await computeSignals(ctx) };
+    async (c): Promise<ReplayRow | undefined> => {
+      try {
+        const diff = await loadDiff(repoDir, c.parents[0]!, c.sha, config, { resolved: true });
+        const ctx = makeContext(repoDir, diff, config, history, graph, c.time);
+        return { sha: c.sha, time: c.time, label: labels.get(c.sha) ?? 0, signals: await computeSignals(ctx) };
+      } catch {
+        // One unreadable commit (e.g. a shallow-clone boundary) must not abort a long replay.
+        return undefined;
+      }
     },
     (done) => opts.onProgress?.(done, commits.length),
   );
+  return rows.filter((r): r is ReplayRow => r !== undefined);
 }
 
 /** Map with at most `limit` tasks in flight; results keep input order. */

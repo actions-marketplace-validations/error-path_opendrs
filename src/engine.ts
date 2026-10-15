@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { OpendrsConfig } from "./domain/config.js";
 import type { DependencyGraph, DiffInfo, HistoryIndex, LlmProvider, ModelWeights, ScoreResult, ScoringContext, Signal } from "./domain/types.js";
 import { OpendrsError } from "./domain/types.js";
-import { gitMaybe } from "./git/exec.js";
+import { createBlobReader } from "./git/blobs.js";
 import { loadDiff } from "./git/diff.js";
 import { buildHistoryIndex } from "./git/history.js";
 import { buildDependencyGraph } from "./graph/graph.js";
@@ -57,6 +57,7 @@ export function makeContext(
   graph: DependencyGraph | undefined,
   asOf?: number,
 ): ScoringContext {
+  const read = createBlobReader(repoDir);
   return {
     repoDir,
     diff,
@@ -64,8 +65,8 @@ export function makeContext(
     history,
     graph,
     asOf,
-    readBase: (path) => gitMaybe(repoDir, ["show", `${diff.base}:${path}`]),
-    readHead: (path) => gitMaybe(repoDir, ["show", `${diff.head}:${path}`]),
+    readBase: (path) => read(diff.base, path),
+    readHead: (path) => read(diff.head, path),
   };
 }
 
@@ -86,9 +87,10 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
 
   const ctx = makeContext(repoDir, diff, config, history, graph, opts.asOf);
 
-  const llm = opts.llm === null ? undefined : (opts.llm ?? createLlmProvider(config));
-  if (llm) {
-    try {
+  try {
+    // A misconfigured judge (e.g. missing key) becomes an unknown signal, which routes to a human.
+    const llm = opts.llm === null ? undefined : (opts.llm ?? createLlmProvider(config));
+    if (llm) {
       const judgement = await llm.judge({
         title: diff.title,
         description: config.llm.includeDescription ? diff.description : undefined,
@@ -96,9 +98,9 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
         files: diff.files.filter((f) => !f.ignored).map((f) => f.path),
       });
       ctx.llm = { judgement };
-    } catch (e) {
-      ctx.llm = { error: e instanceof OpendrsError ? e.message : `LLM judge failed: ${(e as Error).message}` };
     }
+  } catch (e) {
+    ctx.llm = { error: e instanceof OpendrsError ? e.message : `LLM judge failed: ${(e as Error).message}` };
   }
 
   const signals = await computeSignals(ctx);

@@ -147,11 +147,19 @@ function readQuoted(s: string, start: number): [string, number] {
 
 /**
  * Diff between merge-base(base, head) and head. Applies `paths.ignore`, resolves shas,
- * and fills author/title from the head commit.
+ * and fills author/title from the head commit. `resolved: true` means base and head are already
+ * commit shas with base an ancestor of head (history replay), which skips three git calls.
  */
-export async function loadDiff(repoDir: string, base: string, head: string, config: OpendrsConfig): Promise<DiffInfo> {
-  const headSha = await resolveCommit(repoDir, head);
-  const baseSha = base === EMPTY_TREE ? EMPTY_TREE : await mergeBase(repoDir, await resolveCommit(repoDir, base), headSha);
+export async function loadDiff(
+  repoDir: string,
+  base: string,
+  head: string,
+  config: OpendrsConfig,
+  opts: { resolved?: boolean } = {},
+): Promise<DiffInfo> {
+  const headSha = opts.resolved ? head : await resolveCommit(repoDir, head);
+  const baseSha =
+    opts.resolved || base === EMPTY_TREE ? base : await mergeBase(repoDir, await resolveCommit(repoDir, base), headSha);
   const [text, meta] = await Promise.all([
     // Explicit prefixes and no textconv keep the output parseable whatever the user's git config says.
     git(repoDir, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M", "--unified=3", baseSha, headSha]),

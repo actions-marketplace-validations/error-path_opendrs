@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { globMatch, globMatchAny } from "../../src/graph/glob-lite.js";
+import { matchGlob, matchAny } from "../../src/git/glob.js";
 
-describe("glob-lite", () => {
+describe("glob (blast-radius cases)", () => {
   it.each([
     [".github/**", ".github/workflows/ci.yml", true],
     [".github/**", "src/.github/x", false],
@@ -23,12 +23,12 @@ describe("glob-lite", () => {
     ["**/CODEOWNERS", "CODEOWNERS", true],
     ["**/CODEOWNERS", "docs/CODEOWNERS", true],
   ])("%s vs %s -> %s", (pattern, path, expected) => {
-    expect(globMatch(pattern, path)).toBe(expected);
+    expect(matchGlob(pattern, path)).toBe(expected);
   });
 
   it("matches any of several patterns", () => {
-    expect(globMatchAny(["**/*.md", "**/dist/**"], "pkg/dist/a.js")).toBe(true);
-    expect(globMatchAny(["**/*.md"], "a.ts")).toBe(false);
-    expect(globMatchAny([], "a.ts")).toBe(false);
+    expect(matchAny(["**/*.md", "**/dist/**"], "pkg/dist/a.js")).toBe(true);
+    expect(matchAny(["**/*.md"], "a.ts")).toBe(false);
+    expect(matchAny([], "a.ts")).toBe(false);
   });
 });

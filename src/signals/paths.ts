@@ -1,5 +1,5 @@
 import type { ChangedFile, Evidence, Signal, SignalProvider } from "../domain/types.js";
-import { globMatch } from "../graph/glob-lite.js";
+import { matchGlob } from "../git/glob.js";
 
 /**
  * Files whose new or old path matches a glob. Ignored files are included on purpose:
@@ -8,12 +8,12 @@ import { globMatch } from "../graph/glob-lite.js";
 function matches(files: ChangedFile[], globs: string[], kind: string): Evidence[] {
   const out: Evidence[] = [];
   for (const f of files) {
-    const hitNew = globs.find((g) => globMatch(g, f.path));
+    const hitNew = globs.find((g) => matchGlob(g, f.path));
     if (hitNew) {
       out.push({ file: f.path, detail: `matches ${kind} glob "${hitNew}"` });
       continue;
     }
-    const hitOld = f.oldPath ? globs.find((g) => globMatch(g, f.oldPath!)) : undefined;
+    const hitOld = f.oldPath ? globs.find((g) => matchGlob(g, f.oldPath!)) : undefined;
     if (hitOld) out.push({ file: f.path, detail: `renamed from ${f.oldPath}, which matches ${kind} glob "${hitOld}"` });
   }
   return out;

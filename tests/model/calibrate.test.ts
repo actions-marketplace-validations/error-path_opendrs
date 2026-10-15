@@ -56,8 +56,7 @@ describe("calibrate + backtest on a real repo", () => {
   let repo: TestRepo | undefined;
   afterEach(() => repo?.cleanup());
 
-  // enabled at integration
-  it.skip("fits a model that beats a random baseline on its own history", async () => {
+  it("fits a model that beats a random baseline on its own history", async () => {
     repo = makeRepo();
     const r = repo;
     const veteran = { name: "Vera", email: "vera@example.com" };
@@ -90,5 +89,5 @@ describe("calibrate + backtest on a real repo", () => {
     const report = await backtest({ repoDir: r.dir, config, model });
     expect(report.default.capturedAt["50"]).toBeGreaterThan(0.5);
     expect(report.calibrated!.capturedAt["50"]).toBeGreaterThan(0.5);
-  });
+  }, 180_000);
 });

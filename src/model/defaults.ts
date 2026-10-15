@@ -16,7 +16,8 @@ import type { ModelWeights } from "../domain/types.js";
  * - size.new_files_only is negative: Meta found new-file-only diffs rarely cause SEVs.
  * - paths.critical is the largest single bump (Meta's "high-criticality service").
  * - paths.blocked is also a policy hard block; its weight only colours the score.
- * - lang.*: docs and config lower risk; code families are ~0 until calibration says otherwise.
+ * - lang.*: docs and config lower risk; code families (lang.ts, lang.py, ...) are absent, i.e. 0,
+ *   until calibration fits them.
  * - llm.semantic is logit(p) from the LLM judge, so a weight of 0.8 shrinks it toward the
  *   other evidence rather than letting it dominate (spec §5).
  * - intercept -2.85 puts an empty diff at ≈ 0.05.
@@ -44,19 +45,10 @@ export const DEFAULT_WEIGHTS: ModelWeights = {
     "tests.missing": 0.7,
     "lang.docs": -0.4,
     "lang.config": -0.3,
-    "lang.js": 0,
-    "lang.python": 0,
-    "lang.go": 0,
-    "lang.jvm": 0,
-    "lang.rust": 0,
-    "lang.ruby": 0,
-    "lang.c": 0,
-    "lang.shell": 0,
-    "lang.other": 0,
     "llm.semantic": 0.8,
   },
-  // Only used when a provider emits nothing for the id. A typical value, not the best case,
-  // because unknown is never zero risk.
+  // Used for a signal whose status is `unknown` (or that is missing). A typical value, not the
+  // best case, because unknown is never zero risk.
   priors: {
     "blast.dependents": Math.log1p(10),
     "blast.public_surface": 0.5,

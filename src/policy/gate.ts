@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { matchesGlob } from "node:path";
+import { matchGlob } from "../git/glob.js";
 import type { HistoryIndex, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { sigmoid } from "../model/logistic.js";
@@ -68,7 +68,7 @@ export function decide(input: GateInput): PolicyOutcome {
 
   // 1. hard block
   const blocked = diff.files
-    .filter((f) => [f.path, f.oldPath].some((p) => p !== undefined && config.paths.block.some((g) => matchesGlob(p, g))))
+    .filter((f) => [f.path, f.oldPath].some((p) => p !== undefined && config.paths.block.some((g) => matchGlob(g, p))))
     .map((f) => f.path);
   const blockedSignal = input.signals.find((s) => s.id === "paths.blocked" && s.value >= 1);
   const hardBlocked = blocked.length > 0 || blockedSignal !== undefined;
