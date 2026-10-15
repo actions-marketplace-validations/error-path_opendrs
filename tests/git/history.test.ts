@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultConfig, parseConfig } from "../../src/domain/config.js";
+import { EMPTY_TREE } from "../../src/git/diff.js";
 import { buildHistoryIndex } from "../../src/git/history.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
 
@@ -95,6 +96,15 @@ describe("buildHistoryIndex", () => {
     expect(h.commits).toHaveLength(4);
     // Merges are not landed diffs.
     expect(h.authorCommitCount("alice@example.com")).toBe(2);
+  });
+
+  it("returns an empty index for the empty tree (root-commit base)", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "init");
+    const h = await buildHistoryIndex(repo.dir, EMPTY_TREE, defaultConfig());
+    expect(h.commits).toEqual([]);
+    expect(h.fileCommits("a.ts")).toEqual([]);
+    expect(h.authorCommitCount("alice@example.com")).toBe(0);
   });
 
   it("is bounded by history.maxCommits", async () => {
