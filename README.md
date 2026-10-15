@@ -266,6 +266,13 @@ graph:
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
 ```
 
+opendrs refuses a config that would fail silently, naming the offending value:
+
+- **Globs** are repo-relative and support `**`, `*`, `?` and `{a,b}`. A glob with `[` or `]`
+  (character classes are not supported), a backslash, or a leading `/` or `./` is an error.
+- **Thresholds** must be ordered: `0 ≤ green < yellow ≤ red ≤ 1` in absolute mode, and
+  `0 < green < yellow ≤ red < 100` in percentile mode.
+
 ## Limitations
 
 - **The default weights are not fit to your code.** They are priors chosen to rank obvious cases
