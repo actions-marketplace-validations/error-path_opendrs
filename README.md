@@ -229,6 +229,8 @@ What this shows:
 
 ### A broader run: 18 more repositories
 
+Both runs used opendrs 0.1.2, before the label horizon (`history.labelHorizonDays`) existed. Re-running with it should mostly change the held-out column, by leaving out commits too new to have been fixed yet.
+
 A second, shorter run used the newest 1,200–1,500 commits of each of 18 more repositories, again
 without any configuration. "Caught" is the share of later-fixed commits that fall in the riskiest
 10 % of commits; a random ranking catches 10 %.
