@@ -46,7 +46,14 @@ export const configSchema = z.object({
       requireAiReview: z
         .object({
           checks: z.array(z.string()).default([]),
-          labels: z.array(z.string()).default([]),
+          // Removed in 0.1.1; kept only so that a config still listing it fails with a clear error.
+          labels: z
+            .undefined({
+              error:
+                "requireAiReview.labels was removed in 0.1.1: labels are not tied to a commit and can be added by anyone with triage access; " +
+                "require a check run instead (requireAiReview.checks)",
+            })
+            .optional(),
         })
         .prefault({}),
       mergeMethod: z.enum(["queue", "auto-merge", "none"]).default("queue"),

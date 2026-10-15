@@ -187,8 +187,8 @@ PR's author, not the email the head commit claims.
 ## Pairing with an AI reviewer
 
 opendrs measures risk; it does not review the code. The intended setup is: an AI reviewer checks
-correctness, and opendrs decides whether a human must look too. Tell opendrs which checks or
-labels mean "the AI review passed":
+correctness, and opendrs decides whether a human must look too. Tell opendrs which check runs
+mean "the AI review passed":
 
 ```yaml
 # .opendrs.yml on the default branch
@@ -239,12 +239,10 @@ issue. opendrs matches checks by name only and does not verify which app created
 workflow on the PR's head commit can create a check with that name, which is one reason PRs that
 change `.github/**` are never approved.
 
-Prefer checks to labels. A check run belongs to one commit, so a new push starts without it. A
-label stays on the PR across pushes, so on every `synchronize` event (a new push) opendrs removes
-the labels listed in `requireAiReview.labels` from the PR and treats them as absent for that run;
-the AI reviewer must label the new commit again. If you do use a label (for example an AI reviewer
-that adds `ai-reviewed`), list it under `requireAiReview.labels` and add `labeled` to the opendrs
-workflow's `pull_request` types, so the PR is re-scored when the label arrives.
+Only check runs count. A check run belongs to one commit, so a new push starts without it. PR
+labels are not supported: a label is not tied to a commit, stays on the PR across pushes, and
+anyone with triage access can add one. `requireAiReview.labels` was removed in 0.1.1, and a config
+that still lists it fails with an error; make your AI reviewer report a check run instead.
 
 ## Rollout
 

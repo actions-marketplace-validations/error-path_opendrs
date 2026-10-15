@@ -15,9 +15,8 @@ thresholds:
 
 autoApprove:
   enabled: false        # false = comment and label only (dry run)
-  requireAiReview:      # every listed check and label must be present
+  requireAiReview:      # every listed check must have passed on the PR's head commit
     checks: []          # check-run names that must have concluded success, e.g. ["claude-review"]
-    labels: []          # labels that must be on the PR, e.g. ["ai-reviewed"]
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human, to detect drift
   maxChangedLines: 400  # never auto-approve above this, whatever the score
