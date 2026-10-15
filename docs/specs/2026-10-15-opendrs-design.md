@@ -109,7 +109,7 @@ detail). The model, not the provider, assigns weights.
 | `blast.public_surface` | — | 1 if exported or public symbols are changed in a file that has dependents |
 | `paths.critical` | high-criticality service | 1 if any changed file matches `critical` globs |
 | `paths.blocked` | — | 1 if a file matches `block` globs. **Policy hard-block**, not just a feature |
-| `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test file changed |
+| `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test lines changed; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))`, so a token test edit barely helps |
 | `llm.semantic` | LLM DRS | `max(0, logit(p) − logit(0.2))` from the optional LLM judge, so it can only raise risk; absent when disabled |
 
 When a feature cannot be computed (for example, an unsupported language for the import

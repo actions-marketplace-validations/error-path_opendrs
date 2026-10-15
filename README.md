@@ -89,7 +89,7 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Language indicators | `lang.*` | one indicator per language family present |
 | Author created the file | `expertise.owner_ratio` | share of changed files the author created or mostly wrote |
 | Author's landed diffs | `expertise.author_commits` | `log1p` of the author's prior commits; negative weight |
-| Test plan | `tests.missing` | 1 when source changed and no test file did (a proxy) |
+| Test plan | `tests.missing` | 1 when source changed and no test lines did; otherwise `max(0, 1 − testLines / (0.3 · sourceLines))` (a proxy) |
 | LLM risk model (iDiffLlama) | `llm.semantic` | `max(0, logit(p) − logit(0.2))` from an optional prompted LLM judge: it can only raise risk |
 | (not in Meta's list) | `blast.dependents`, `blast.public_surface` | transitive dependents of the changed files (depth 3) from the import graph; exported symbols changed in a file that has dependents |
 | (not in Meta's list) | `history.churn` | `log1p` of commits touching the files in the lookback window |

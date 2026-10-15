@@ -9,7 +9,7 @@ import type { ModelWeights } from "../domain/types.js";
  * risk. Magnitudes are tuned so the spec §5 fixtures land on target
  * (tests/model/defaults.test.ts):
  *   docs typo ≈ 0.05, 100-line change with tests ≈ 0.19, 600-line untested hub change ≈ 0.94,
- *   40-line change in a critical path ≈ 0.35, new-files-only feature ≈ 0.08.
+ *   40-line change in a critical path ≈ 0.35, new-files-only feature (tests.missing ≈ 0.33) ≈ 0.09.
  * Notes:
  * - Most features are log1p counts, so a weight of 0.25 on size.churn means ~+0.17 logit per
  *   doubling of changed lines.
