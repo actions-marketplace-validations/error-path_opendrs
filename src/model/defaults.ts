@@ -18,8 +18,9 @@ import type { ModelWeights } from "../domain/types.js";
  * - paths.blocked is also a policy hard block; its weight only colours the score.
  * - lang.*: docs and config lower risk; code families (lang.ts, lang.py, ...) are absent, i.e. 0,
  *   until calibration fits them.
- * - llm.semantic is logit(p) from the LLM judge, so a weight of 0.8 shrinks it toward the
- *   other evidence rather than letting it dominate (spec §5).
+ * - llm.semantic is max(0, logit(p) - logit(0.2)) from the LLM judge: it only adds risk above a
+ *   0.2 baseline and can never lower the score, so a judge talked into p ≈ 0 changes nothing.
+ *   The weight 0.8 shrinks it toward the other evidence (p = 0.5 adds ~+1.1 logit, p = 0.9 ~+2.9).
  * - intercept -2.85 puts an empty diff at ≈ 0.05.
  */
 export const DEFAULT_WEIGHTS: ModelWeights = {

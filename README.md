@@ -90,7 +90,7 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Author created the file | `expertise.owner_ratio` | share of changed files the author created or mostly wrote |
 | Author's landed diffs | `expertise.author_commits` | `log1p` of the author's prior commits; negative weight |
 | Test plan | `tests.missing` | 1 when source changed and no test file did (a proxy) |
-| LLM risk model (iDiffLlama) | `llm.semantic` | `logit(p)` from an optional prompted LLM judge |
+| LLM risk model (iDiffLlama) | `llm.semantic` | `max(0, logit(p) − logit(0.2))` from an optional prompted LLM judge: it can only raise risk |
 | (not in Meta's list) | `blast.dependents`, `blast.public_surface` | transitive dependents of the changed files (depth 3) from the import graph; exported symbols changed in a file that has dependents |
 | (not in Meta's list) | `history.churn` | `log1p` of commits touching the files in the lookback window |
 
@@ -131,8 +131,9 @@ The rails that matter when the Action can approve PRs:
   earlier approval ("Risk increased: yellow 0.45").
 - **Prompt injection.** The diff, PR title and PR body are untrusted. The LLM prompt wraps them in
   delimiters and tells the model to ignore instructions inside them; the PR body is not sent at
-  all unless `llm.includeDescription` is true. The answer is parsed strictly as JSON and clamped to
-  [0, 1]. Risk claims written in the PR text never change the score directly.
+  all unless `llm.includeDescription` is true. The answer must be exactly one JSON object and is
+  clamped to [0, 1]. The judge can only raise the score, never lower it, so talking it into
+  "risk 0" gains nothing. Risk claims written in the PR text never change the score directly.
 
 ## Calibrate and backtest: measure your threshold
 
@@ -164,7 +165,12 @@ Backtest results on public repos: coming soon.
 ## LLM judge (optional)
 
 opendrs works without an LLM. With one, a prompted model reads the title and diff and returns a
-probability of incident; it enters the model as one more signal (`llm.semantic`, prior weight 0.8).
+probability of incident `p`; it enters the model as one more signal (`llm.semantic`, prior weight
+0.8) with the value `max(0, logit(p) − logit(0.2))`. The judge can only add risk above a 0.2
+baseline: an answer of 0.2 or less adds nothing, and no answer can lower the score. A diff that
+someone talks the judge into calling safe therefore scores exactly as it would without an LLM.
+The reply must contain exactly one JSON object. When the diff exceeds `maxDiffChars`, every file
+first gets its first hunk and only then do larger files get more, and truncated files are marked.
 
 ```yaml
 llm:

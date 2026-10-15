@@ -41,7 +41,7 @@ const PLAUSIBLE_RANGE: Record<string, [number, number]> = {
   "paths.critical": [0, 1],
   "paths.blocked": [0, 1],
   "tests.missing": [0, 1],
-  "llm.semantic": [Math.log(0.1 / 0.9), Math.log(0.9 / 0.1)],
+  "llm.semantic": [0, Math.log(0.9 / 0.1) - Math.log(0.2 / 0.8)],
 };
 
 const rangeOf = (id: string): [number, number] | undefined => PLAUSIBLE_RANGE[id] ?? (id.startsWith("lang.") ? [0, 1] : undefined);

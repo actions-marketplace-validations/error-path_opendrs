@@ -26,21 +26,26 @@ describe("llmSignals", () => {
     expect(await llmSignals(ctx())).toEqual([]);
   });
 
-  it("turns a judgement into an inferred logit with the snippets as evidence", async () => {
+  it("turns a judgement into the logit lift above a 0.2 baseline, with the snippets as evidence", async () => {
     const [s] = await llmSignals(
       ctx({ judgement: { risk: 0.8, rationale: "removes the auth guard", riskySnippets: [{ file: "src/a.ts", line: 4, reason: "guard deleted" }] } }),
     );
     expect(s).toMatchObject({ id: "llm.semantic", status: "inferred" });
-    expect(s!.value).toBeCloseTo(logit(0.8));
+    expect(s!.value).toBeCloseTo(logit(0.8) - logit(0.2));
     expect(s!.summary).toContain("removes the auth guard");
     expect(s!.evidence).toEqual([{ file: "src/a.ts", line: 4, detail: "guard deleted" }]);
   });
 
-  it("clamps extreme risks to [0.01, 0.99] before the logit", async () => {
-    const [low] = await llmSignals(ctx({ judgement: { risk: 0, rationale: "", riskySnippets: [] } }));
+  it("never lowers risk: a judgement at or below 0.2 adds nothing", async () => {
+    for (const risk of [0, 0.05, 0.2]) {
+      const [s] = await llmSignals(ctx({ judgement: { risk, rationale: "", riskySnippets: [] } }));
+      expect(s!.value, `risk ${risk}`).toBe(0);
+    }
+  });
+
+  it("clamps extreme risks to 0.99 before the logit", async () => {
     const [high] = await llmSignals(ctx({ judgement: { risk: 1, rationale: "", riskySnippets: [] } }));
-    expect(low!.value).toBeCloseTo(logit(0.01));
-    expect(high!.value).toBeCloseTo(logit(0.99));
+    expect(high!.value).toBeCloseTo(logit(0.99) - logit(0.2));
   });
 
   it("truncates a long rationale in the summary", async () => {

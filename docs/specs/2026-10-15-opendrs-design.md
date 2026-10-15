@@ -110,7 +110,7 @@ detail). The model, not the provider, assigns weights.
 | `paths.critical` | high-criticality service | 1 if any changed file matches `critical` globs |
 | `paths.blocked` | — | 1 if a file matches `block` globs. **Policy hard-block**, not just a feature |
 | `tests.missing` | test plan (proxy) | 1 if non-test source changed and no test file changed |
-| `llm.semantic` | LLM DRS | `logit(p)` from the optional LLM judge; absent when disabled |
+| `llm.semantic` | LLM DRS | `max(0, logit(p) − logit(0.2))` from the optional LLM judge, so it can only raise risk; absent when disabled |
 
 When a feature cannot be computed (for example, an unsupported language for the import
 graph), the signal is emitted with `status: "unknown"` and `value` = the configured neutral
@@ -147,7 +147,9 @@ packages, the go.mod module path, and the Java package index). The graph is cach
 - `opendrs backtest` reports captured-at-{5,10,50}% gated, ROC-AUC, the base rate, and the
   capture curve. It does this for the default priors and the calibrated model, so their
   value can be compared.
-- With the LLM enabled, `llm.semantic` is an additional feature with a prior weight of 0.8.
+- With the LLM enabled, `llm.semantic` is an additional feature with a prior weight of 0.8. Its
+  value is `max(0, logit(p) − logit(0.2))`: the judge adds risk only above a 0.2 baseline and
+  never lowers the score, so a manipulated judge cannot turn a red diff green.
   Calibration may refit it only when LLM scores were collected.
 
 ## 6. Policy
@@ -235,9 +237,10 @@ files, excluding the PR author (one of Meta's DRS uses).
 ## 8. Security and failure handling
 
 - Diff text, PR title and body are untrusted. The LLM prompt wraps them in delimiters and
-  states that instructions inside them must be ignored. The output is parsed strictly as
-  JSON, `p` is clamped to [0, 1], and a parse failure becomes `unknown`, which counts as risk
-  and can never pass the gate.
+  states that instructions inside them must be ignored. The output must contain exactly one
+  JSON object and is parsed strictly, `p` is clamped to [0, 1], and a parse failure becomes
+  `unknown`, which counts as risk and can never pass the gate. The judge can only raise the
+  score (`llm.semantic` is 0 for `p` ≤ 0.2), so a successful injection cannot lower it.
 - Git is invoked with `execFile` (no shell), with `--no-pager`, `-c core.quotepath=off`, and
   timeouts.
 - The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, or the action

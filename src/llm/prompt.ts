@@ -18,31 +18,54 @@ function hunkText(h: Hunk): string {
 
 const changedLines = (h: Hunk) => h.lines.filter((l) => l.startsWith("+") || l.startsWith("-")).length;
 
+/** Room for one file's "[... file truncated: K of M hunks / L lines omitted ...]" marker. */
+const MARKER_RESERVE = 80;
+
 /**
  * Render the diff for the LLM: unified format, ignored files dropped, truncated to maxChars,
- * keeping whole hunks and preferring files with the most changed lines.
+ * keeping whole hunks. Every file first gets its header and first hunk (cheapest first, so padding
+ * cannot push a small hunk out); only then do the files with the most changed lines get their
+ * remaining hunks. A file that lost hunks is marked; files left out entirely go in the trailer.
  */
 export function buildDiffText(diff: DiffInfo, maxChars: number): string {
   const files = diff.files
     .filter((f) => !f.ignored)
-    .sort((a, b) => b.added + b.deleted - (a.added + a.deleted) || a.path.localeCompare(b.path));
+    .sort((a, b) => b.added + b.deleted - (a.added + a.deleted) || a.path.localeCompare(b.path))
+    .map((f) => ({ f, header: fileHeader(f), hunks: f.hunks.map(hunkText), kept: new Set<number>(), shown: false }));
 
   const budget = maxChars - TRAILER_RESERVE;
+  let used = 0;
+
+  // Pass 1: header plus first hunk of every file, smallest first hunk first.
+  for (const x of [...files].sort((a, b) => (a.hunks[0]?.length ?? 0) - (b.hunks[0]?.length ?? 0))) {
+    const cost = x.header.length + (x.hunks[0]?.length ?? 0) + (x.hunks.length > 1 ? MARKER_RESERVE : 0);
+    if (used + cost > budget) continue;
+    used += cost;
+    x.shown = true;
+    if (x.hunks.length > 0) x.kept.add(0);
+  }
+  // Pass 2: the remaining hunks, largest files first.
+  for (const x of files.filter((x) => x.shown)) {
+    for (let i = 1; i < x.hunks.length; i++) {
+      if (used + x.hunks[i]!.length > budget) continue;
+      used += x.hunks[i]!.length;
+      x.kept.add(i);
+    }
+  }
+
   let out = "";
   let omittedFiles = 0;
   let omittedLines = 0;
-
-  for (const f of files) {
-    const header = fileHeader(f);
-    let body = "";
-    for (const h of f.hunks) {
-      const text = hunkText(h);
-      if (out.length + header.length + body.length + text.length <= budget) body += text;
-      else omittedLines += changedLines(h);
+  for (const x of files) {
+    const dropped = x.f.hunks.filter((_, i) => !x.kept.has(i));
+    const lines = dropped.reduce((n, h) => n + changedLines(h), 0);
+    omittedLines += lines;
+    if (!x.shown) {
+      omittedFiles++;
+      continue;
     }
-    const fits = out.length + header.length + body.length <= budget;
-    if (fits && (body || f.hunks.length === 0)) out += header + body;
-    else omittedFiles++;
+    out += x.header + x.hunks.filter((_, i) => x.kept.has(i)).join("");
+    if (dropped.length > 0) out += `[... file truncated: ${dropped.length} of ${x.hunks.length} hunks / ${lines} lines omitted ...]\n`;
   }
 
   if (omittedFiles === 0 && omittedLines === 0) return out;
@@ -62,6 +85,8 @@ What drives risk:
 - config defaults: changed default values, feature flags, limits and environment-dependent behaviour;
 - removal of checks: deleted validation, guards, assertions or tests.
 Low-risk changes include docs, comments, tests only, and small local changes with clear intent.
+
+Truncation: a "[... file truncated ...]" or "[... N more files ...]" line means part of the diff was not shown to you; never assume the missing part is safe.
 
 Calibration: most changes never cause an incident, so the typical change scores well below 0.2. Go above 0.5 only when you can name a concrete, plausible failure mode in the diff. Base the score on the code, not on how confident the author sounds.
 
