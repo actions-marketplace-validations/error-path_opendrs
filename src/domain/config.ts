@@ -1,0 +1,127 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { parse } from "yaml";
+import { z } from "zod";
+import { OpendrsError } from "./types.js";
+
+export const CONFIG_FILE = ".opendrs.yml";
+
+const thresholdsSchema = z.object({
+  mode: z.enum(["absolute", "percentile"]).default("absolute"),
+  green: z.number().min(0).max(100).default(0.3),
+  yellow: z.number().min(0).max(100).default(0.6),
+  red: z.number().min(0).max(100).default(0.8),
+});
+
+export const configSchema = z.object({
+  thresholds: thresholdsSchema.prefault({}),
+  autoApprove: z
+    .object({
+      enabled: z.boolean().default(false),
+      requireAiReview: z
+        .object({
+          checks: z.array(z.string()).default([]),
+          labels: z.array(z.string()).default([]),
+        })
+        .prefault({}),
+      mergeMethod: z.enum(["queue", "auto-merge", "none"]).default("queue"),
+      sampleRate: z.number().min(0).max(1).default(0.1),
+      maxChangedLines: z.number().int().positive().default(400),
+    })
+    .prefault({}),
+  paths: z
+    .object({
+      block: z.array(z.string()).default([
+        ".github/**",
+        ".opendrs.yml",
+        ".opendrs/**",
+        "**/CODEOWNERS",
+        "**/migrations/**",
+        "**/*.tf",
+      ]),
+      critical: z.array(z.string()).default(["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]),
+      ignore: z.array(z.string()).default([
+        "**/*.lock",
+        "**/package-lock.json",
+        "**/pnpm-lock.yaml",
+        "**/go.sum",
+        "**/dist/**",
+        "**/build/**",
+        "**/vendor/**",
+        "**/node_modules/**",
+        "**/*.min.js",
+        "**/*.snap",
+      ]),
+      tests: z.array(z.string()).default([
+        "**/test/**",
+        "**/tests/**",
+        "**/__tests__/**",
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/*_test.*",
+        "**/test_*.py",
+      ]),
+    })
+    .prefault({}),
+  llm: z
+    .object({
+      enabled: z.boolean().default(false),
+      provider: z.enum(["anthropic", "openai"]).default("anthropic"),
+      model: z.string().default("claude-sonnet-5"),
+      baseUrl: z.string().optional(),
+      apiKeyEnv: z.string().optional(),
+      includeDescription: z.boolean().default(false),
+      maxDiffChars: z.number().int().positive().default(60_000),
+    })
+    .prefault({}),
+  history: z
+    .object({
+      lookbackDays: z.number().int().positive().default(365),
+      fixPattern: z.string().default("\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"),
+      maxCommits: z.number().int().positive().default(20_000),
+    })
+    .prefault({}),
+  graph: z
+    .object({
+      enabled: z.boolean().default(true),
+      maxDepth: z.number().int().min(1).max(10).default(3),
+      maxFiles: z.number().int().positive().default(50_000),
+    })
+    .prefault({}),
+  /** Path to calibrated model JSON, relative to repo root. Used when it exists. */
+  model: z.string().default(".opendrs/model.json"),
+});
+
+export type OpendrsConfig = z.infer<typeof configSchema>;
+
+export function parseConfig(raw: unknown): OpendrsConfig {
+  const result = configSchema.safeParse(raw ?? {});
+  if (!result.success) {
+    throw new OpendrsError(`Invalid ${CONFIG_FILE}: ${z.prettifyError(result.error)}`, "config");
+  }
+  return result.data;
+}
+
+export const defaultConfig = (): OpendrsConfig => parseConfig({});
+
+/** Load .opendrs.yml from a directory; missing file means defaults. */
+export async function loadConfig(repoDir: string): Promise<OpendrsConfig> {
+  let text: string;
+  try {
+    text = await readFile(join(repoDir, CONFIG_FILE), "utf8");
+  } catch {
+    return defaultConfig();
+  }
+  return parseConfigText(text);
+}
+
+/** Parse YAML text (e.g. config read from the base branch via `git show`). */
+export function parseConfigText(text: string): OpendrsConfig {
+  let raw: unknown;
+  try {
+    raw = parse(text);
+  } catch (e) {
+    throw new OpendrsError(`Invalid ${CONFIG_FILE}: ${(e as Error).message}`, "config");
+  }
+  return parseConfig(raw);
+}

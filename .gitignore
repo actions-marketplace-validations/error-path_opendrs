@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.opendrs/cache/
+.claude/worktrees/
+*.log
+.DS_Store
