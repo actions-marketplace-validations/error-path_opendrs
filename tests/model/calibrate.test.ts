@@ -82,6 +82,7 @@ describe("calibrate + backtest on a real repo", () => {
       }
     }
     const config = defaultConfig();
+    config.history.labelHorizonDays = 0; // the whole history spans days, inside the default horizon
     const { model, warnings } = await calibrate({ repoDir: r.dir, config });
     expect(warnings).toEqual([]);
     expect(model.trainedOn!.positives).toBeGreaterThan(0);

@@ -313,8 +313,8 @@ The agent skill in [`skills/opendrs/SKILL.md`](skills/opendrs/SKILL.md) tells an
 |---|---|
 | `opendrs score [--base ref] [--head ref] [--json \| --markdown] [--fail-above x] [--no-llm] [--title t]` | Score `merge-base(base, head)..head`. Base defaults to `origin/HEAD`, then `main`, then `master`. |
 | `opendrs explain <file> [--json]` | A file's history, fixes, authors, dependents and path policy. |
-| `opendrs calibrate [--since date] [--max-commits n]` | Fit the model and write it to `config.model`. |
-| `opendrs backtest [--since date] [--max-commits n] [--json]` | Compare default and calibrated models on your history. |
+| `opendrs calibrate [--since date] [--max-commits n] [--label-horizon-days n]` | Fit the model and write it to `config.model`. |
+| `opendrs backtest [--since date] [--max-commits n] [--label-horizon-days n] [--json]` | Compare default and calibrated models on your history. |
 | `opendrs init [--force]` | Write a commented `.opendrs.yml` and a comment-only workflow. |
 | `opendrs mcp` | Run the MCP server. |
 
@@ -385,6 +385,7 @@ history:
   lookbackDays: 365
   fixPattern: "\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"
   maxCommits: 20000
+  labelHorizonDays: 60   # calibrate/backtest skip the newest 60 days: their bugs may not be found yet (0 = off)
 
 graph:
   enabled: true

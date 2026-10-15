@@ -59,6 +59,22 @@ describe("opendrs calibrate", () => {
     expect(vi.mocked(calibrate).mock.calls[0]![0]).toMatchObject({ since: "2026-01-01", maxCommits: 300 });
   });
 
+  it("uses history.labelHorizonDays from .opendrs.yml, overridden by --label-horizon-days", async () => {
+    writeFileSync(join(repo.dir, ".opendrs.yml"), "history:\n  labelHorizonDays: 30\n");
+    await runCli(["calibrate"], testIo(repo.dir).io);
+    await runCli(["calibrate", "--label-horizon-days", "0"], testIo(repo.dir).io);
+    const calls = vi.mocked(calibrate).mock.calls;
+    expect(calls[0]![0].config.history.labelHorizonDays).toBe(30);
+    expect(calls[1]![0].config.history.labelHorizonDays).toBe(0);
+  });
+
+  it.each(["-1", "1.5", "soon", ""])("rejects --label-horizon-days %s", async (v) => {
+    const t = testIo(repo.dir);
+    expect(await runCli(["calibrate", `--label-horizon-days=${v}`], t.io)).toBe(2);
+    expect(t.stderr()).toContain("--label-horizon-days must be a non-negative integer");
+    expect(calibrate).not.toHaveBeenCalled();
+  });
+
   it.each(["0", "-5", "1.5", "lots"])("rejects --max-commits %s", async (v) => {
     expect(await runCli(["calibrate", "--max-commits", v], testIo(repo.dir).io)).toBe(2);
     expect(calibrate).not.toHaveBeenCalled();
@@ -112,6 +128,12 @@ describe("opendrs backtest", () => {
     await runCli(["backtest", "--since", "2026-01-01"], t.io);
     expect(vi.mocked(backtest).mock.calls[0]![0]).toMatchObject({ model: undefined, since: "2026-01-01" });
     expect(t.stdout()).toContain("opendrs calibrate");
+  });
+
+  it("passes --label-horizon-days through as the config's horizon", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    await runCli(["backtest", "--label-horizon-days", "90"], testIo(repo.dir).io);
+    expect(vi.mocked(backtest).mock.calls[0]![0].config.history.labelHorizonDays).toBe(90);
   });
 
   it("prints a table with both models and labelled Meta reference numbers", async () => {

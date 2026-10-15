@@ -148,6 +148,7 @@ history:
   lookbackDays: 365
   fixPattern: "\\\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\\\d?|revert)\\\\b"
   maxCommits: 20000
+  labelHorizonDays: 60   # calibrate/backtest skip the newest 60 days: their bugs may not be found yet (0 = off)
 
 # Reverse import graph used for blast radius.
 graph:

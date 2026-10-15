@@ -49,6 +49,15 @@ export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayResu
   commits = commits.slice(0, opts.maxCommits ?? config.history.maxCommits);
 
   const warnings: string[] = [];
+  // Label maturity: the newest commits' bugs are mostly not found yet, so their 0 labels are
+  // unreliable. They stay in the history index (their fixes still label older commits).
+  const days = config.history.labelHorizonDays;
+  const cutoff = commits.reduce((newest, c) => Math.max(newest, c.time), -Infinity) - days * 86_400;
+  const matured = commits.filter((c) => c.time <= cutoff);
+  const excluded = commits.length - matured.length;
+  if (excluded > 0) warnings.push(`${excluded} commits newer than ${days} days excluded from evaluation (their bugs may not be found yet)`);
+  commits = matured;
+
   const labelled = await labelCommits(repoDir, history, config, await loadIncidents(repoDir), (w) => warnings.push(w));
   const labels = new Map(labelled.map((l) => [l.sha, l.label]));
 
