@@ -82,6 +82,11 @@ export function decide(input: GateInput): PolicyOutcome {
   if (unread.length > 0) {
     fired.push({ decision: "human-review", reason: `ignored or binary files are never auto-approved: ${list(unread)}` });
   }
+  // A moved submodule pointer pulls in code the diff does not show.
+  const submodules = diff.files.filter((f) => f.submodule).map((f) => f.path);
+  if (submodules.length > 0) {
+    fired.push({ decision: "human-review", reason: `submodule changes are never auto-approved: ${list(submodules)}` });
+  }
 
   // 2. size cap (a binary file counts as one line)
   const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);

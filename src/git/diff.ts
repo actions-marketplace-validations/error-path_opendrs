@@ -8,6 +8,9 @@ import { matchAny } from "./glob.js";
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+/** Header lines that give a side the gitlink mode, i.e. a submodule pointer. */
+const GITLINK_MODE = /^(?:index [0-9a-f]+\.\.[0-9a-f]+|(?:new|deleted) file mode|(?:old|new) mode) 160000$/;
+const SUBPROJECT_LINE = /^[-+]Subproject commit [0-9a-f]+$/;
 
 /** Parse `git diff --no-color -M` unified output into ChangedFile[] (ignored=false; caller applies globs). */
 export function parseUnifiedDiff(text: string): ChangedFile[] {
@@ -19,6 +22,7 @@ export function parseUnifiedDiff(text: string): ChangedFile[] {
     if (!cur) return;
     if (cur.status === "deleted" && oldSide !== undefined) cur.path = oldSide;
     if (cur.status !== "renamed") delete cur.oldPath;
+    if (cur.hunks.some((h) => h.lines.some((l) => SUBPROJECT_LINE.test(l)))) cur.submodule = true;
   };
 
   for (let i = 0; i < rows.length; i++) {
@@ -40,6 +44,7 @@ export function parseUnifiedDiff(text: string): ChangedFile[] {
       cur.oldPath = oldSide = unquotePath(line.slice("rename from ".length));
     } else if (line.startsWith("rename to ")) cur.path = unquotePath(line.slice("rename to ".length));
     else if (line.startsWith("Binary files ") || line === "GIT binary patch") cur.binary = true;
+    else if (GITLINK_MODE.test(line)) cur.submodule = true;
     else if (line.startsWith("--- ")) {
       const p = sidePath(line.slice(4), "a/");
       if (p !== undefined) oldSide = p;
@@ -162,7 +167,22 @@ export async function loadDiff(
     opts.resolved || base === EMPTY_TREE ? base : await mergeBase(repoDir, await resolveCommit(repoDir, base), headSha);
   const [text, meta] = await Promise.all([
     // Explicit prefixes and no textconv keep the output parseable whatever the user's git config says.
-    git(repoDir, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M", "--unified=3", baseSha, headSha]),
+    // The submodule flags keep every gitlink change visible as a "Subproject commit" patch, whatever
+    // diff.submodule, diff.ignoreSubmodules or a submodule's `ignore` in .gitmodules says.
+    git(repoDir, [
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--submodule=short",
+      "--ignore-submodules=none",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      "-M",
+      "--unified=3",
+      baseSha,
+      headSha,
+    ]),
     git(repoDir, ["show", "-s", "--format=%an%x00%ae%x00%s", headSha]),
   ]);
   const files = parseUnifiedDiff(text);

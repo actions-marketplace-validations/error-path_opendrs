@@ -173,7 +173,7 @@ autoApprove:
   sampleRate: 0.10     # fraction of eligible PRs still routed to a human (deterministic by PR sha)
   maxChangedLines: 400 # never auto-approve above this, whatever the score
 paths:
-  block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf"]
+  block:    [".github/**", "**/migrations/**", ".opendrs.yml", "**/CODEOWNERS", "**/*.tf", ".gitmodules"]
   critical: ["**/auth/**", "**/payment*/**", "**/security/**"]
   ignore:   ["**/*.lock", "**/package-lock.json", "**/dist/**", "**/vendor/**", "**/*.min.js"]
 llm:
@@ -191,7 +191,9 @@ The decision is computed in this order, and the first rule that matches wins:
 1. any `paths.block` hit → `human-review` (hard block);
 2. any changed file is ignored (`paths.ignore`) or binary → `human-review`, naming up to 3 such
    files. These files are still scored as before (a lockfile bump keeps a low, green score), but
-   nothing reads their contents, so they are never auto-approved;
+   nothing reads their contents, so they are never auto-approved. Likewise any submodule change
+   (`ChangedFile.submodule`: a side has the gitlink mode 160000) → `human-review`, because the new
+   pointer pulls in code the diff does not show;
 3. changed lines > `maxChangedLines` → `human-review` (ignored files excluded; a binary file counts
    as one line);
 4. tier ≠ green → `human-review` (tier recorded);
@@ -246,8 +248,13 @@ files, excluding the PR author (one of Meta's DRS uses).
   score (`llm.semantic` is 0 for `p` ≤ 0.2), so a successful injection cannot lower it.
 - Git is invoked with `execFile` (no shell), with `--no-pager`, `-c core.quotepath=off`, and
   timeouts.
-- The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, or the action
-  itself. The config is read from base.
+- The Action never approves when the PR touches `.opendrs.yml`, `.github/**`, `.gitmodules`, or
+  the action itself. The config is read from base.
+- The diff is generated with `--submodule=short --ignore-submodules=none`, so neither git config
+  nor a submodule's `ignore` setting in `.gitmodules` can hide or summarise a gitlink change. The
+  parser marks a file as a submodule (`ChangedFile.submodule`, an additive field) from an `index`,
+  `new file mode`, `deleted file mode`, `old mode` or `new mode` line with mode 160000, or from a
+  `Subproject commit` patch line.
 - All errors use `Result`-style returns inside the engine. The CLI prints the reason and
   exits 2 on operational errors.
 

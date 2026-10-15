@@ -63,6 +63,7 @@ export const configSchema = z.object({
         "**/CODEOWNERS",
         "**/migrations/**",
         "**/*.tf",
+        ".gitmodules",
       ]),
       critical: globs(["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]),
       ignore: globs([

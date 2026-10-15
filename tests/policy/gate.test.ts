@@ -105,6 +105,14 @@ describe("decide: ignored or binary files", () => {
     expect(out.reasons[0]).toContain("gradle/wrapper/gradle-wrapper.jar");
   });
 
+  it("never auto-approves a PR that moves a submodule pointer, but keeps its green tier", () => {
+    const gitlink: ChangedFile = { ...file("libs/core", 1, 1), submodule: true };
+    const out = decide(input({ files: [file("src/a.ts"), gitlink] }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", hardBlocked: false, mergeMethod: "none" });
+    expect(out.reasons[0]).toMatch(/submodule/);
+    expect(out.reasons[0]).toContain("libs/core");
+  });
+
   it("names at most 3 such files", () => {
     const files = ["a.lock", "b.lock", "c.lock", "d.lock", "e.lock"].map((p) => file(p, 1, 0, true));
     const reason = decide(input({ files })).reasons[0]!;

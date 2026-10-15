@@ -2,6 +2,16 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Security
+
+- Submodule changes are never auto-approved. A moved gitlink (mode 160000) scored as a one-line
+  text change, so pointing a submodule at another commit could be auto-approved. The diff parser
+  now marks such files (`ChangedFile.submodule`), the gate sends them to a human, and the diff is
+  generated so that git config and `.gitmodules` `ignore` settings cannot hide them.
+  `.gitmodules` is blocked by default and by the Action's self-modification guard.
+
 ## 0.1.0 - 2026-10-15
 
 First release.

@@ -103,7 +103,8 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. a changed file is ignored (`paths.ignore`) or binary → `human-review`;
+2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink) →
+   `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green → `human-review`;
 5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
@@ -119,10 +120,13 @@ The rails that matter when the Action can approve PRs:
 - **Config comes from the base branch.** The Action reads `.opendrs.yml` and the calibrated model
   from the PR's base commit, so a PR cannot loosen its own gate.
 - **Hard blocks.** `paths.block` (by default `.github/**`, `.opendrs.yml`, `.opendrs/**`,
-  `CODEOWNERS`, migrations and Terraform) always sends the PR to a human.
+  `CODEOWNERS`, migrations, Terraform and `.gitmodules`) always sends the PR to a human.
+- **Submodules.** Moving a submodule pointer pulls in code the diff does not show, so any gitlink
+  change goes to a human, whatever `diff.submodule`, `diff.ignoreSubmodules` or a submodule's
+  `ignore` setting says. Repointing a submodule's URL changes `.gitmodules`, which is blocked.
 - **Self-modification guard.** Independently of any config, the Action never approves a PR that
-  adds, changes, deletes or renames `.opendrs.yml`, `.opendrs/**`, `.github/**`, `action.yml` or
-  `action/**`, or the configured model file. It also never approves PRs from forks.
+  adds, changes, deletes or renames `.opendrs.yml`, `.opendrs/**`, `.github/**`, `action.yml`,
+  `action/**` or `.gitmodules`, or the configured model file. It also never approves PRs from forks.
 - **Sampling.** `sampleRate` (default 10 %) of eligible PRs still go to a human, chosen
   deterministically from the head commit, so you keep measuring what the gate lets through.
 - **Unknown is not safe.** A signal that cannot be computed is reported under "Unknowns" and blocks
@@ -236,7 +240,8 @@ autoApprove:
   maxChangedLines: 400  # never auto-approve above this, whatever the score
 
 paths:
-  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf"]
+  block: [".github/**", ".opendrs.yml", ".opendrs/**", "**/CODEOWNERS", "**/migrations/**", "**/*.tf",
+          ".gitmodules"]
   critical: ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"]
   # Scored as no risk (a lockfile bump stays green) but never auto-approved, like binary files.
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",

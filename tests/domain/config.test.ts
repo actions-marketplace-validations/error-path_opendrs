@@ -21,6 +21,14 @@ describe("default paths.ignore", () => {
   });
 });
 
+describe("default paths.block", () => {
+  const blocked = (path: string) => matchAny(defaultConfig().paths.block, path);
+
+  it("blocks .gitmodules, which can repoint a submodule at another repository", () => {
+    expect(blocked(".gitmodules")).toBe(true);
+  });
+});
+
 describe("glob validation", () => {
   it.each([
     ["block", "src/[ab]/**"],

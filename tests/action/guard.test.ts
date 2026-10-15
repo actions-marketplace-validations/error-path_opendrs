@@ -13,6 +13,7 @@ describe("selfModifiedPaths", () => {
     "action/dist/index.js",
     ".GitHub/workflows/x.yml",
     "Action.YML",
+    ".gitmodules",
   ])("trips on %s", (path) => {
     expect(selfModifiedPaths(["src/a.ts", path])).toEqual([path]);
   });

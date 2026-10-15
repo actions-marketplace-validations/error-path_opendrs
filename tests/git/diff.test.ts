@@ -154,6 +154,69 @@ describe("parseUnifiedDiff", () => {
       ["ünï.txt", "modified", false, 0, 0],
     ]);
   });
+
+  it("marks gitlink (submodule) changes, whether moved, added or deleted", () => {
+    const files = parseUnifiedDiff(
+      lines(
+        "diff --git a/libs/core b/libs/core",
+        "index 1111111..2222222 160000",
+        "--- a/libs/core",
+        "+++ b/libs/core",
+        "@@ -1 +1 @@",
+        "-Subproject commit 1111111111111111111111111111111111111111",
+        "+Subproject commit 2222222222222222222222222222222222222222",
+        "diff --git a/libs/new b/libs/new",
+        "new file mode 160000",
+        "index 0000000..1111111",
+        "--- /dev/null",
+        "+++ b/libs/new",
+        "@@ -0,0 +1 @@",
+        "+Subproject commit 1111111111111111111111111111111111111111",
+        "diff --git a/src/a.ts b/src/a.ts",
+        "index 1111111..2222222 100644",
+        "--- a/src/a.ts",
+        "+++ b/src/a.ts",
+        "@@ -1 +1 @@",
+        "-a",
+        "+b",
+      ),
+    );
+    expect(files.map((f) => [f.path, f.submodule])).toEqual([
+      ["libs/core", true],
+      ["libs/new", true],
+      ["src/a.ts", undefined],
+    ]);
+  });
+
+  it("marks a deleted gitlink from its file mode", () => {
+    const [f] = parseUnifiedDiff(
+      lines(
+        "diff --git a/libs/core b/libs/core",
+        "deleted file mode 160000",
+        "index 1111111..0000000",
+        "--- a/libs/core",
+        "+++ /dev/null",
+        "@@ -1 +0,0 @@",
+        "-Subproject commit 1111111111111111111111111111111111111111",
+      ),
+    );
+    expect(f).toMatchObject({ path: "libs/core", status: "deleted", submodule: true });
+  });
+
+  it("marks a gitlink from its Subproject commit lines when no mode line says so", () => {
+    const [f] = parseUnifiedDiff(
+      lines(
+        "diff --git a/libs/core b/libs/core",
+        "index 1111111..2222222",
+        "--- a/libs/core",
+        "+++ b/libs/core",
+        "@@ -1 +1 @@",
+        "-Subproject commit 1111111111111111111111111111111111111111",
+        "+Subproject commit 2222222222222222222222222222222222222222",
+      ),
+    );
+    expect(f).toMatchObject({ path: "libs/core", submodule: true });
+  });
 });
 
 describe("loadDiff", () => {
@@ -204,6 +267,19 @@ describe("loadDiff", () => {
     repo.commit({ "a.bin": "\u0000\u0002" }, "change");
     const diff = await loadDiff(repo.dir, "HEAD~1", "HEAD", defaultConfig());
     expect(diff.files).toMatchObject([{ path: "a.bin", binary: true, added: 0, deleted: 0 }]);
+  });
+
+  it("marks a submodule pointer move, even when config or .gitmodules would hide or summarise it", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.txt": "a\n", ".gitmodules": '[submodule "core"]\n\tpath = libs/core\n\turl = https://example.com/core\n\tignore = all\n' }, "init");
+    repo.git("update-index", "--add", "--cacheinfo", `160000,${"1".repeat(40)},libs/core`);
+    repo.git("commit", "-q", "-m", "add submodule");
+    repo.git("update-index", "--cacheinfo", `160000,${"2".repeat(40)},libs/core`);
+    repo.git("commit", "-q", "-m", "bump submodule");
+    repo.git("config", "diff.submodule", "log");
+    repo.git("config", "diff.ignoreSubmodules", "all");
+    const diff = await loadDiff(repo.dir, "HEAD~1", "HEAD", defaultConfig());
+    expect(diff.files).toMatchObject([{ path: "libs/core", submodule: true, added: 1, deleted: 1 }]);
   });
 
   it("scores a root commit against the empty tree", async () => {
