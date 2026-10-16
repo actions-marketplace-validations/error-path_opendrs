@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultConfig } from "../../src/domain/config.js";
-import { EMPTY_TREE, gitHasAttrSource, loadDiff, parseUnifiedDiff } from "../../src/git/diff.js";
+import { changedLines, EMPTY_TREE, gitHasAttrSource, loadDiff, parseUnifiedDiff } from "../../src/git/diff.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
 
 const lines = (...l: string[]) => l.join("\n") + "\n";
@@ -219,6 +219,20 @@ describe("parseUnifiedDiff", () => {
       ),
     );
     expect(f).toMatchObject({ path: "libs/core", submodule: true });
+  });
+});
+
+describe("changedLines", () => {
+  it("numbers added and removed rows the way the parser counts them", () => {
+    // diff.suppressBlankEmpty prints a blank context line as "", and "\ No newline" rows take no line.
+    const [f] = parseUnifiedDiff(
+      lines("diff --git a/x b/x", "--- a/x", "+++ b/x", "@@ -10,3 +20,4 @@", " a", "", "-b", "\\ No newline at end of file", "+b", "+c"),
+    );
+    expect([...changedLines(f!.hunks[0]!)]).toEqual([
+      { kind: "-", line: 12, text: "b" },
+      { kind: "+", line: 22, text: "b" },
+      { kind: "+", line: 23, text: "c" },
+    ]);
   });
 });
 

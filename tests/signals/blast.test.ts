@@ -166,5 +166,16 @@ describe("blast signals", () => {
       const s = byId(await blastSignals(ctxFor([file], graph)), "blast.public_surface");
       expect(s.evidence).toEqual([{ file: "hub.ts", line: 13, detail: "export function c() {}" }]);
     });
+
+    it("counts an empty row as a context line, as the diff parser does", async () => {
+      const file = changed("hub.ts", {
+        hunks: [{ oldStart: 10, oldLines: 3, newStart: 12, newLines: 3, lines: [" a();", "", "-export const hub = 1;", "+export const hub = 2;"] }],
+      });
+      const s = byId(await blastSignals(ctxFor([file], graph)), "blast.public_surface");
+      expect(s.evidence).toEqual([
+        { file: "hub.ts", line: 12, detail: "export const hub = 1;" },
+        { file: "hub.ts", line: 14, detail: "export const hub = 2;" },
+      ]);
+    });
   });
 });

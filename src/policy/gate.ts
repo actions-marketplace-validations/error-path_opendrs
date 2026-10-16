@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { changedLines } from "../git/diff.js";
 import { matchAny } from "../git/glob.js";
 import type { HistoryIndex, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
@@ -227,11 +228,8 @@ function contentHits(diff: DiffInfo, patterns: string[]): Array<[string, string[
   for (const f of diff.files) {
     if (f.binary) continue;
     for (const h of f.hunks) {
-      let line = h.newStart;
-      for (const raw of h.lines) {
-        if (raw.startsWith("+")) for (const r of rules) if (r.re.test(raw.slice(1))) r.hits.push(`${f.path}:${line}`);
-        // "-" lines and "\ No newline" markers have no new-side line number ("" is context, as in readHunk).
-        if (raw[0] !== "-" && raw[0] !== "\\") line++;
+      for (const { kind, line, text } of changedLines(h)) {
+        if (kind === "+") for (const r of rules) if (r.re.test(text)) r.hits.push(`${f.path}:${line}`);
       }
     }
   }

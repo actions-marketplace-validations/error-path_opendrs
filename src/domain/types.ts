@@ -29,7 +29,7 @@ export interface Hunk {
   oldLines: number;
   newStart: number;
   newLines: number;
-  /** Raw hunk body lines including leading "+", "-", " " markers. */
+  /** Raw hunk body lines including leading "+", "-", " " markers; "" is also context and "\" rows take no line. Walk with changedLines. */
   lines: string[];
 }
 
