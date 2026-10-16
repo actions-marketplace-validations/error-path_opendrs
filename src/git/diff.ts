@@ -97,6 +97,28 @@ function readHunk(rows: string[], start: number, file: ChangedFile): number {
   return i - 1;
 }
 
+/** A "+" or "-" hunk row with its line number on its own side (new for "+", old for "-"). */
+export interface ChangedLine {
+  kind: "+" | "-";
+  line: number;
+  text: string;
+}
+
+/** The added and removed rows of a hunk, counted as readHunk counts them: "" is context, "\" markers are skipped. */
+export function* changedLines(h: Hunk): Generator<ChangedLine> {
+  let oldLine = h.oldStart;
+  let newLine = h.newStart;
+  for (const row of h.lines) {
+    const marker = row[0];
+    if (marker === "+") yield { kind: "+", line: newLine++, text: row.slice(1) };
+    else if (marker === "-") yield { kind: "-", line: oldLine++, text: row.slice(1) };
+    else if (marker === " " || row === "") {
+      oldLine++;
+      newLine++;
+    }
+  }
+}
+
 /** Split `a/X b/Y` from a `diff --git` header; rename/---/+++ lines refine it later. */
 function headerPaths(rest: string): [string, string] {
   if (rest.startsWith('"')) {

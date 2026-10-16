@@ -27797,6 +27797,19 @@ function readHunk(rows, start, file2) {
   }
   return i - 1;
 }
+function* changedLines(h) {
+  let oldLine = h.oldStart;
+  let newLine = h.newStart;
+  for (const row of h.lines) {
+    const marker = row[0];
+    if (marker === "+") yield { kind: "+", line: newLine++, text: row.slice(1) };
+    else if (marker === "-") yield { kind: "-", line: oldLine++, text: row.slice(1) };
+    else if (marker === " " || row === "") {
+      oldLine++;
+      newLine++;
+    }
+  }
+}
 function headerPaths(rest) {
   if (rest.startsWith('"')) {
     const [a, end] = readQuoted(rest, 0);
@@ -28740,7 +28753,7 @@ function hunkText(h) {
 ${h.lines.map((l) => `${l}
 `).join("")}`;
 }
-var changedLines = (h) => h.lines.filter((l) => l.startsWith("+") || l.startsWith("-")).length;
+var changedLines2 = (h) => h.lines.filter((l) => l.startsWith("+") || l.startsWith("-")).length;
 var MARKER_RESERVE = 80;
 function buildDiffText(diff, maxChars) {
   const files = diff.files.filter((f) => !f.ignored).sort((a, b) => b.added + b.deleted - (a.added + a.deleted) || a.path.localeCompare(b.path)).map((f) => ({ f, header: fileHeader(f), hunks: f.hunks.map(hunkText), kept: /* @__PURE__ */ new Set(), shown: false }));
@@ -28765,7 +28778,7 @@ function buildDiffText(diff, maxChars) {
   let omittedLines = 0;
   for (const x of files) {
     const dropped = x.f.hunks.filter((_, i) => !x.kept.has(i));
-    const lines = dropped.reduce((n, h) => n + changedLines(h), 0);
+    const lines = dropped.reduce((n, h) => n + changedLines2(h), 0);
     omittedLines += lines;
     if (!x.shown) {
       omittedFiles++;
@@ -29170,9 +29183,9 @@ function decide(input2) {
   for (const [pattern, hits] of contentHits(diff, config2.content.block)) {
     fired.push({ decision: "human-review", reason: `content.block /${pattern}/ matched ${list(hits)}` });
   }
-  const changedLines2 = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
-  if (changedLines2 > auto.maxChangedLines) {
-    fired.push({ decision: "human-review", reason: `${changedLines2} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
+  const changedLines3 = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
+  if (changedLines3 > auto.maxChangedLines) {
+    fired.push({ decision: "human-review", reason: `${changedLines3} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
   }
   if (tier !== "green") {
     fired.push({
@@ -29262,12 +29275,10 @@ function contentHits(diff, patterns) {
   for (const f of diff.files) {
     if (f.binary) continue;
     for (const h of f.hunks) {
-      let line2 = h.newStart;
-      for (const raw2 of h.lines) {
-        if (raw2.startsWith("+")) {
-          for (const r of rules) if (r.re.test(raw2.slice(1))) r.hits.push(`${f.path}:${line2}`);
+      for (const { kind, line: line2, text } of changedLines(h)) {
+        if (kind === "+") {
+          for (const r of rules) if (r.re.test(text)) r.hits.push(`${f.path}:${line2}`);
         }
-        if (raw2[0] !== "-" && raw2[0] !== "\\") line2++;
       }
     }
   }
@@ -29355,15 +29366,8 @@ function unknown2(reason) {
 function publicDeclarations(f) {
   const out = [];
   for (const h of f.hunks) {
-    let oldLine = h.oldStart;
-    let newLine = h.newStart;
-    for (const line2 of h.lines) {
-      const marker = line2[0];
-      const text = line2.slice(1);
-      if (marker === "+" && isPublicDeclaration(f.path, text)) out.push({ file: f.path, line: newLine, detail: text.trim().slice(0, 120) });
-      if (marker === "-" && isPublicDeclaration(basePath(f), text)) out.push({ file: f.path, line: oldLine, detail: text.trim().slice(0, 120) });
-      if (marker === " " || marker === "-") oldLine++;
-      if (marker === " " || marker === "+") newLine++;
+    for (const { kind, line: line2, text } of changedLines(h)) {
+      if (isPublicDeclaration(kind === "+" ? f.path : basePath(f), text)) out.push({ file: f.path, line: line2, detail: text.trim().slice(0, 120) });
     }
   }
   return out;

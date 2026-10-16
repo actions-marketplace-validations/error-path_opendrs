@@ -1,4 +1,5 @@
 import type { ChangedFile, DependencyGraph, Evidence, Signal, SignalProvider } from "../domain/types.js";
+import { changedLines } from "../git/diff.js";
 import { languageOf } from "../graph/imports.js";
 import { isPublicDeclaration } from "../graph/public-decl.js";
 
@@ -41,15 +42,8 @@ function unknown(reason: string): Signal[] {
 function publicDeclarations(f: ChangedFile): Evidence[] {
   const out: Evidence[] = [];
   for (const h of f.hunks) {
-    let oldLine = h.oldStart;
-    let newLine = h.newStart;
-    for (const line of h.lines) {
-      const marker = line[0];
-      const text = line.slice(1);
-      if (marker === "+" && isPublicDeclaration(f.path, text)) out.push({ file: f.path, line: newLine, detail: text.trim().slice(0, 120) });
-      if (marker === "-" && isPublicDeclaration(basePath(f), text)) out.push({ file: f.path, line: oldLine, detail: text.trim().slice(0, 120) });
-      if (marker === " " || marker === "-") oldLine++;
-      if (marker === " " || marker === "+") newLine++;
+    for (const { kind, line, text } of changedLines(h)) {
+      if (isPublicDeclaration(kind === "+" ? f.path : basePath(f), text)) out.push({ file: f.path, line, detail: text.trim().slice(0, 120) });
     }
   }
   return out;
