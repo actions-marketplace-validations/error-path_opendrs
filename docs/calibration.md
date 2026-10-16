@@ -110,6 +110,37 @@ The full report, with per-project numbers, coverage and caveats, is in
 [`bench/apachejit/results.md`](../bench/apachejit/results.md); [`bench/apachejit/README.md`](../bench/apachejit/README.md)
 explains how to reproduce it.
 
+### With the structured LLM judge
+
+A second run sampled 800 training and 800 test commits (excluding `apache/hadoop`) and had Claude
+Sonnet 5 judge each one with opendrs's prompt (about $55 in API calls). The judge failed on 36 of
+1,600 commits (2.3 %, mostly malformed replies); those count as failures, exactly as in a PR run.
+
+| Model (800 test commits, 204 positive) | AUC | Caught at 10 % | at 30 % | F1 |
+|---|---:|---:|---:|---:|
+| opendrs, default priors | 0.776 | 23.5 % | 60.3 % | 0.518 |
+| opendrs, default priors + LLM signals | 0.800 | 26.0 % | 63.2 % | 0.519 |
+| opendrs, calibrated | 0.790 | 27.5 % | 56.9 % | 0.550 |
+| opendrs, calibrated + LLM signals | 0.807 | 28.4 % | 61.3 % | 0.568 |
+| Kamei LR (same commits) | 0.814 | 26.0 % | 63.7 % | 0.588 |
+
+The `requireSafe` gate, applied to the same test commits (25.5 % of them buggy):
+
+| `minConfidence` | Commits passing | Buggy among them |
+|---:|---:|---:|
+| 6 | 31.6 % | 5.9 % |
+| 8 (default) | 28.5 % | 5.3 % |
+| 9 | 22.4 % | 2.8 % |
+
+- **The gate is the bigger win.** At the default confidence of 8, the commits the judge calls
+  all-safe are buggy at 5.3 %, a fifth of the 25.5 % base rate. As in RADAR, it is a filter in front
+  of auto-approval, not a replacement for the score.
+- **The risk categories add ranking signal.** They raise AUC by about 0.02 for both the default and
+  the calibrated model. With 800 test commits that is within noise of the Kamei baseline, so treat
+  it as a direction, not a result.
+
+The full report is [`bench/apachejit/results-llm.md`](../bench/apachejit/results-llm.md).
+
 ## Reading the metrics
 
 **captured@X%.** Sort the commits by score, gate the riskiest X %, and count what share of

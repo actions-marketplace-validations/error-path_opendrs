@@ -4,6 +4,12 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+- Structured LLM judge, after Meta's RADAR: the judge classifies every hunk into a named safe or
+  risk category with a 0-10 confidence. Each risk category is a new ranking signal
+  (`llm.risk.*`, weights never negative). With `llm.requireSafe: true`, auto-approval also requires
+  every hunk the judge saw to be safe at `llm.minConfidence` (default 8), with nothing truncated or
+  left unclassified. A reply in the old single-probability format now counts as a judge failure.
+
 - Results on the ApacheJIT benchmark (15 Apache Java projects, official 2017–2019 test years):
   calibrated opendrs reaches AUC 0.819, on par with a regression on the classic JIT metrics. See
   [docs/calibration.md](docs/calibration.md#results-on-apachejit). `bench/apachejit/` reproduces

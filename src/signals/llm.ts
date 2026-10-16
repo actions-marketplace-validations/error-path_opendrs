@@ -1,4 +1,4 @@
-import type { SignalProvider } from "../domain/types.js";
+import { LLM_RISK_CATEGORIES, type SignalProvider } from "../domain/types.js";
 
 const MAX_SUMMARY = 300;
 const ID = "llm.semantic";
@@ -9,7 +9,11 @@ const logit = (p: number) => Math.log(p / (1 - p));
 const BASELINE = 0.2;
 const truncate = (s: string) => (s.length > MAX_SUMMARY ? `${s.slice(0, MAX_SUMMARY - 3)}...` : s);
 
-/** Spec §4 "llm.semantic": max(0, logit(p) - logit(0.2)). Emits nothing when ctx.llm is absent. */
+/**
+ * Spec §4 "llm.semantic": max(0, logit(p) - logit(0.2)), plus one 0/1 "llm.risk.<category>" per risk
+ * category the judge put a hunk in. Emits nothing when ctx.llm is absent; only the unknown
+ * llm.semantic when the judge failed.
+ */
 export const llmSignals: SignalProvider = async (ctx) => {
   if (!ctx.llm) return [];
   const { judgement, error } = ctx.llm;
@@ -28,5 +32,15 @@ export const llmSignals: SignalProvider = async (ctx) => {
       summary: truncate(`LLM judge: risk ${judgement.risk.toFixed(2)}. ${judgement.rationale}`),
       evidence: judgement.riskySnippets.map((s) => ({ file: s.file, ...(s.line !== undefined ? { line: s.line } : {}), detail: s.reason })),
     },
+    ...LLM_RISK_CATEGORIES.map((category) => {
+      const hunks = judgement.hunks.filter((h) => h.category === category);
+      return {
+        id: `llm.risk.${category}`,
+        value: hunks.length > 0 ? 1 : 0,
+        status: "inferred" as const,
+        summary: hunks.length > 0 ? `LLM judge: ${hunks.length} ${hunks.length === 1 ? "hunk" : "hunks"} classified ${category}` : `LLM judge: no hunk classified ${category}`,
+        evidence: hunks.map((h) => ({ file: h.file, line: h.line, detail: h.reason })),
+      };
+    }),
   ];
 };

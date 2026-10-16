@@ -125,6 +125,7 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Test plan | `tests.missing` | 1 when source changed and no test lines were added; otherwise `max(0, 1 − addedTestLines / (0.3 · sourceLines))` (a proxy). Deleted test lines never count |
 | (not in Meta's list) | `tests.deleted` | 1 when a test file is deleted (or renamed out of `paths.tests`), or 10 or more test lines more are deleted than added. Also a policy rule: such a PR always goes to a human |
 | LLM risk model (iDiffLlama) | `llm.semantic` | `max(0, logit(p) − logit(0.2))` from an optional prompted LLM judge: it can only raise risk |
+| (RADAR's LLM reviewer) | `llm.risk.*` | 1 when the judge puts any hunk in that risk category (`logic_bug`, `security`, `performance`, `structural`, `complex`); weights are never negative |
 | (not in Meta's list) | `blast.dependents`, `blast.public_surface` | transitive dependents of the changed files (depth 3) from the import graph; exported symbols changed in a file that has dependents |
 | (not in Meta's list) | `history.churn` | `log1p` of commits touching the files in the lookback window |
 
@@ -143,7 +144,8 @@ The decision rules run in this order; the first that matches wins:
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green, or an active freeze window suspends auto-approval or holds it to a
    stricter green → `human-review`;
-5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
+5. the LLM judge failed, or `llm.requireSafe` is on and the judge did not call every hunk safe
+   with enough confidence, or the `unknown` signals, all at their worst at once, could have changed
    the tier → `human-review`;
 6. the PR is a draft, or a reviewer's latest review requests changes → `human-review`;
 7. a required AI-review check has not passed on the head commit → `waiting-ai-review`;
@@ -319,7 +321,24 @@ llm:
   enabled: true
   provider: anthropic        # reads ANTHROPIC_API_KEY
   model: claude-sonnet-5
+  requireSafe: true          # optional: RADAR-style gate, see below
+  minConfidence: 8
 ```
+
+The judge also classifies every hunk it sees, marked `[hunk N]` in the diff, into one category,
+following Meta's RADAR reviewer. The safe categories are `refactor`, `dead_code`, `defensive`,
+`logging`, `formatting`, `docs`, `imports`, `tests` and `static_resources`. The risk categories
+are `logic_bug`, `security`, `performance`, `structural` and `complex`. Each verdict carries a 0-10
+confidence. The categories are used twice:
+
+- **Ranking.** Each risk category is a signal (`llm.risk.logic_bug` and so on, 0 or 1) with a
+  positive weight. `calibrate` never lets an `llm.*` weight turn negative, so no answer lowers a score.
+- **Gate.** With `requireSafe: true`, a PR is auto-approved only if the judge called every hunk
+  it saw safe with at least `minConfidence`, classified all of them, and saw the whole diff (no
+  truncation). Otherwise it goes to a human, and the comment names the hunks. Like RADAR, this is
+  a necessary condition, never a sufficient one: every other rule still applies.
+
+Whether the category is safe is decided by opendrs from the category name, not by the model.
 
 For OpenAI or any OpenAI-compatible server (Azure OpenAI, Ollama, vLLM), set `provider: openai`,
 `model`, and `baseUrl`; the key is read from `OPENAI_API_KEY`, or from the variable named in

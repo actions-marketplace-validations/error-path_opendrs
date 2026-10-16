@@ -102,11 +102,14 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     // A misconfigured judge (e.g. missing key) becomes an unknown signal, which routes to a human.
     const llm = opts.llm === null ? undefined : (opts.llm ?? createLlmProvider(config));
     if (llm) {
+      const { text, hunks, truncated } = buildDiffText(diff, config.llm.maxDiffChars);
       const judgement = await llm.judge({
         title: diff.title,
         description: config.llm.includeDescription ? diff.description : undefined,
-        diff: buildDiffText(diff, config.llm.maxDiffChars),
+        diff: text,
         files: diff.files.filter((f) => !f.ignored).map((f) => f.path),
+        hunks,
+        truncated,
       });
       ctx.llm = { judgement };
     }
@@ -128,6 +131,7 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     history,
     pr: opts.pr,
     llmFailed: Boolean(ctx.llm?.error),
+    llm: ctx.llm?.judgement,
     now: opts.now,
   });
 

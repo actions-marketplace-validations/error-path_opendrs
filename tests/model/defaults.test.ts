@@ -199,6 +199,11 @@ describe("DEFAULT_WEIGHTS shape", () => {
     "tests.missing",
     "tests.deleted",
     "llm.semantic",
+    "llm.risk.logic_bug",
+    "llm.risk.security",
+    "llm.risk.performance",
+    "llm.risk.structural",
+    "llm.risk.complex",
     "lang.docs",
     "lang.config",
   ];
@@ -216,5 +221,14 @@ describe("DEFAULT_WEIGHTS shape", () => {
     for (const id of ["size.churn", "diffusion.files", "history.prior_fixes", "blast.dependents", "tests.missing"]) {
       expect(w[id], id).toBeGreaterThan(0);
     }
+  });
+
+  it("gives every LLM risk category a positive prior: logic bugs and security highest", () => {
+    const w = DEFAULT_WEIGHTS.weights;
+    expect(w["llm.risk.logic_bug"]).toBe(0.6);
+    expect(w["llm.risk.security"]).toBe(0.6);
+    expect(w["llm.risk.performance"]).toBe(0.3);
+    expect(w["llm.risk.structural"]).toBe(0.3);
+    expect(w["llm.risk.complex"]).toBe(0.3);
   });
 });

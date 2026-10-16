@@ -49,6 +49,41 @@ Under the work dir, outside the repository:
 
 `results.md` is generated: do not edit it by hand, rerun the benchmark.
 
+## LLM judge benchmark
+
+`llm.ts` measures the structured LLM judge
+([`docs/specs/2026-10-16-structured-llm-judge-design.md`](../../docs/specs/2026-10-16-structured-llm-judge-design.md))
+on a seeded sample of the replayed commits (`mulberry32(1)`, `apache/hadoop` excluded): it judges
+each sampled commit's diff with an Anthropic model, then reports AUC/recall with and without the
+`llm.*` signals (default priors and calibrated on the train sample), the Kamei LR on the same
+sample, how many test commits the `llm.requireSafe` gate would pass at confidence 8, 6 and 9 with
+their buggy rate against the sample's base rate, and per risk category the commits it flagged.
+
+It needs the row cache and clones of a full `run.ts` run, a current build, and `ANTHROPIC_API_KEY`
+(read by `createLlmProvider`, never printed).
+
+```sh
+npm run build
+ANTHROPIC_API_KEY=... node bench/apachejit/llm.ts
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--work-dir <dir>` | `~/.cache/opendrs/apachejit` | the same work dir as `run.ts` |
+| `--model <id>` | `claude-sonnet-5` | Anthropic model id (haiku-4-5, sonnet-5, opus-5 or fable-5-1) |
+| `--train <n>` / `--test <n>` | 800 / 800 | sample sizes from the `train` and `test_large` rows |
+| `--max-usd <n>` | 80 | stop starting judgements once their estimated cost reaches this (estimate: ~3.5 characters per input token plus 2,000 output tokens per call, at list prices) |
+| `--concurrency <n>` | 16 | judgements in flight |
+| `--out <file>` | `bench/apachejit/results-llm.md` | the report |
+
+Rows come from the newest `rows/<name>.*.jsonl` of each project whatever build wrote it (the
+hdfs/mapreduce `-in-hadoop` files included): the signals it holds do not depend on the LLM work, and
+the `llm.*` signals are added per sampled row from its judgement. Judgements are cached in
+`llm/<model>.<first 12 hex of sha256(system prompt)>.jsonl`, one `{sha, judgement}` or `{sha, error}`
+line per commit, so a rerun with the same model and prompt only judges what is missing; cached
+errors are retried once per run. A changed prompt gets a new file. Exit code 2 on a bad flag, a
+missing key, or an empty sample.
+
 ## Run time
 
 Cloning takes a while on the first run. The full replay is estimated at 3–8 hours on 16 cores;

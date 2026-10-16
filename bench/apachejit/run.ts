@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { defaultConfig } from "../../dist/domain/config.js";
 import type { Signal } from "../../dist/domain/types.js";
@@ -27,9 +27,9 @@ const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
  * The hdfs and mapreduce mirrors stop when those subprojects moved into apache/hadoop (2011), so
  * most of their labelled commits live in the hadoop repository.
  */
-const ALSO_IN: Record<string, string> = { "hadoop-hdfs": "hadoop", "hadoop-mapreduce": "hadoop" };
+export const ALSO_IN: Record<string, string> = { "hadoop-hdfs": "hadoop", "hadoop-mapreduce": "hadoop" };
 /** Start of the test years: rows before it give each project's real training-period positive rate. */
-const TEST_FROM = Date.UTC(2017, 0, 1) / 1000;
+export const TEST_FROM = Date.UTC(2017, 0, 1) / 1000;
 
 interface Options {
   workDir: string;
@@ -54,7 +54,7 @@ type CachedRow = Omit<ReplayRow, "signals"> & { signals: Pick<Signal, "id" | "va
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-async function git(cwd: string, args: string[]): Promise<string> {
+export async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: 1 << 30 });
   return stdout.trim();
 }
@@ -102,7 +102,7 @@ function parseOptions(args: string[], build: string): Options {
 }
 
 /** Download the CSVs that are absent, verify every sha256, and parse them. */
-async function ensureDataset(workDir: string): Promise<{ jit: Record<Split, JitRow[]>; hashes: Record<string, string> }> {
+export async function ensureDataset(workDir: string): Promise<{ jit: Record<Split, JitRow[]>; hashes: Record<string, string> }> {
   const dir = join(workDir, "data");
   await mkdir(dir, { recursive: true });
   const jit = {} as Record<Split, JitRow[]>;
@@ -172,7 +172,7 @@ function cacheKey(head: string, labels: Map<string, 0 | 1>): string {
  * The rows and warnings of an earlier replay with the same key, or undefined. Line 1 holds the key,
  * the row count and the warnings; a file that fails to parse or is short of rows is deleted.
  */
-async function readCache(path: string, key: string): Promise<{ rows: ReplayRow[]; warnings: string[] } | undefined> {
+export async function readCache(path: string, key: string): Promise<{ rows: ReplayRow[]; warnings: string[] } | undefined> {
   if (!existsSync(path)) return undefined;
   try {
     const [first, ...lines] = (await readFile(path, "utf8")).split("\n").filter(Boolean);
@@ -226,7 +226,7 @@ async function replayRows(o: Options, cacheName: string, repoDir: string, head: 
  * Weight per training negative that brings the training rows to the real pre-2017 positive rate,
  * so the F1 threshold is chosen as if on unresampled data. 1 when either rate is undefined.
  */
-function negativeWeight(trainLabels: number[], pre: JitRow[]): number {
+export function negativeWeight(trainLabels: number[], pre: JitRow[]): number {
   const odds = (labels: number[]) => {
     const pos = labels.filter((y) => y === 1).length;
     return pos === 0 || pos === labels.length ? undefined : (labels.length - pos) / pos;
@@ -344,4 +344,5 @@ async function main(): Promise<number> {
   return done.some((d) => d.result.skipped) ? 1 : 0;
 }
 
-process.exitCode = await main();
+// llm.ts imports this module for its loaders; only run when this file is the entry point.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) process.exitCode = await main();

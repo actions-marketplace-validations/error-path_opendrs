@@ -1,4 +1,4 @@
-import type { Contribution, Decision, ScoreResult, Tier } from "../domain/types.js";
+import type { Contribution, Decision, LlmJudgement, ScoreResult, Tier } from "../domain/types.js";
 
 const MARKER = "<!-- opendrs -->";
 const PROJECT_URL = "https://github.com/error-path/opendrs";
@@ -34,6 +34,15 @@ const signed = (n: number, minus: string) => `${n < 0 ? minus : "+"}${Math.abs(n
 const top = (contributions: Contribution[]) => contributions.filter((c) => c.contribution !== 0).slice(0, TOP_CONTRIBUTIONS);
 const short = (sha: string) => sha.slice(0, 7);
 const clip = (text: string) => (text.length > MAX_RATIONALE ? `${text.slice(0, MAX_RATIONALE)}…` : text);
+
+/** "3 safe (tests 2, docs 1), 2 risky": the judge's hunk verdicts, safe ones broken down by category. */
+function hunkCounts(llm: LlmJudgement): string {
+  const safe = llm.hunks.filter((h) => h.safe);
+  const byCategory = new Map<string, number>();
+  for (const h of safe) byCategory.set(h.category, (byCategory.get(h.category) ?? 0) + 1);
+  const breakdown = safe.length > 0 ? ` (${[...byCategory].map(([c, n]) => `${c} ${n}`).join(", ")})` : "";
+  return `${safe.length} safe${breakdown}, ${llm.hunks.length - safe.length} risky`;
+}
 
 /** PR comment body. Starts with the `<!-- opendrs -->` marker. */
 export function renderMarkdown(result: ScoreResult): string {
@@ -71,6 +80,10 @@ export function renderMarkdown(result: ScoreResult): string {
     for (const s of result.llm.riskySnippets.slice(0, MAX_SNIPPETS)) {
       lines.push(`- ${code(`${s.file}${s.line !== undefined ? `:${s.line}` : ""}`)} ${untrusted(s.reason)}`);
     }
+    lines.push("", `Hunks: ${hunkCounts(result.llm)}`, "");
+    for (const h of result.llm.hunks.filter((h) => !h.safe).slice(0, MAX_SNIPPETS)) {
+      lines.push(`- ${code(`${h.file}:${h.line}`)} — ${h.category} (${h.confidence}/10): ${untrusted(h.reason)}`);
+    }
     lines.push("", "</details>", "");
   }
 
@@ -98,6 +111,6 @@ export function renderText(result: ScoreResult): string {
   if (result.unknowns.length > 0) lines.push("", `Unknowns (counted as risk): ${result.unknowns.join(", ")}`);
   lines.push("", "Policy:", ...policy.reasons.map((r) => `  - ${plain(r)}`));
   if (policy.suggestedReviewers.length > 0) lines.push(`Reviewers: ${policy.suggestedReviewers.join(", ")}`);
-  if (result.llm) lines.push(`LLM (p=${result.llm.risk.toFixed(2)}): ${plain(clip(result.llm.rationale))}`);
+  if (result.llm) lines.push(`LLM (p=${result.llm.risk.toFixed(2)}; hunks: ${hunkCounts(result.llm)}): ${plain(clip(result.llm.rationale))}`);
   return `${lines.join("\n")}\n`;
 }

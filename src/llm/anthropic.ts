@@ -37,7 +37,7 @@ export function createAnthropicProvider(opts: { model: string; apiKey: string; b
         .filter((b) => b.type === "text")
         .map((b) => b.text ?? "")
         .join("");
-      return parseJudgement(text, input.files);
+      return parseJudgement(text, input.files, input.hunks, input.truncated);
     },
   };
 }

@@ -3,8 +3,14 @@ import { OpendrsError } from "../../src/domain/types.js";
 import { createAnthropicProvider } from "../../src/llm/anthropic.js";
 
 const KEY = "sk-ant-test-SECRET-123";
-const input = { title: "Add cache", diff: "diff --git a/src/a.ts b/src/a.ts\n+x", files: ["src/a.ts"] };
-const reply = { risk: 0.35, rationale: "changes cache invalidation", risky_snippets: [{ file: "src/a.ts", line: 1, reason: "r" }] };
+const input = { title: "Add cache", diff: "diff --git a/src/a.ts b/src/a.ts\n[hunk 1]\n+x", files: ["src/a.ts"], hunks: [{ id: 1, file: "src/a.ts", line: 1 }], truncated: true };
+const reply = {
+  risk: 0.35,
+  confidence: 7,
+  rationale: "changes cache invalidation",
+  hunks: [{ hunk: 1, category: "performance", confidence: 6, reason: "cache" }],
+  risky_snippets: [{ file: "src/a.ts", line: 1, reason: "r" }],
+};
 
 function messageResponse(text: string, stop_reason = "end_turn"): Response {
   return Response.json({
@@ -41,7 +47,15 @@ describe("anthropic provider", () => {
 
     const j = await provider.judge(input);
 
-    expect(j).toEqual({ risk: 0.35, rationale: "changes cache invalidation", riskySnippets: [{ file: "src/a.ts", line: 1, reason: "r" }] });
+    expect(j).toEqual({
+      risk: 0.35,
+      rationale: "changes cache invalidation",
+      riskySnippets: [{ file: "src/a.ts", line: 1, reason: "r" }],
+      confidence: 7,
+      hunks: [{ file: "src/a.ts", line: 1, category: "performance", safe: false, confidence: 6, reason: "cache" }],
+      unclassified: [],
+      truncated: true,
+    });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://api.anthropic.com/v1/messages");
     expect(init.method).toBe("POST");
@@ -52,6 +66,7 @@ describe("anthropic provider", () => {
     expect(body.max_tokens).toBeGreaterThanOrEqual(4096);
     expect(typeof body.system).toBe("string");
     expect(body.messages).toEqual([{ role: "user", content: expect.stringContaining("<untrusted_diff>") }]);
+    expect((body.messages as Array<{ content: string }>)[0]!.content).toContain("Hunks to classify: 1");
   });
 
   it("omits temperature on models that reject sampling parameters", async () => {

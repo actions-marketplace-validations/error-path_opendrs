@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { changedLines } from "../git/diff.js";
 import { matchAny } from "../git/glob.js";
-import type { HistoryIndex, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
+import type { HistoryIndex, LlmJudgement, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { featureValues, sigmoid } from "../model/logistic.js";
 import { suggestReviewers } from "./reviewers.js";
@@ -25,6 +25,8 @@ export interface GateInput {
     changesRequestedBy?: string[];
   };
   llmFailed: boolean;
+  /** The judge's verdict when it ran and parsed; read only when llm.requireSafe is on. */
+  llm?: LlmJudgement;
   /** Epoch ms the freeze windows are checked against. Default: Date.now(). */
   now?: number;
 }
@@ -55,7 +57,8 @@ const PLAUSIBLE_RANGE: Record<string, [number, number]> = {
   "llm.semantic": [0, Math.log(0.9 / 0.1) - Math.log(0.2 / 0.8)],
 };
 
-const rangeOf = (id: string): [number, number] | undefined => PLAUSIBLE_RANGE[id] ?? (id.startsWith("lang.") ? [0, 1] : undefined);
+const rangeOf = (id: string): [number, number] | undefined =>
+  PLAUSIBLE_RANGE[id] ?? (id.startsWith("lang.") || id.startsWith("llm.risk.") ? [0, 1] : undefined);
 
 interface Thresholds {
   green: number;
@@ -145,6 +148,25 @@ export function decide(input: GateInput): PolicyOutcome {
 
   // 4. LLM failure, or an unknown whose plausible worst case changes the tier
   if (input.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
+  // 4a. requireSafe (RADAR §2.8): every hunk the judge saw must be in a safe category at or above
+  // minConfidence, and it must have seen and classified all of them. The judge can only block here.
+  if (config.llm.requireSafe && !input.llm && !input.llmFailed) {
+    fired.push({ decision: "human-review", reason: "LLM judge did not run; llm.requireSafe needs its verdict" });
+  }
+  if (config.llm.requireSafe && input.llm) {
+    const { truncated, unclassified, hunks } = input.llm;
+    if (truncated) fired.push({ decision: "human-review", reason: "LLM judge saw a truncated diff" });
+    if (unclassified.length > 0) {
+      const where = unclassified.map((h) => `${h.file}:${h.line}`);
+      fired.push({ decision: "human-review", reason: `LLM judge did not classify ${unclassified.length} ${unclassified.length === 1 ? "hunk" : "hunks"}: ${list(where)}` });
+    }
+    const unsafe = hunks.filter((h) => !h.safe || h.confidence < config.llm.minConfidence);
+    if (unsafe.length > 0) {
+      const named = unsafe.slice(0, 3).map((h) => `${h.file}:${h.line} ${h.category} (confidence ${h.confidence})`);
+      const rest = unsafe.length > 3 ? ` and ${unsafe.length - 3} more` : "";
+      fired.push({ decision: "human-review", reason: `LLM judge: not all hunks safe: ${named.join(", ")}${rest}` });
+    }
+  }
   // Unknowns can all be wrong at once, so their worst cases are summed before checking the tier.
   const used = featureValues(input.signals, model.priors);
   const lifts: Array<{ id: string; lift: number }> = [];

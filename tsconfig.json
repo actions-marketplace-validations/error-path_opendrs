@@ -15,5 +15,5 @@
     "types": ["node"]
   },
   "include": ["src", "tests", "bench"],
-  "exclude": ["bench/**/run.ts"]
+  "exclude": ["bench/**/run.ts", "bench/**/llm.ts"]
 }

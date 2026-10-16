@@ -36,7 +36,7 @@ export function createOpenAiProvider(opts: { model: string; apiKey?: string; bas
 
       const content = res.choices?.[0]?.message?.content;
       if (typeof content !== "string") throw new OpendrsError("OpenAI-compatible API returned no message content", "llm");
-      return parseJudgement(content, input.files);
+      return parseJudgement(content, input.files, input.hunks, input.truncated);
     },
   };
 }
