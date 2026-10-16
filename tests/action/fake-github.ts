@@ -55,7 +55,8 @@ export type Op =
   | "protection"
   | "mergeSettings"
   | "enableAutoMerge"
-  | "enqueue";
+  | "enqueue"
+  | "requestReviewers";
 
 export interface FakeGitHub {
   /** GraphQL `viewer.login`. For GITHUB_TOKEN that is "github-actions", without "[bot]". */
@@ -83,6 +84,8 @@ export interface FakeGitHub {
   forbid: Set<Op>;
   /** Operations that answer 500. */
   fail: Set<Op>;
+  /** Operations that answer 422. */
+  reject: Set<Op>;
   /** Every operation performed, with its payload. */
   log: Array<{ op: Op; body?: unknown; path: string }>;
   ops(op: Op): Array<{ op: Op; body?: unknown; path: string }>;
@@ -107,6 +110,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
     mergeCommitAllowed: true,
     forbid: new Set(),
     fail: new Set(),
+    reject: new Set(),
     log: [],
     ops: (op) => gh.log.filter((e) => e.op === op),
     ...init,
@@ -117,6 +121,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
     gh.log.push({ op, body, path });
     if (gh.forbid.has(op)) return json(403, { message: "Resource not accessible by integration" });
     if (gh.fail.has(op)) return json(500, { message: "Server Error" });
+    if (gh.reject.has(op)) return json(422, { message: "Validation Failed" });
     return ok();
   };
 
@@ -202,6 +207,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
           gh.reviews.push(r);
           return json(200, r);
         });
+      if (route === `POST ${pr}/pulls/7/requested_reviewers`) return handle("requestReviewers", path, body, () => json(201, { number: 7 }));
       if ((m = route.match(new RegExp(`^PUT ${pr}/pulls/7/reviews/(\\d+)/dismissals$`))))
         return handle("dismissReview", path, body, () => {
           const r = gh.reviews.find((x) => x.id === Number(m![1]));
