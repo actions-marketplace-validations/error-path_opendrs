@@ -126,8 +126,26 @@ export function decide(input: GateInput): PolicyOutcome {
     fired.push({ decision: "human-review", reason: `${changedLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
   }
 
-  // 3. tier
-  if (tier !== "green") {
+  // Commit text can raise the kind (a trailer makes it "agent") but never lower it, so the policy of
+  // the trusted floor (the account type in CI, else human) applies as well.
+  const kinds = input.source ? [...new Set([input.source.floor ?? "human", input.source.kind])] : [];
+
+  // 3. tier, unless the PR is deferrable (RADAR's deferred review): in [green, below) with every
+  // applicable source kind opted in, it lands now and a human reviews it after merge. Only this rule
+  // is relaxed; every other rule still applies.
+  const deferredReview = auto.deferredReview;
+  const deferredBelow =
+    deferredReview.enabled && deferredReview.below !== undefined
+      ? config.thresholds.mode === "absolute"
+        ? deferredReview.below
+        : percentileScore(model.percentiles, deferredReview.below)
+      : undefined;
+  const deferrable =
+    deferredBelow !== undefined &&
+    input.score >= thresholds.green &&
+    input.score < deferredBelow &&
+    (kinds.length > 0 ? kinds : ["human" as const]).every((k) => deferredReview.sources.includes(k));
+  if (tier !== "green" && !deferrable) {
     fired.push({
       decision: "human-review",
       reason: `tier ${tier}: score ${input.score.toFixed(2)} ≥ green threshold ${thresholds.green.toFixed(2)}`,
@@ -154,9 +172,6 @@ export function decide(input: GateInput): PolicyOutcome {
 
   // 3c. per-source policy (RADAR §2.5): the source's own stricter green, daily landing cap and track
   // record. Each only tightens; with no `sources` config or no classified source nothing changes.
-  // Commit text can raise the kind (a trailer makes it "agent") but never lower it, so the policy of
-  // the trusted floor (the account type in CI, else human) applies as well.
-  const kinds = input.source ? [...new Set([input.source.floor ?? "human", input.source.kind])] : [];
   const inPr = new Set(input.prCommits ?? []);
   for (const kind of kinds) {
     const source = config.sources[kind];
@@ -240,7 +255,8 @@ export function decide(input: GateInput): PolicyOutcome {
   }
   const worst = sigmoid(input.logit + lifts.reduce((n, l) => n + l.lift, 0));
   const worstTier = tierOf(worst, thresholds);
-  if (worstTier !== tier) {
+  // A deferrable PR is held to its band the way a green one is held to its tier.
+  if (worstTier !== tier || (deferrable && worst >= deferredBelow!)) {
     const alone = lifts
       .sort((a, b) => b.lift - a.lift)
       .map((l) => `${l.id} → ${sigmoid(input.logit + l.lift).toFixed(2)}`)
@@ -274,15 +290,21 @@ export function decide(input: GateInput): PolicyOutcome {
   const sampled = sampleValue(input.pr?.samplingKey ?? diff.head) < auto.sampleRate;
   if (sampled) fired.push({ decision: "human-review", reason: `sampled for human review (${Math.round(auto.sampleRate * 100)}% drift check)` });
 
-  // 7. auto-approve
-  const decision = fired[0]?.decision ?? "auto-approve";
+  // 7. auto-approve, or deferred review when only the tier rule stood in the way
+  const decision: Decision = fired[0]?.decision ?? (deferrable ? "deferred-review" : "auto-approve");
+  const lands = decision === "auto-approve" || decision === "deferred-review";
   if (decision === "auto-approve") {
     fired.push({
       decision,
       reason: `auto-approve: score ${input.score.toFixed(2)} < green ${thresholds.green.toFixed(2)} and every gate passed (merge: ${auto.mergeMethod})`,
     });
-    if (!auto.enabled) notes.push("dry run: autoApprove.enabled=false");
+  } else if (decision === "deferred-review") {
+    fired.push({
+      decision,
+      reason: `deferred review: score ${input.score.toFixed(2)} is in the deferred band (${thresholds.green.toFixed(2)}–${deferredBelow!.toFixed(2)}); lands now, reviewed after merge`,
+    });
   }
+  if (lands && !auto.enabled) notes.push("dry run: autoApprove.enabled=false");
 
   return {
     tier,
@@ -290,12 +312,13 @@ export function decide(input: GateInput): PolicyOutcome {
     reasons: [...fired.map((f) => f.reason), ...notes],
     hardBlocked,
     sampled,
-    mergeMethod: decision === "auto-approve" ? auto.mergeMethod : "none",
+    mergeMethod: lands ? auto.mergeMethod : "none",
     suggestedReviewers: suggestReviewers(
       input.history,
       diff.files.filter((f) => !f.ignored).map((f) => f.path),
       diff.author?.email,
     ),
+    landingDelayMinutes: Math.max(auto.landingDelayMinutes, ...kinds.map((k) => config.sources[k].landingDelayMinutes ?? 0)),
   };
 }
 
