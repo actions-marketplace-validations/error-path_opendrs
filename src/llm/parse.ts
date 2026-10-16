@@ -8,10 +8,12 @@ const MAX_SNIPPETS = 5;
 const SAFE = new Set<string>(LLM_SAFE_CATEGORIES);
 const finite = (name: string) => z.number().refine(Number.isFinite, `${name} must be a finite number`);
 const clampConfidence = (c: number) => Math.round(Math.min(10, Math.max(0, c)));
+const validLine = (line: number | null | undefined): line is number => line != null && Number.isInteger(line) && line > 0;
 
 const outputSchema = z.object({
   risk: finite("risk"),
-  confidence: finite("confidence"),
+  // Nothing reads the top-level confidence, so a prompt-only provider that omits it must not fail.
+  confidence: finite("confidence").default(0),
   rationale: z.string(),
   hunks: z.array(
     z.object({
@@ -25,7 +27,8 @@ const outputSchema = z.object({
     .array(
       z.object({
         file: z.string(),
-        line: z.number().int().positive().nullish(),
+        // A bad line (0, negative, fractional) drops the line, not the judgement; see validLine.
+        line: z.number().nullish(),
         reason: z.string(),
       }),
     )
@@ -111,10 +114,15 @@ export function parseJudgement(text: string, files: string[], hunks: LlmHunkRef[
     riskySnippets: risky_snippets
       .filter((s) => changed.has(s.file))
       .slice(0, MAX_SNIPPETS)
-      .map((s) => ({ file: s.file, ...(s.line != null ? { line: s.line } : {}), reason: s.reason.slice(0, MAX_REASON) })),
+      .map((s) => ({ file: s.file, ...(validLine(s.line) ? { line: s.line } : {}), reason: s.reason.slice(0, MAX_REASON) })),
     confidence: clampConfidence(confidence),
     hunks: hunks.filter((h) => verdicts.has(h.id)).map((h) => verdicts.get(h.id)!),
-    unclassified: hunks.filter((h) => !verdicts.has(h.id)).map((h) => ({ file: h.file, line: h.line })),
+    // A file with no hunk at all (binary swap, mode-only change, pure rename) had nothing the judge
+    // could classify, so it is unclassified at line 0: requireSafe must not pass it unread.
+    unclassified: [
+      ...hunks.filter((h) => !verdicts.has(h.id)).map((h) => ({ file: h.file, line: h.line })),
+      ...files.filter((f) => !hunks.some((h) => h.file === f)).map((file) => ({ file, line: 0 })),
+    ],
     truncated,
   };
 }
