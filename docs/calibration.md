@@ -123,15 +123,16 @@ explains how to reproduce it.
 ### With the structured LLM judge
 
 A second run sampled 800 training and 800 test commits (excluding `apache/hadoop`) and had Claude
-Sonnet 5 judge each one with opendrs's prompt (about $55 in API calls). The judge failed on 36 of
-1,600 commits (2.3 %, mostly malformed replies); those count as failures, exactly as in a PR run.
+Sonnet 5 judge each one with opendrs's prompt (about $55 in API calls). The first run's judge failed on 36
+of 1,600 commits (2.3 %, malformed replies). With structured outputs (the reply is constrained to
+the judge's JSON schema) all 36 were judged again without a failure; the tables use those judgements.
 
 | Model (800 test commits, 204 positive) | AUC | Caught at 10 % | at 30 % | F1 |
 |---|---:|---:|---:|---:|
 | opendrs, default priors | 0.776 | 23.5 % | 60.3 % | 0.518 |
-| opendrs, default priors + LLM signals | 0.800 | 26.0 % | 63.2 % | 0.519 |
+| opendrs, default priors + LLM signals | 0.798 | 26.0 % | 63.2 % | 0.545 |
 | opendrs, calibrated | 0.790 | 27.5 % | 56.9 % | 0.550 |
-| opendrs, calibrated + LLM signals | 0.807 | 28.4 % | 61.3 % | 0.568 |
+| opendrs, calibrated + LLM signals | 0.805 | 28.4 % | 60.8 % | 0.561 |
 | Kamei LR (same commits) | 0.814 | 26.0 % | 63.7 % | 0.588 |
 
 The `requireSafe` gate, applied to the same test commits (25.5 % of them buggy):

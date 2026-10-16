@@ -156,6 +156,10 @@ The decision rules run in this order; the first that matches wins:
    band.
 
 The decision also suggests three reviewers: the most frequent recent authors of the changed files.
+For a yellow or red PR, authors of earlier fixes and reverts in those files count extra. When the PR
+needs a human, the Action requests a review from one of the top three, picked deterministically per
+PR, rather than from a team: assigning a group invites the bystander effect (Rigby et al., TOSEM
+2025), and the pick spreads the work across the experts.
 
 The rails that matter when the Action can approve PRs:
 
@@ -372,8 +376,8 @@ auto-approved on that run.
 ## MCP server and agent skill
 
 `opendrs mcp` runs a Model Context Protocol server on stdio, so coding agents can check risk
-before they open a PR. It exposes `score_diff` (base, head, cwd), `explain_file_risk` (path) and
-`suggest_reviewers` (paths). For Claude Code:
+before they open a PR. It exposes `score_diff` (base, head, cwd), `explain_file_risk` (path),
+`suggest_reviewers` (paths) and `list_hotspots` (top). For Claude Code:
 
 ```sh
 claude mcp add opendrs -- npx -y @error-path/opendrs mcp
@@ -390,6 +394,8 @@ The agent skill in [`skills/opendrs/SKILL.md`](skills/opendrs/SKILL.md) tells an
 |---|---|
 | `opendrs score [--base ref] [--head ref] [--json \| --markdown] [--fail-above x] [--no-llm] [--title t]` | Score `merge-base(base, head)..head`. Base defaults to `origin/HEAD`, then `main`, then `master`. |
 | `opendrs explain <file> [--json]` | A file's history, fixes, authors, dependents and path policy. |
+| `opendrs hotspots [--top n] [--json]` | Rank the repository's files by risk at rest (fixes, churn, authors, dependents, critical paths): where refactoring pays off. |
+| `opendrs feedback --inducing <sha> [--fix <sha>] [--note text]`, or `--pr <n> --was-incident` | Record an incident in `.opendrs/incidents.jsonl`, the strongest label for `calibrate`. |
 | `opendrs calibrate [--since date] [--max-commits n] [--label-horizon-days n]` | Fit the model and write it to `config.model`. |
 | `opendrs backtest [--since date] [--max-commits n] [--label-horizon-days n] [--json]` | Compare default and calibrated models on your history. |
 | `opendrs init [--force]` | Write a commented `.opendrs.yml` and a comment-only workflow. |
