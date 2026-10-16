@@ -3,11 +3,15 @@ import { LLM_RISK_CATEGORIES, LLM_SAFE_CATEGORIES, type ChangedFile, type DiffIn
 /** Leaves room for the "[... N more files / M lines omitted ...]" trailer. */
 const TRAILER_RESERVE = 64;
 
+/** A path with a control character (e.g. a newline) is shown escaped, so it cannot start a line of its own. */
+const showPath = (path: string) => (/[\x00-\x1f\x7f]/.test(path) ? JSON.stringify(path) : path);
+
 function fileHeader(f: ChangedFile): string {
-  const oldPath = f.oldPath ?? f.path;
+  const oldPath = showPath(f.oldPath ?? f.path);
   const from = f.status === "added" ? "/dev/null" : `a/${oldPath}`;
-  const to = f.status === "deleted" ? "/dev/null" : `b/${f.path}`;
-  const head = `diff --git a/${oldPath} b/${f.path}\n`;
+  const path = showPath(f.path);
+  const to = f.status === "deleted" ? "/dev/null" : `b/${path}`;
+  const head = `diff --git a/${oldPath} b/${path}\n`;
   if (f.binary) return `${head}Binary files ${from} and ${to} differ\n`;
   return `${head}--- ${from}\n+++ ${to}\n`;
 }
@@ -21,8 +25,8 @@ const changedLines = (h: Hunk) => h.lines.filter((l) => l.startsWith("+") || l.s
 /** Room for one file's "[... file truncated: K of M hunks / L lines omitted ...]" marker. */
 const MARKER_RESERVE = 80;
 
-/** Room for a hunk's "[hunk N]\n" marker line; each kept hunk pays it. */
-const HUNK_MARKER_RESERVE = 12;
+/** Room for a hunk's "[hunk N]\n" marker line (ids up to 9,999,999); each kept hunk pays it. */
+const HUNK_MARKER_RESERVE = 16;
 
 export interface DiffText {
   text: string;

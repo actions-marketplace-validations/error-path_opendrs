@@ -28744,11 +28744,13 @@ async function writeCache(file2, data) {
 
 // src/llm/prompt.ts
 var TRAILER_RESERVE = 64;
+var showPath = (path) => /[\x00-\x1f\x7f]/.test(path) ? JSON.stringify(path) : path;
 function fileHeader(f) {
-  const oldPath = f.oldPath ?? f.path;
+  const oldPath = showPath(f.oldPath ?? f.path);
   const from = f.status === "added" ? "/dev/null" : `a/${oldPath}`;
-  const to = f.status === "deleted" ? "/dev/null" : `b/${f.path}`;
-  const head = `diff --git a/${oldPath} b/${f.path}
+  const path = showPath(f.path);
+  const to = f.status === "deleted" ? "/dev/null" : `b/${path}`;
+  const head = `diff --git a/${oldPath} b/${path}
 `;
   if (f.binary) return `${head}Binary files ${from} and ${to} differ
 `;
@@ -28763,7 +28765,7 @@ ${h.lines.map((l) => `${l}
 }
 var changedLines2 = (h) => h.lines.filter((l) => l.startsWith("+") || l.startsWith("-")).length;
 var MARKER_RESERVE = 80;
-var HUNK_MARKER_RESERVE = 12;
+var HUNK_MARKER_RESERVE = 16;
 function buildDiffText(diff, maxChars) {
   const files = diff.files.filter((f) => !f.ignored).sort((a, b) => b.added + b.deleted - (a.added + a.deleted) || a.path.localeCompare(b.path)).map((f) => ({ f, header: fileHeader(f), hunks: f.hunks.map(hunkText), kept: /* @__PURE__ */ new Set(), shown: false }));
   const budget = maxChars - TRAILER_RESERVE;
@@ -29298,6 +29300,9 @@ function decide(input2) {
     }
   }
   if (input2.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
+  if (config2.llm.requireSafe && !input2.llm && !input2.llmFailed) {
+    fired.push({ decision: "human-review", reason: "LLM judge did not run; llm.requireSafe needs its verdict" });
+  }
   if (config2.llm.requireSafe && input2.llm) {
     const { truncated, unclassified, hunks } = input2.llm;
     if (truncated) fired.push({ decision: "human-review", reason: "LLM judge saw a truncated diff" });

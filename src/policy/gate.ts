@@ -150,6 +150,9 @@ export function decide(input: GateInput): PolicyOutcome {
   if (input.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
   // 4a. requireSafe (RADAR §2.8): every hunk the judge saw must be in a safe category at or above
   // minConfidence, and it must have seen and classified all of them. The judge can only block here.
+  if (config.llm.requireSafe && !input.llm && !input.llmFailed) {
+    fired.push({ decision: "human-review", reason: "LLM judge did not run; llm.requireSafe needs its verdict" });
+  }
   if (config.llm.requireSafe && input.llm) {
     const { truncated, unclassified, hunks } = input.llm;
     if (truncated) fired.push({ decision: "human-review", reason: "LLM judge saw a truncated diff" });

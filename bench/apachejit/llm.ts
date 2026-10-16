@@ -187,7 +187,12 @@ async function judgeAll(o: Options, commits: Commit[], provider: LlmProvider, co
   const cache = new Map<string, Judged>();
   if (existsSync(cachePath)) {
     for (const line of (await readFile(cachePath, "utf8")).split("\n").filter(Boolean)) {
-      const entry = JSON.parse(line) as Judged;
+      let entry: Judged;
+      try {
+        entry = JSON.parse(line) as Judged;
+      } catch {
+        continue; // a line torn by a killed run; that sha is judged again
+      }
       cache.set(entry.sha, entry);
     }
   }
@@ -259,6 +264,14 @@ async function main(): Promise<number> {
   console.error(`sampled ${train.length} of ${all.train.length} train and ${test.length} of ${all.test.length} test rows`);
 
   const judged = await judgeAll(o, [...train, ...test], provider, config, cachePath);
+  // Commits the spend cap left unjudged are dropped from every model, so all rows compare the same commits.
+  const unjudged = (c: Commit) => {
+    const j = judged.get(c.row.sha);
+    return j !== undefined && "error" in j && j.error === BUDGET_EXHAUSTED;
+  };
+  const capped = [...train, ...test].filter(unjudged).length;
+  train.splice(0, train.length, ...train.filter((c) => !unjudged(c)));
+  test.splice(0, test.length, ...test.filter((c) => !unjudged(c)));
   const llmRows = (commits: Commit[]) => Promise.all(commits.map(async (c) => ({ ...c.row, signals: await withLlmSignals(c.row, judged.get(c.row.sha)) })));
   const plain = { train: train.map((c) => c.row), test: test.map((c) => c.row) };
   const llm = { train: await llmRows(train), test: await llmRows(test) };
@@ -269,6 +282,7 @@ async function main(): Promise<number> {
   const opendrs = (rows: { train: ReplayRow[]; test: ReplayRow[] }, score: (r: ReplayRow) => number) =>
     evaluateModel(scored(rows.train, score), scored(rows.test, score), weight);
   const notes = [...all.notes];
+  if (capped > 0) notes.push(`${capped} sampled commits left out: the spend cap (--max-usd ${o.maxUsd}) stopped before judging them`);
   const calibrated = (rows: { train: ReplayRow[]; test: ReplayRow[] }, label: string): ModelMetrics | null => {
     try {
       const model = fitModel(rows.train, DEFAULT_WEIGHTS, "apachejit-sample");

@@ -352,8 +352,10 @@ describe("decide: rule 4 (unknowns and LLM failure)", () => {
       expect(decide(input({ cfg: { llm: { enabled: true } }, llm: judgement({ hunks: [risky] }) })).decision).toBe("auto-approve");
     });
 
-    it("does nothing without a judgement", () => {
-      expect(decide(input({ cfg: requireSafe })).decision).toBe("auto-approve");
+    it("blocks when the judge did not run (e.g. --no-llm): requireSafe needs a verdict", () => {
+      const out = decide(input({ cfg: requireSafe }));
+      expect(out.decision).toBe("human-review");
+      expect(out.reasons).toContain("LLM judge did not run; llm.requireSafe needs its verdict");
     });
 
     it("passes when every hunk is safe at or above minConfidence", () => {
