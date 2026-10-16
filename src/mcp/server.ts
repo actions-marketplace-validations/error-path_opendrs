@@ -50,7 +50,7 @@ export function createMcpServer(): McpServer {
     {
       title: "List hotspots",
       description:
-        "Rank the files tracked at HEAD by code-at-rest risk: bug-fix commits, commits and authors in the history lookback window, " +
+        "Rank the files tracked at HEAD by code-at-rest risk: bug-fix commits, churn, dependents and critical paths in the history lookback window (authors shown, not scored); returns { hotspots, warnings }, " +
         "transitive dependents in the import graph (null when the language is not supported), and critical or blocked path flags. " +
         "Use it to find where a codebase is most likely to break, or to pick files for reengineering or extra test coverage.",
       inputSchema: {
