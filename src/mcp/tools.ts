@@ -6,6 +6,7 @@ import { scoreDiff } from "../engine.js";
 import { explainFile } from "../explain.js";
 import { gitMaybe } from "../git/exec.js";
 import { buildHistoryIndex } from "../git/history.js";
+import { hotspots } from "../hotspots.js";
 import { suggestReviewers } from "../policy/reviewers.js";
 
 const TOP_CONTRIBUTIONS = 6;
@@ -53,6 +54,15 @@ export async function explainFileRiskTool(args: { repoDir: string; path: string 
   try {
     const repoDir = await repoRoot(resolve(args.repoDir));
     return ok(await explainFile(repoDir, args.path, await loadConfig(repoDir)));
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function listHotspotsTool(args: { repoDir: string; top?: number }): Promise<CallToolResult> {
+  try {
+    const repoDir = await repoRoot(resolve(args.repoDir));
+    return ok(await hotspots(repoDir, await loadConfig(repoDir), args.top));
   } catch (e) {
     return fail(e);
   }
