@@ -70,8 +70,9 @@ ANTHROPIC_API_KEY=... node bench/apachejit/llm.ts
 | Flag | Default | Meaning |
 |---|---|---|
 | `--work-dir <dir>` | `~/.cache/opendrs/apachejit` | the same work dir as `run.ts` |
-| `--model <id>` | `claude-fable-5-1` | Anthropic model id |
-| `--train <n>` / `--test <n>` | 1500 / 1500 | sample sizes from the `train` and `test_large` rows |
+| `--model <id>` | `claude-sonnet-5` | Anthropic model id (haiku-4-5, sonnet-5, opus-5 or fable-5-1) |
+| `--train <n>` / `--test <n>` | 800 / 800 | sample sizes from the `train` and `test_large` rows |
+| `--max-usd <n>` | 80 | stop starting judgements once their estimated cost reaches this (estimate: ~3.5 characters per input token plus 2,000 output tokens per call, at list prices) |
 | `--concurrency <n>` | 16 | judgements in flight |
 | `--out <file>` | `bench/apachejit/results-llm.md` | the report |
 

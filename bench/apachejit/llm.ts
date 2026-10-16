@@ -31,6 +31,17 @@ const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /** Its rows have no positives, and the full benchmark reports pooled results without it too. */
 const EXCLUDED = "hadoop";
 const GATE_CONFIDENCES = [8, 6, 9];
+/** $ per million input / output tokens, for the spend cap. */
+const PRICES: Record<string, [number, number]> = {
+  "claude-haiku-4-5": [1, 5],
+  "claude-sonnet-5": [2, 10],
+  "claude-opus-5": [5, 25],
+  "claude-fable-5-1": [10, 50],
+};
+/** Rough upper bounds for one judgement: ~3.5 characters per input token, and output with thinking. */
+const CHARS_PER_TOKEN = 3.5;
+const PROMPT_CHARS = 9_000;
+const OUTPUT_TOKENS = 2_000;
 
 interface Options {
   workDir: string;
@@ -39,6 +50,8 @@ interface Options {
   test: number;
   concurrency: number;
   out: string;
+  /** Stop starting judgements once their estimated cost reaches this many dollars. */
+  maxUsd: number;
 }
 
 /** A replayed, labelled commit and the clone its diff is read from. */
@@ -63,9 +76,10 @@ function parseOptions(args: string[]): Options {
     args,
     options: {
       "work-dir": { type: "string", default: join(homedir(), ".cache/opendrs/apachejit") },
-      model: { type: "string", default: "claude-fable-5-1" },
-      train: { type: "string", default: "1500" },
-      test: { type: "string", default: "1500" },
+      model: { type: "string", default: "claude-sonnet-5" },
+      train: { type: "string", default: "800" },
+      test: { type: "string", default: "800" },
+      "max-usd": { type: "string", default: "80" },
       concurrency: { type: "string", default: "16" },
       out: { type: "string", default: fileURLToPath(new URL("results-llm.md", import.meta.url)) },
     },
@@ -74,7 +88,18 @@ function parseOptions(args: string[]): Options {
     const n = Number(values[flag]);
     return Number.isInteger(n) && n > 0 ? n : usageError(`--${flag} must be a positive integer, got "${values[flag]}"`);
   };
-  return { workDir: values["work-dir"], model: values.model, train: positiveInt("train"), test: positiveInt("test"), concurrency: positiveInt("concurrency"), out: values.out };
+  if (!PRICES[values.model]) usageError(`--model must be one of ${Object.keys(PRICES).join(", ")} (needed for the spend cap)`);
+  const maxUsd = Number(values["max-usd"]);
+  if (!(maxUsd > 0)) usageError(`--max-usd must be a positive number, got "${values["max-usd"]}"`);
+  return {
+    workDir: values["work-dir"],
+    model: values.model,
+    train: positiveInt("train"),
+    test: positiveInt("test"),
+    concurrency: positiveInt("concurrency"),
+    out: values.out,
+    maxUsd,
+  };
 }
 
 /**
@@ -130,12 +155,23 @@ async function loadCommits(o: Options, jit: Record<Split, JitRow[]>): Promise<{ 
   return { train, test, notes };
 }
 
-async function judgeOne(c: Commit, provider: LlmProvider, config: OpendrsConfig): Promise<Judged> {
+/** Estimated dollars still allowed; each judgement reserves its estimate before calling the API. */
+interface Budget {
+  left: number;
+  price: [number, number];
+}
+
+const BUDGET_EXHAUSTED = "spend cap reached (--max-usd)";
+
+async function judgeOne(c: Commit, provider: LlmProvider, config: OpendrsConfig, budget: Budget): Promise<Judged> {
   const sha = c.row.sha;
   try {
     const diff = await loadDiff(c.repoDir, `${sha}^`, sha, config, { resolved: true });
     const { text, hunks, truncated } = buildDiffText(diff, config.llm.maxDiffChars);
     const files = diff.files.filter((f) => !f.ignored).map((f) => f.path);
+    const cost = (((PROMPT_CHARS + text.length) / CHARS_PER_TOKEN) * budget.price[0] + OUTPUT_TOKENS * budget.price[1]) / 1e6;
+    if (cost > budget.left) return { sha, error: BUDGET_EXHAUSTED };
+    budget.left -= cost;
     const judgement = await provider.judge({ title: diff.title, diff: text, files, hunks, truncated });
     return { sha, judgement };
   } catch (e) {
@@ -166,17 +202,21 @@ async function judgeAll(o: Options, commits: Commit[], provider: LlmProvider, co
   const onDone = (done: number) => {
     if (done % 50 === 0 || done === todo.length) console.error(`judged ${done}/${todo.length}`);
   };
+  const budget: Budget = { left: o.maxUsd, price: PRICES[o.model]! };
   await mapLimit(
     todo,
     o.concurrency,
     async (c) => {
-      const entry = await judgeOne(c, provider, config);
+      const entry = await judgeOne(c, provider, config, budget);
       cache.set(c.row.sha, entry);
+      // A skipped judgement is not a failure: leave it out of the cache so a later run judges it.
+      if ("error" in entry && entry.error === BUDGET_EXHAUSTED) return;
       writes = writes.then(() => appendFile(cachePath, `${JSON.stringify(entry)}\n`));
     },
     onDone,
   );
   await writes;
+  console.error(`estimated spend this run: $${(o.maxUsd - budget.left).toFixed(2)} of $${o.maxUsd}`);
   return cache;
 }
 
