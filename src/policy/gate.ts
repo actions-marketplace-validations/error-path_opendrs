@@ -173,6 +173,8 @@ export function decide(input: GateInput): PolicyOutcome {
   // 3c. per-source policy (RADAR §2.5): the source's own stricter green, daily landing cap and track
   // record. Each only tightens; with no `sources` config or no classified source nothing changes.
   const inPr = new Set(input.prCommits ?? []);
+  // A revert names its target by a possibly abbreviated sha, in either case (REVERTS matches /i).
+  const reverted = input.history.commits.flatMap((c) => (c.revertsSha === undefined ? [] : [c.revertsSha.toLowerCase()]));
   for (const kind of kinds) {
     const source = config.sources[kind];
     if (source.green !== undefined) {
@@ -199,8 +201,6 @@ export function decide(input: GateInput): PolicyOutcome {
       if (recent.length < minCommits) {
         fired.push({ decision: "human-review", reason: `source ${kind}: track record too short (${recent.length} of ${minCommits} landed commits in ${days} days)` });
       } else if (recent.length > 0) {
-        // A revert names its target by a possibly abbreviated sha; shorter than 7 chars is not a reference.
-        const reverted = input.history.commits.map((c) => c.revertsSha).filter((s): s is string => s !== undefined && s.length >= 7);
         const n = recent.filter((c) => reverted.some((s) => c.sha.startsWith(s))).length;
         const rate = n / recent.length;
         if (rate > maxRevertRate) {
@@ -303,6 +303,10 @@ export function decide(input: GateInput): PolicyOutcome {
       decision,
       reason: `deferred review: score ${input.score.toFixed(2)} is in the deferred band (${thresholds.green.toFixed(2)}–${deferredBelow!.toFixed(2)}); lands now, reviewed after merge`,
     });
+  }
+  // Only the tier rule stood in the way, but a percentile `below` has no calibrated model to map it.
+  if (deferredReview.enabled && deferredReview.below !== undefined && deferredBelow === undefined && tier !== "green" && fired.length === 1) {
+    notes.push(`deferred review: percentile below ${deferredReview.below} needs a calibrated model; not deferred`);
   }
   if (lands && !auto.enabled) notes.push("dry run: autoApprove.enabled=false");
 

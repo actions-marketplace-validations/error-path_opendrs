@@ -26,6 +26,11 @@ export interface ScoreOptions {
   model?: ModelWeights;
   /** Reuse across many scorings (calibrate/backtest). */
   history?: HistoryIndex;
+  /**
+   * History at the base branch's tip, which per-source dailyCap/trackRecord count landed commits
+   * from; `history` is cut at the merge-base. Built when needed if absent.
+   */
+  baseHistory?: HistoryIndex;
   graph?: DependencyGraph | null;
   llm?: LlmProvider | null;
   asOf?: number;
@@ -52,13 +57,13 @@ export async function loadModel(repoDir: string, config: OpendrsConfig): Promise
 }
 
 const FIELD = "\x1f";
-const SHA = /^[0-9a-f]{40}$/;
+const SHA = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /** The PR's own commits, newest first, without merges: what `classifyPr` reads and the gate excludes from "landed". */
-async function prCommits(repoDir: string, base: string, head: string) {
+async function prCommits(repoDir: string, base: string, head: string, maxCommits: number) {
   const range = base === EMPTY_TREE ? head : `${base}..${head}`;
   // Records start with NUL, which a commit message cannot contain, so a message cannot forge a record.
-  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%x00%H${FIELD}%an${FIELD}%ae${FIELD}%B`, "--end-of-options", range]);
+  const out = await git(repoDir, ["log", `-n${maxCommits}`, "--no-merges", "--no-show-signature", `--format=%x00%H${FIELD}%an${FIELD}%ae${FIELD}%B`, "--end-of-options", range]);
   return out.split("\0").flatMap((record) => {
     const [sha = "", authorName = "", authorEmail = "", ...message] = record.trim().split(FIELD);
     return SHA.test(sha) ? [{ sha, authorName, authorEmail, message: message.join(FIELD) }] : [];
@@ -135,7 +140,10 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
   }
 
   const signals = await computeSignals(ctx);
-  const commits = await prCommits(repoDir, diff.base, diff.head);
+  const commits = await prCommits(repoDir, diff.base, diff.head, config.history.maxCommits);
+  // Landed commits include everything on the base branch, not only what is below the merge-base.
+  const countsLanded = Object.values(config.sources).some((s) => s.dailyCap !== undefined || s.trackRecord !== undefined);
+  const baseHistory = opts.baseHistory ?? (countsLanded ? await buildHistoryIndex(repoDir, opts.base, config) : history);
   const source = classifyPr(commits, opts.account, agentPatterns(config));
   const { model, kind } = opts.model ? { model: opts.model, kind: "calibrated" as const } : await loadModel(repoDir, config);
   const { score, logit, contributions } = scoreSignals(signals, model);
@@ -147,7 +155,7 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     diff,
     config,
     model,
-    history,
+    history: baseHistory,
     pr: opts.pr,
     llmFailed: Boolean(ctx.llm?.error),
     llm: ctx.llm?.judgement,

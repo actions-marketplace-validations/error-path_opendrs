@@ -54,7 +54,7 @@ export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayResu
     const given = opts.labels;
     const found = commits.filter((c) => given.has(c.sha));
     const missing = given.size - found.length;
-    if (missing > 0) warnings.push(`${missing} labelled commits not found in the history up to ${opts.head ?? "HEAD"}`);
+    if (missing > 0) warnings.push(`${missing} labelled commits not found in the history up to ${opts.head ?? "HEAD"} (or outside --since / history.maxCommits)`);
     commits = found;
     labels = given;
   } else {

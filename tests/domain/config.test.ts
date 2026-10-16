@@ -361,4 +361,12 @@ describe("autoApprove.landingDelayMinutes and deferredReview", () => {
   it("only accept known source kinds", () => {
     expect(configError({ autoApprove: { deferredReview: { sources: ["robot"] } } })).toMatch(/sources/);
   });
+
+  it("reject an empty sources list once deferral is enabled: it could never apply", () => {
+    expect(configError({ autoApprove: { deferredReview: { enabled: true, below: 0.45, sources: [] } } })).toContain(
+      "autoApprove.deferredReview.sources must list at least one source kind",
+    );
+    expect(() => parseConfig({ autoApprove: { deferredReview: { sources: [] } } })).not.toThrow();
+    expect(() => parseConfig({ autoApprove: { deferredReview: { enabled: true, below: 0.45, sources: ["bot"] } } })).not.toThrow();
+  });
 });

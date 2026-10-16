@@ -51,6 +51,14 @@ describe("buildHistoryIndex", () => {
     expect(manual).toMatchObject({ isRevert: true, revertsSha: bad.slice(0, 10), isFix: false });
   });
 
+  it("extracts a 64-hex reverted sha (SHA-256 repositories)", async () => {
+    repo = makeRepo();
+    const sha256 = "ab".repeat(32);
+    repo.commit({ "a.ts": "1\n" }, `undo\n\nThis reverts commit ${sha256}.`);
+    const h = await buildHistoryIndex(repo.dir, "HEAD", defaultConfig());
+    expect(h.commits[0]).toMatchObject({ isRevert: true, revertsSha: sha256 });
+  });
+
   it("uses history.fixPattern case-insensitively", async () => {
     repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "HOTFIX: urgent");

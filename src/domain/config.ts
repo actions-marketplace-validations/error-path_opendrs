@@ -331,6 +331,13 @@ export const configSchema = z.object({
         path: ["autoApprove", "deferredReview", "below"],
       });
     }
+    if (deferred.enabled && deferred.sources.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "autoApprove.deferredReview.sources must list at least one source kind (a PR from a user account is human); with none, deferral can never apply",
+        path: ["autoApprove", "deferredReview", "sources"],
+      });
+    }
     for (const kind of ["human", "bot", "agent"] as const) {
       const policy = sources[kind];
       if (policy.green !== undefined && policy.green >= thresholds.green) {
