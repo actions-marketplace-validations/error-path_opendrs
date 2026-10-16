@@ -408,6 +408,29 @@ describe("author verification", () => {
     expect(reviewersShown()).toContain("maintainer@example.com");
     expect(reviewersShown()).not.toContain(PR_EMAIL);
   });
+
+  it("requests a review from exactly one expert's GitHub login when a human must review", async () => {
+    const experts = (repo: TestRepo) => {
+      for (const [n, login] of [["1", "ana"], ["2", "bo"], ["3", "cy"], ["4", "di"]]) {
+        repo.commit({ "src/a.ts": `${n}\n` }, `fix ${n}`, { name: login!, email: `${n}0+${login}@users.noreply.github.com` });
+      }
+    };
+    const t = await run({ before: experts, result: result(0.6, "yellow", "human-review") });
+    await t.promise;
+    const requested = t.gh.ops("requestReviewers").map((e) => e.body as { reviewers: string[] });
+    expect(requested).toHaveLength(1);
+    expect(requested[0]!.reviewers).toHaveLength(1);
+    const [login] = requested[0]!.reviewers;
+    // The three most recent committers tie on score; "ana", the oldest, is outside the top three.
+    expect(["bo", "cy", "di"]).toContain(login);
+    expect(t.gh.comments[0]!.body).toContain(`**Reviewer:** @${login} (one of the top experts, picked at random so the work spreads)`);
+  });
+
+  it("requests no review when the PR lands without a human", async () => {
+    const t = await run({ before: (repo) => repo.commit({ "src/a.ts": "0\n" }, "fix", { name: "ana", email: "ana@users.noreply.github.com" }) });
+    await t.promise;
+    expect(t.gh.ops("requestReviewers")).toHaveLength(0);
+  });
 });
 
 describe("base-branch config", () => {

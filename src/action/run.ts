@@ -5,10 +5,10 @@ import { scoreDiff } from "../engine.js";
 import { git, gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
-import { suggestReviewers } from "../policy/reviewers.js";
+import { assignReviewer, suggestReviewers } from "../policy/reviewers.js";
 import { cell, renderMarkdown } from "../report/markdown.js";
-import { HOLD_LABEL, changesRequested, eligibleMarker, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
-import { type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
+import { HOLD_LABEL, changesRequested, eligibleMarker, noreplyLogin, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
+import { GitHubError, type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
 
 export { APPROVAL_MARKER } from "./approval.js";
@@ -43,6 +43,7 @@ export interface PullRequest {
   draft?: boolean;
   /** The account that opened the PR; `type` is "Bot" for a GitHub App, "User" otherwise. */
   user?: { login: string; type?: string } | null;
+  requested_reviewers?: Array<{ login: string }>;
   base: { sha: string; ref: string; repo: { full_name: string } };
   head: { sha: string; ref: string; repo: { full_name: string } | null };
 }
@@ -127,6 +128,24 @@ async function prAuthor(d: ActionDeps, pr: PullRequest): Promise<{ verified: boo
   if (!verified) d.io.info(`The head commit's author is not verified as the PR's author${login ? ` @${login}` : ""}: expertise signals count as unknown.`);
   const emails = theirs.flatMap((c) => (c.commit.author?.email ? [c.commit.author.email.toLowerCase()] : []));
   return { verified, emails: new Set(emails) };
+}
+
+/**
+ * For a PR that needs a human, ask one expert (a GitHub login among the suggested reviewers, picked by
+ * PR so reruns agree) to review; best-effort. Returns the login when a review was requested.
+ */
+async function requestOneReviewer({ client, io }: ActionDeps, pr: PullRequest, reviewers: string[], decision: Decision): Promise<string | undefined> {
+  if (decision !== "human-review") return undefined;
+  const login = noreplyLogin(assignReviewer(reviewers, `${pr.base.repo.full_name}#${pr.number}`) ?? "");
+  if (login === undefined || sameLogin(login, pr.user?.login) || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return undefined;
+  try {
+    await client.requestReviewers(pr.number, [login]);
+    return login;
+  } catch (e) {
+    if (!(e instanceof GitHubError && (e.status === 403 || e.status === 422))) throw e;
+    io.warning(`Could not request a review from @${login} (${e.message}). Ask them by hand.`);
+    return undefined;
+  }
 }
 
 /** Every path the PR changes, from the merge-base; renames count as delete + add. */
@@ -239,6 +258,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   result.policy.suggestedReviewers = suggestReviewers(history, paths, undefined, 3 + author.emails.size)
     .filter((email) => !author.emails.has(email))
     .slice(0, 3);
+  const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
 
   // opendrs's own comment carries the time this head became eligible, so a landing delay survives across runs.
   const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : undefined;
@@ -255,7 +275,8 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const report = renderMarkdown(result);
   const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${eligible}`;
+  const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
+  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
 
   if (comments) {
     await unlessForbidden(

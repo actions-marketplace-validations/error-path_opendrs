@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { suggestReviewers } from "../../src/policy/reviewers.js";
+import { assignReviewer, suggestReviewers } from "../../src/policy/reviewers.js";
 import { fakeCommit, fakeHistory } from "./fakes.js";
 
 describe("suggestReviewers", () => {
@@ -54,5 +54,32 @@ describe("suggestReviewers", () => {
     expect(suggestReviewers(history, ["f.ts"], undefined)).toHaveLength(3);
     expect(suggestReviewers(history, ["f.ts"], undefined, 1)).toHaveLength(1);
     expect(suggestReviewers(fakeHistory([]), ["f.ts"], undefined)).toEqual([]);
+  });
+
+  it("counts fix and revert commits double for a risky diff, and as today otherwise", () => {
+    const history = fakeHistory([
+      { ...fakeCommit("fixer@x.com", ["a.ts"], 250), isFix: true },
+      { ...fakeCommit("reverter@x.com", ["a.ts"], 260), isRevert: true },
+      fakeCommit("busy@x.com", ["a.ts"], 200),
+    ]);
+    expect(suggestReviewers(history, ["a.ts"], undefined, 3, true)).toEqual(["fixer@x.com", "reverter@x.com", "busy@x.com"]);
+    expect(suggestReviewers(history, ["a.ts"], undefined, 3, false)).toEqual(["busy@x.com", "fixer@x.com", "reverter@x.com"]);
+    expect(suggestReviewers(history, ["a.ts"], undefined)).toEqual(["busy@x.com", "fixer@x.com", "reverter@x.com"]);
+  });
+});
+
+describe("assignReviewer", () => {
+  const top = ["a@x.com", "b@x.com", "c@x.com"];
+
+  it("is deterministic in the seed and only ever picks from the top three", () => {
+    const seeds = Array.from({ length: 50 }, (_, i) => `o/r#${i}`);
+    const picks = seeds.map((s) => assignReviewer([...top, "d@x.com", "e@x.com"], s));
+    expect(picks).toEqual(seeds.map((s) => assignReviewer([...top, "d@x.com"], s)));
+    expect(new Set(picks)).toEqual(new Set(top));
+  });
+
+  it("returns nothing without candidates and the only candidate otherwise", () => {
+    expect(assignReviewer([], "o/r#1")).toBeUndefined();
+    expect(assignReviewer(["a@x.com"], "o/r#1")).toBe("a@x.com");
   });
 });

@@ -25,7 +25,7 @@ export function readEligibleSince(body: string | undefined, head: string): Date 
 const ELIGIBLE = new Set<ScoreResult["policy"]["decision"]>(["auto-approve", "deferred-review"]);
 
 /** The login behind a GitHub noreply address (`<id>+<login>@` or `<login>@users.noreply.github.com`); other emails map to nothing. */
-const noreplyLogin = (email: string) => email.match(/^(?:\d+\+)?([A-Za-z0-9-]+)@users\.noreply\.github\.com$/i)?.[1];
+export const noreplyLogin = (email: string) => email.match(/^(?:\d+\+)?([A-Za-z0-9-]+)@users\.noreply\.github\.com$/i)?.[1];
 
 const APPROVAL_FORBIDDEN =
   "GitHub refused the approval (403). In Settings > Actions > General > Workflow permissions, enable " +

@@ -317,6 +317,8 @@ export function decide(input: GateInput): PolicyOutcome {
       input.history,
       diff.files.filter((f) => !f.ignored).map((f) => f.path),
       diff.author?.email,
+      3,
+      tier !== "green",
     ),
     landingDelayMinutes: Math.max(auto.landingDelayMinutes, ...kinds.map((k) => config.sources[k].landingDelayMinutes ?? 0)),
   };
