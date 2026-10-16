@@ -16,6 +16,13 @@ export interface HistoryRunOptions {
   maxCommits?: number;
   /** Progress callback for CLI output. */
   onProgress?: (done: number, total: number) => void;
+  /** Ref to replay from; also where the import graph is built. Default "HEAD". */
+  head?: string;
+  /**
+   * External labels. When set, exactly these commits are replayed, with these labels: SZZ-lite
+   * labelling and the label horizon are skipped. `since` and `maxCommits` still bound the walk.
+   */
+  labels?: Map<string, 0 | 1>;
 }
 
 /** Fit weights on the repo's own labelled history (spec §5). `warnings` are the replay's (see ReplayResult). */

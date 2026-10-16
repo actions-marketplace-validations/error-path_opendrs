@@ -35,7 +35,7 @@ const CONCURRENCY = 8;
  */
 export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayResult> {
   const { repoDir, config } = opts;
-  const head = (await git(repoDir, ["rev-parse", "HEAD"])).trim();
+  const head = (await git(repoDir, ["rev-parse", "--verify", "--end-of-options", `${opts.head ?? "HEAD"}^{commit}`])).trim();
   const history = await buildHistoryIndex(repoDir, head, config);
   // Built once at head and shared by every commit: rebuilding the graph per commit is too slow.
   // See GRAPH_APPROXIMATION_NOTE; backtest reports carry it.
@@ -49,17 +49,27 @@ export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayResu
   commits = commits.slice(0, opts.maxCommits ?? config.history.maxCommits);
 
   const warnings: string[] = [];
-  // Label maturity: the newest commits' bugs are mostly not found yet, so their 0 labels are
-  // unreliable. They stay in the history index (their fixes still label older commits).
-  const days = config.history.labelHorizonDays;
-  const cutoff = commits.reduce((newest, c) => Math.max(newest, c.time), -Infinity) - days * 86_400;
-  const matured = commits.filter((c) => c.time <= cutoff);
-  const excluded = commits.length - matured.length;
-  if (excluded > 0) warnings.push(`${excluded} commits newer than ${days} days excluded from evaluation (their bugs may not be found yet)`);
-  commits = matured;
+  let labels: Map<string, 0 | 1>;
+  if (opts.labels) {
+    const given = opts.labels;
+    const found = commits.filter((c) => given.has(c.sha));
+    const missing = given.size - found.length;
+    if (missing > 0) warnings.push(`${missing} labelled commits not found in the history up to ${opts.head ?? "HEAD"}`);
+    commits = found;
+    labels = given;
+  } else {
+    // Label maturity: the newest commits' bugs are mostly not found yet, so their 0 labels are
+    // unreliable. They stay in the history index (their fixes still label older commits).
+    const days = config.history.labelHorizonDays;
+    const cutoff = commits.reduce((newest, c) => Math.max(newest, c.time), -Infinity) - days * 86_400;
+    const matured = commits.filter((c) => c.time <= cutoff);
+    const excluded = commits.length - matured.length;
+    if (excluded > 0) warnings.push(`${excluded} commits newer than ${days} days excluded from evaluation (their bugs may not be found yet)`);
+    commits = matured;
 
-  const labelled = await labelCommits(repoDir, history, config, await loadIncidents(repoDir), (w) => warnings.push(w));
-  const labels = new Map(labelled.map((l) => [l.sha, l.label]));
+    const labelled = await labelCommits(repoDir, history, config, await loadIncidents(repoDir), (w) => warnings.push(w));
+    labels = new Map(labelled.map((l) => [l.sha, l.label]));
+  }
 
   const rows = await mapLimit(
     commits,
