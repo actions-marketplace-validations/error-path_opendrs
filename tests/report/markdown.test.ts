@@ -63,6 +63,7 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
       unclassified: [],
       truncated: false,
     },
+    source: { kind: "agent", name: "Claude Code", evidence: ["commit 3f2a9c1: trailer Co-Authored-By: Claude <noreply@anthropic.com>"], verified: false },
     diff: { base: "abcdef1234567890", head: "0123456789abcdef", files: 9, added: 300, deleted: 112 },
     model: "default",
     version: "0.1.5",
@@ -85,6 +86,18 @@ describe("renderMarkdown", () => {
     expect(headline).toContain("yellow");
     expect(headline).toContain("human review");
     expect(md).toContain("9 files · +300 −112");
+  });
+
+  it("names the source under the score, with its evidence escaped", () => {
+    const line = md.split("\n")[3]!;
+    expect(line).toContain("Source: agent (Claude Code)");
+    expect(line).toContain("commit 3f2a9c1: trailer Co-Authored-By: Claude &lt;noreply@​anthropic.com&gt;");
+    const nasty = renderMarkdown(result({ source: { kind: "bot", name: "x\n| <b>`y`", evidence: ["[a](evil) @octocat"], verified: true } }));
+    expect(nasty).toContain("Source: bot (x \\| &lt;b&gt;\\`y\\`) · \\[a\\](evil) @​octocat");
+  });
+
+  it("shows a person as just the kind", () => {
+    expect(renderMarkdown(result({ source: { kind: "human", name: "human", evidence: [], verified: false } }))).toContain("<sub>Source: human</sub>");
   });
 
   it("tables the top 6 contributions with signed pushes and summaries", () => {
@@ -202,12 +215,17 @@ describe("renderMarkdown", () => {
 describe("renderText", () => {
   const text = renderText(result());
 
-  it("summarises score, tier, decision and diff on the first lines", () => {
-    const [first, second] = text.split("\n");
+  it("summarises score, tier, decision, diff and source on the first lines", () => {
+    const [first, second, third] = text.split("\n");
     expect(first).toContain("0.46");
     expect(first).toContain("YELLOW");
     expect(first).toContain("human review");
     expect(second).toContain("9 files, +300 -112");
+    expect(third).toBe("source: agent (Claude Code): commit 3f2a9c1: trailer Co-Authored-By: Claude <noreply@anthropic.com>");
+    const person = renderText(result({ source: { kind: "human", name: "human", evidence: [], verified: false } }));
+    expect(person.split("\n")[2]).toBe("source: human");
+    const evil = renderText(result({ source: { kind: "bot", name: "x\u001b[2J", evidence: ["a\u0007b"], verified: true } }));
+    expect(evil.split("\n")[2]).toBe("source: bot (x[2J): ab");
   });
 
   it("lists contributions, unknowns, reasons, reviewers and model without markdown", () => {

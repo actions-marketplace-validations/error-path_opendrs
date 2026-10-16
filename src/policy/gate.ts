@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { changedLines } from "../git/diff.js";
 import { matchAny } from "../git/glob.js";
-import type { HistoryIndex, LlmJudgement, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
+import type { Authorship, HistoryIndex, LlmJudgement, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { featureValues, sigmoid } from "../model/logistic.js";
 import { suggestReviewers } from "./reviewers.js";
@@ -27,9 +27,15 @@ export interface GateInput {
   llmFailed: boolean;
   /** The judge's verdict when it ran and parsed; read only when llm.requireSafe is on. */
   llm?: LlmJudgement;
-  /** Epoch ms the freeze windows are checked against. Default: Date.now(). */
+  /** Epoch ms the freeze windows and source history are checked against. Default: Date.now(). */
   now?: number;
+  /** Who wrote the PR (policy/source.ts). Absent: no per-source rule applies. */
+  source?: Authorship;
+  /** Shas of the PR's own commits (base..head), which dailyCap and trackRecord do not count as landed. */
+  prCommits?: string[];
 }
+
+const DAY_MS = 86_400_000;
 
 /**
  * Plausible [low, high] feature values (~10th/90th percentile of real diffs). Rule 4 asks whether
@@ -146,14 +152,61 @@ export function decide(input: GateInput): PolicyOutcome {
     }
   }
 
+  // 3c. per-source policy (RADAR §2.5): the source's own stricter green, daily landing cap and track
+  // record. Each only tightens; with no `sources` config or no classified source nothing changes.
+  const kind = input.source?.kind;
+  const source = kind ? config.sources[kind] : undefined;
+  if (kind && source) {
+    if (source.green !== undefined) {
+      const green = config.thresholds.mode === "absolute" ? source.green : percentileScore(model.percentiles, source.green);
+      if (green === undefined) {
+        fired.push({
+          decision: "human-review",
+          reason: `source ${kind}: percentile green ${source.green} needs a calibrated model; auto-approval suspended`,
+        });
+      } else if (input.score >= green) {
+        fired.push({ decision: "human-review", reason: `source ${kind}: score ${input.score.toFixed(2)} ≥ source green ${green.toFixed(2)}` });
+      }
+    }
+    // Landed commits of this source in the last `ms`: in the index, at or before now, not in this PR.
+    const inPr = new Set(input.prCommits ?? []);
+    const landed = (ms: number) =>
+      input.history.commits.filter((c) => c.source === kind && !inPr.has(c.sha) && c.time * 1000 > now - ms && c.time * 1000 <= now);
+    if (source.dailyCap !== undefined) {
+      const n = landed(DAY_MS).length;
+      if (n >= source.dailyCap) fired.push({ decision: "human-review", reason: `source ${kind}: daily cap reached (${n} landed in 24h)` });
+    }
+    if (source.trackRecord) {
+      const { days, minCommits, maxRevertRate } = source.trackRecord;
+      const recent = landed(days * DAY_MS);
+      if (recent.length < minCommits) {
+        fired.push({ decision: "human-review", reason: `source ${kind}: track record too short (${recent.length} of ${minCommits} landed commits in ${days} days)` });
+      } else if (recent.length > 0) {
+        // A revert names its target by a possibly abbreviated sha; shorter than 7 chars is not a reference.
+        const reverted = input.history.commits.map((c) => c.revertsSha).filter((s): s is string => s !== undefined && s.length >= 7);
+        const n = recent.filter((c) => reverted.some((s) => c.sha.startsWith(s))).length;
+        const rate = n / recent.length;
+        if (rate > maxRevertRate) {
+          const pct = (x: number) => `${Math.round(x * 100)}%`;
+          fired.push({
+            decision: "human-review",
+            reason: `source ${kind}: ${n} of ${recent.length} landed commits in ${days} days reverted (${pct(rate)}) > ${pct(maxRevertRate)}`,
+          });
+        }
+      }
+    }
+  }
+
   // 4. LLM failure, or an unknown whose plausible worst case changes the tier
   if (input.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
   // 4a. requireSafe (RADAR §2.8): every hunk the judge saw must be in a safe category at or above
   // minConfidence, and it must have seen and classified all of them. The judge can only block here.
-  if (config.llm.requireSafe && !input.llm && !input.llmFailed) {
-    fired.push({ decision: "human-review", reason: "LLM judge did not run; llm.requireSafe needs its verdict" });
+  // A source's own requireSafe (3c) turns the same rule on for that source.
+  const requireSafe = config.llm.requireSafe ? "llm.requireSafe" : source?.requireSafe ? `sources.${kind}.requireSafe` : undefined;
+  if (requireSafe && !input.llm && !input.llmFailed) {
+    fired.push({ decision: "human-review", reason: `LLM judge did not run; ${requireSafe} needs its verdict` });
   }
-  if (config.llm.requireSafe && input.llm) {
+  if (requireSafe && input.llm) {
     const { truncated, unclassified, hunks } = input.llm;
     if (truncated) fired.push({ decision: "human-review", reason: "LLM judge saw a truncated diff" });
     if (unclassified.length > 0) {

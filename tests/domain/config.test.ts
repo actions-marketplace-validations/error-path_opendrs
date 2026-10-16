@@ -292,3 +292,40 @@ describe("freezes", () => {
     expect(() => parseConfig({ ...percentile, freezes: [{ name: "x", days: ["sat"], green: 25 }] })).not.toThrow();
   });
 });
+
+describe("sources", () => {
+  it("defaults every source to no green, no cap, no track record and requireSafe off", () => {
+    const { human, bot, agent } = defaultConfig().sources;
+    for (const policy of [human, bot, agent]) {
+      expect(policy).toMatchObject({ requireSafe: false });
+      expect(policy.green).toBeUndefined();
+      expect(policy.dailyCap).toBeUndefined();
+      expect(policy.trackRecord).toBeUndefined();
+    }
+    expect(agent.patterns).toEqual([]);
+  });
+
+  it("fills track record defaults (60 days, 10 commits, 5% reverts)", () => {
+    expect(parseConfig({ sources: { agent: { trackRecord: {} } } }).sources.agent.trackRecord).toEqual({ days: 60, minCommits: 10, maxRevertRate: 0.05 });
+  });
+
+  it("rejects a source green at or above thresholds.green: a source can only tighten", () => {
+    expect(configError({ sources: { agent: { green: 0.3 } } })).toContain("sources.agent.green 0.3 must be less than thresholds.green (0.3)");
+    expect(configError({ sources: { bot: { green: 0.5 } } })).toContain("sources.bot.green");
+    expect(() => parseConfig({ sources: { agent: { green: 0.2 } } })).not.toThrow();
+  });
+
+  it("rejects requireSafe without llm.enabled", () => {
+    expect(configError({ sources: { agent: { requireSafe: true } } })).toContain("sources.agent.requireSafe needs llm.enabled: true");
+    expect(() => parseConfig({ llm: { enabled: true }, sources: { agent: { requireSafe: true } } })).not.toThrow();
+  });
+
+  it("rejects an agent pattern that is not a valid regex", () => {
+    expect(configError({ sources: { agent: { patterns: ["(?i)bot"] } } })).toContain("invalid regex");
+    expect(parseConfig({ sources: { agent: { patterns: ["my-agent@"] } } }).sources.agent.patterns).toEqual(["my-agent@"]);
+  });
+
+  it("rejects a non-positive dailyCap", () => {
+    expect(configError({ sources: { bot: { dailyCap: 0 } } })).toMatch(/dailyCap/);
+  });
+});

@@ -1,4 +1,4 @@
-import type { Contribution, Decision, LlmJudgement, ScoreResult, Tier } from "../domain/types.js";
+import type { Authorship, Contribution, Decision, LlmJudgement, ScoreResult, Tier } from "../domain/types.js";
 
 const MARKER = "<!-- opendrs -->";
 const PROJECT_URL = "https://github.com/error-path/opendrs";
@@ -34,6 +34,8 @@ const signed = (n: number, minus: string) => `${n < 0 ? minus : "+"}${Math.abs(n
 const top = (contributions: Contribution[]) => contributions.filter((c) => c.contribution !== 0).slice(0, TOP_CONTRIBUTIONS);
 const short = (sha: string) => sha.slice(0, 7);
 const clip = (text: string) => (text.length > MAX_RATIONALE ? `${text.slice(0, MAX_RATIONALE)}…` : text);
+/** "agent (Claude Code)", or just "human": the name repeats the kind for a person. Raw; callers escape. */
+const sourceName = ({ kind, name }: Authorship) => (name === kind ? kind : `${kind} (${name})`);
 
 /** "3 safe (tests 2, docs 1), 2 risky": the judge's hunk verdicts, safe ones broken down by category. */
 function hunkCounts(llm: LlmJudgement): string {
@@ -52,6 +54,8 @@ export function renderMarkdown(result: ScoreResult): string {
     MARKER,
     `### ${TIER_EMOJI[result.tier]} Diff risk ${result.score.toFixed(2)} · ${result.tier} · ${DECISION_TEXT[policy.decision]}`,
     `<sub>${diff.files} files · +${diff.added} −${diff.deleted} · \`${short(diff.base)}…${short(diff.head)}\`</sub>`,
+    // Name and evidence come from commit messages and author fields the PR author controls.
+    `<sub>${[`Source: ${untrusted(sourceName(result.source))}`, ...result.source.evidence.map(untrusted)].join(" · ")}</sub>`,
     "",
   ];
 
@@ -97,6 +101,7 @@ export function renderText(result: ScoreResult): string {
   const lines = [
     `opendrs risk ${result.score.toFixed(2)}  ${result.tier.toUpperCase()}  -> ${DECISION_TEXT[policy.decision]}`,
     `${diff.files} files, +${diff.added} -${diff.deleted} (${short(diff.base)}..${short(diff.head)}), ${result.model} model, opendrs ${result.version}`,
+    `source: ${plain([sourceName(result.source), result.source.evidence.join("; ")].filter(Boolean).join(": "))}`,
   ];
 
   const rows = top(result.contributions);
