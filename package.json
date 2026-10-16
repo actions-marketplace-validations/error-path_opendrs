@@ -1,6 +1,6 @@
 {
-  "name": "opendrs",
-  "version": "0.1.3",
+  "name": "@error-path/opendrs",
+  "version": "0.1.4",
   "description": "Open Diff Risk Score: a calibrated 0-1 risk score for every pull request, for risk-based auto-approval.",
   "type": "module",
   "license": "MIT",
@@ -8,6 +8,11 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/error-path/opendrs.git"
+  },
+  "homepage": "https://error-path.github.io/opendrs/",
+  "bugs": "https://github.com/error-path/opendrs/issues",
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "code-review",

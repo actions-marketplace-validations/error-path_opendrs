@@ -48,9 +48,9 @@ was reverted.
 ## 2. Check the threshold against your own history
 
 ```sh
-npx github:error-path/opendrs backtest     # how well the default weights rank your past commits
-npx github:error-path/opendrs calibrate    # fit the weights to your repository
-npx github:error-path/opendrs backtest     # compare default and calibrated
+npx @error-path/opendrs backtest     # how well the default weights rank your past commits
+npx @error-path/opendrs calibrate    # fit the weights to your repository
+npx @error-path/opendrs backtest     # compare default and calibrated
 ```
 
 The backtest reports what share of bug-introducing commits the score would have flagged at each
