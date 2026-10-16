@@ -1,3 +1,8 @@
+---
+title: "Calibration and backtesting"
+description: "Measure how well a PR risk score ranks your own past commits with opendrs backtest, fit the weights to your repository with opendrs calibrate, and pick an auto-approval threshold from the capture rates."
+---
+
 # Calibration and backtesting
 
 opendrs ships with hand-set prior weights. They rank obvious cases sensibly (a typo fix scores

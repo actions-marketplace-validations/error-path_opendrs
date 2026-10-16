@@ -25,6 +25,23 @@ Use it as:
 - **an agent skill** for Claude Code, Cursor, Codex and others: `npx skills add error-path/opendrs`;
 - **an MCP server** for any agent: `npx -y github:error-path/opendrs mcp`.
 
+Website and guides: [error-path.github.io/opendrs](https://error-path.github.io/opendrs/), including
+[how to auto-approve low-risk PRs](https://error-path.github.io/opendrs/auto-approve.html) and
+[how opendrs compares with other PR risk tools](https://error-path.github.io/opendrs/alternatives.html).
+
+**Contents:** [Quick start](#quick-start) ·
+[How it works](#how-it-works) ·
+[Signals](#metas-drs-features-and-their-opendrs-signals) ·
+[Policy and safety rails](#policy-and-safety-rails) ·
+[Calibrate and backtest](#calibrate-and-backtest-measure-your-threshold) ·
+[Results](#results-on-public-repositories) ·
+[LLM judge](#llm-judge-optional) ·
+[MCP and skill](#mcp-server-and-agent-skill) ·
+[CLI](#cli) ·
+[Configuration](#configuration) ·
+[Limitations](#limitations) ·
+[Compared with other tools](#compared-with-other-tools)
+
 ## Quick start
 
 Score your current branch against the default branch. No configuration or API key is needed:
@@ -312,10 +329,10 @@ before they open a PR. It exposes `score_diff` (base, head, cwd), `explain_file_
 `suggest_reviewers` (paths). For Claude Code:
 
 ```sh
-claude mcp add opendrs -- npx -y opendrs mcp
+claude mcp add opendrs -- npx -y github:error-path/opendrs mcp
 ```
 
-Other clients take the same command: `{"command": "npx", "args": ["-y", "opendrs", "mcp"]}`.
+Other clients take the same command: `{"command": "npx", "args": ["-y", "github:error-path/opendrs", "mcp"]}`.
 
 The agent skill in [`skills/opendrs/SKILL.md`](skills/opendrs/SKILL.md) tells an agent to run
 `opendrs score` before opening a PR and to split changes with a large blast radius.
@@ -481,6 +498,18 @@ opendrs refuses a config that would fail silently, naming the offending value:
   needs full history (`fetch-depth: 0`). In a shallow clone, `diffusion.authors` and `history.*`
   are reported as `unknown` ("shallow clone: history incomplete"), keeping what they saw as a lower
   bound, so a missing history never reads as low risk.
+
+## Compared with other tools
+
+| If you want | Use |
+|---|---|
+| A risk gate that approves or merges low-risk PRs, measured on your own history, with no service to host | opendrs |
+| An LLM's judgment of each PR as the gate | PR-Agent's auto-approval, Merge Steward or MergeShield Risk Check; opendrs's optional LLM judge can only raise the score |
+| Approval inside Cursor's cloud on a team plan | Cursor approval agents |
+| Review comments on the code | An AI reviewer (Claude Code, CodeRabbit, PR-Agent), with opendrs running after it |
+
+The full comparison, with how each tool scores and where it runs, is at
+[error-path.github.io/opendrs/alternatives.html](https://error-path.github.io/opendrs/alternatives.html).
 
 ## Prior art and credits
 
