@@ -156,6 +156,10 @@ The decision rules run in this order; the first that matches wins:
    band.
 
 The decision also suggests three reviewers: the most frequent recent authors of the changed files.
+For a yellow or red PR, authors of earlier fixes and reverts in those files count extra. When the PR
+needs a human, the Action requests a review from one of the top three, picked deterministically per
+PR, rather than from a team: assigning a group invites the bystander effect (Rigby et al., TOSEM
+2025), and the pick spreads the work across the experts.
 
 The rails that matter when the Action can approve PRs:
 
@@ -372,8 +376,8 @@ auto-approved on that run.
 ## MCP server and agent skill
 
 `opendrs mcp` runs a Model Context Protocol server on stdio, so coding agents can check risk
-before they open a PR. It exposes `score_diff` (base, head, cwd), `explain_file_risk` (path) and
-`suggest_reviewers` (paths). For Claude Code:
+before they open a PR. It exposes `score_diff` (base, head, cwd), `explain_file_risk` (path),
+`suggest_reviewers` (paths) and `list_hotspots` (top). For Claude Code:
 
 ```sh
 claude mcp add opendrs -- npx -y @error-path/opendrs mcp
@@ -390,6 +394,8 @@ The agent skill in [`skills/opendrs/SKILL.md`](skills/opendrs/SKILL.md) tells an
 |---|---|
 | `opendrs score [--base ref] [--head ref] [--json \| --markdown] [--fail-above x] [--no-llm] [--title t]` | Score `merge-base(base, head)..head`. Base defaults to `origin/HEAD`, then `main`, then `master`. |
 | `opendrs explain <file> [--json]` | A file's history, fixes, authors, dependents and path policy. |
+| `opendrs hotspots [--top n] [--json]` | Rank the repository's files by risk at rest (ranks by fixes, churn, dependents and critical paths; shows authors): where refactoring pays off. |
+| `opendrs feedback --inducing <sha> [--fix <sha>] [--note text]`, or `--pr <n> --was-incident` | Record an incident in `.opendrs/incidents.jsonl`, the strongest label for `calibrate`. |
 | `opendrs calibrate [--since date] [--max-commits n] [--label-horizon-days n]` | Fit the model and write it to `config.model`. |
 | `opendrs backtest [--since date] [--max-commits n] [--label-horizon-days n] [--json]` | Compare default and calibrated models on your history. |
 | `opendrs init [--force]` | Write a commented `.opendrs.yml` and a comment-only workflow. |
@@ -475,6 +481,14 @@ content:
   block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]
 
 freezes: []   # while a window is active: auto-approval suspended, or held to a stricter green
+#  - name: weekend
+#    timezone: America/New_York   # IANA name; default UTC
+#    days: [sat, sun]
+#  - name: black-friday
+#    from: "2026-11-26"           # inclusive local dates, quoted
+#    to: "2026-11-30"
+#    green: 0.15                  # same units as thresholds; must be below thresholds.green
+
 sources:      # per-source policy; every setting only tightens the gate
   agent:
     green: 0.2                # stricter green for AI-agent PRs (thresholds.mode units)
@@ -484,13 +498,6 @@ sources:      # per-source policy; every setting only tightens the gate
     patterns: []              # extra regexes over commit messages / author emails
   bot: {}
   human: {}
-#  - name: weekend
-#    timezone: America/New_York   # IANA name; default UTC
-#    days: [sat, sun]
-#  - name: black-friday
-#    from: "2026-11-26"           # inclusive local dates, quoted
-#    to: "2026-11-30"
-#    green: 0.15                  # same units as thresholds; must be below thresholds.green
 ```
 
 **Why the default block list is long.** Besides the gate's own files, `paths.block` lists
@@ -573,6 +580,17 @@ The full comparison, with how each tool scores and where it runs, is at
   (Engineering at Meta, 2025) and Abreu et al., [Moving Faster and Reducing Risk: Using LLMs in
   Release Deployment](https://arxiv.org/abs/2410.06351) (2024). The feature set, the tiered gates and
   the capture-at-X %-gated metric come from this work. opendrs is not affiliated with Meta.
+- **Meta's RADAR.** Adams et al., [Automating Low-Risk Code Review at Meta](https://arxiv.org/abs/2605.30208)
+  (2026): the structured LLM reviewer with safe and risk categories, per-source policy (daily caps,
+  track record), deferred review, the landing delay and the content blocklist follow this paper.
+  Related Meta work behind `hotspots` and reviewer assignment: Mockus et al., "Metrics Driven
+  Reengineering and Continuous Code Improvement at Meta" (ASE 2025); Paraspatki et al., "Code
+  Reviewer Recommendation for High Risk Diffs at Scale" (FSE Companion 2026); Rigby et al.,
+  [Improving Code Reviewer Recommendation](https://arxiv.org/abs/2312.17169) (TOSEM 2025).
+- **Benchmarks and peers.** Keshavarz and Nagappan, [ApacheJIT](https://arxiv.org/abs/2203.00101)
+  (MSR 2022), the dataset `bench/apachejit/` scores; Sayedsalehi, Rigby and Mockus,
+  [DRS-OSS](https://arxiv.org/abs/2511.21964) (2025), the open-source LLM counterpart whose numbers
+  the benchmark quotes.
 - **Just-in-time defect prediction and SZZ.** Mockus and Weiss, "Predicting risk of software
   changes" (2000); Śliwerski, Zimmermann and Zeller, "When do changes induce fixes?" (2005); Kamei
   et al., "A large-scale empirical study of just-in-time quality assurance" (2013). The

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOpenAiProvider } from "../../src/llm/openai.js";
+import { JUDGEMENT_SCHEMA } from "../../src/llm/schema.js";
 
 const KEY = "sk-openai-SECRET";
 const input = { title: "t", diff: "[hunk 1]\n+x", files: ["src/a.ts"], hunks: [{ id: 1, file: "src/a.ts", line: 1 }], truncated: false };
@@ -14,7 +15,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("openai-compatible provider", () => {
-  it("posts chat/completions in JSON mode and parses the message content", async () => {
+  it("posts chat/completions with the strict judge schema and parses the message content", async () => {
     fetchMock.mockResolvedValue(completion(reply));
 
     const j = await createOpenAiProvider({ model: "gpt-x", apiKey: KEY }).judge(input);
@@ -26,7 +27,11 @@ describe("openai-compatible provider", () => {
     expect(url).toBe("https://api.openai.com/v1/chat/completions");
     expect(init.headers).toMatchObject({ authorization: `Bearer ${KEY}`, "content-type": "application/json" });
     const body = JSON.parse(init.body as string);
-    expect(body).toMatchObject({ model: "gpt-x", temperature: 0, response_format: { type: "json_object" } });
+    expect(body).toMatchObject({
+      model: "gpt-x",
+      temperature: 0,
+      response_format: { type: "json_schema", json_schema: { name: "judgement", schema: JUDGEMENT_SCHEMA, strict: true } },
+    });
     expect(body.messages.map((m: { role: string }) => m.role)).toEqual(["system", "user"]);
   });
 

@@ -47,6 +47,9 @@ export type Op =
   | "updateComment"
   | "addLabels"
   | "removeLabel"
+  | "getLabel"
+  | "createLabel"
+  | "updateLabel"
   | "listReviews"
   | "createReview"
   | "dismissReview"
@@ -70,7 +73,10 @@ export interface FakeGitHub {
   /** Message of the GraphQL error that disable/dequeue return; undefined = success. */
   mergeStateError?: string;
   comments: FakeComment[];
+  /** Labels on PR #7. */
   labels: string[];
+  /** The repository's labels (GET /labels/{name}); a label missing here answers 404. */
+  repoLabels: Record<string, { color: string; description?: string }>;
   reviews: FakeReview[];
   /** Check runs on the requested commit; `head_sha`, `status` and `app` default to that commit, completed, github-actions. */
   checkRuns: Array<{ name: string; conclusion: string | null; status?: string; details_url?: string; app?: { slug: string } }>;
@@ -103,6 +109,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
     commits: [],
     comments: [],
     labels: [],
+    repoLabels: {},
     reviews: [],
     checkRuns: [],
     rules: [STALE_APPROVALS_DISMISSED],
@@ -187,6 +194,25 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
           if (!c) return json(404, { message: "Not Found" });
           c.body = body.body;
           return json(200, c);
+        });
+      if ((m = route.match(new RegExp(`^GET ${pr}/labels/(.+)$`))))
+        return handle("getLabel", path, undefined, () => {
+          const name = decodeURIComponent(m![1]!);
+          const l = gh.repoLabels[name];
+          return l ? json(200, { name, ...l }) : json(404, { message: "Not Found" });
+        });
+      if (route === `POST ${pr}/labels`)
+        return handle("createLabel", path, body, () => {
+          if (gh.repoLabels[body.name]) return json(422, { message: "Validation Failed" });
+          gh.repoLabels[body.name] = { color: body.color, description: body.description };
+          return json(201, body);
+        });
+      if ((m = route.match(new RegExp(`^PATCH ${pr}/labels/(.+)$`))))
+        return handle("updateLabel", path, body, () => {
+          const name = decodeURIComponent(m![1]!);
+          if (!gh.repoLabels[name]) return json(404, { message: "Not Found" });
+          Object.assign(gh.repoLabels[name]!, body);
+          return json(200, { name, ...gh.repoLabels[name] });
         });
       if (route === `POST ${pr}/issues/7/labels`)
         return handle("addLabels", path, body, () => {

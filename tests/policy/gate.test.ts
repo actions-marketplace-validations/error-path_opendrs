@@ -431,18 +431,18 @@ describe("decide: per-source policy", () => {
       expect(decide(input({ ...sources({ trackRecord: { minCommits: 2 } }), source: agent, history })).decision).toBe("auto-approve");
     });
 
-    it("blocks a revert rate above maxRevertRate, matching revertsSha as a ≥7-char prefix", () => {
+    it("blocks a revert rate above maxRevertRate, matching revertsSha as a prefix in either case", () => {
       const commits = Array.from({ length: 15 }, (_, i) => landed("agent", days(i + 1)));
       const reverts = [
         landed("human", 2, { isRevert: true, revertsSha: commits[0]!.sha.slice(0, 7) }),
         landed("human", 3, { isRevert: true, revertsSha: commits[1]!.sha }),
-        landed("human", 4, { isRevert: true, revertsSha: commits[2]!.sha.slice(0, 6) }), // too short to count
+        landed("human", 4, { isRevert: true, revertsSha: commits[2]!.sha.toUpperCase() }), // "This reverts commit" matches /i
       ];
       const history = fakeHistory([...commits, ...reverts]);
       const out = decide(input({ ...sources({ trackRecord: { days: 60, minCommits: 10, maxRevertRate: 0.05 } }), source: agent, history }));
       expect(out.decision).toBe("human-review");
-      expect(out.reasons[0]).toBe("source agent: 2 of 15 landed commits in 60 days reverted (13%) > 5%");
-      expect(decide(input({ ...sources({ trackRecord: { maxRevertRate: 0.2 } }), source: agent, history })).decision).toBe("auto-approve");
+      expect(out.reasons[0]).toBe("source agent: 3 of 15 landed commits in 60 days reverted (20%) > 5%");
+      expect(decide(input({ ...sources({ trackRecord: { maxRevertRate: 0.25 } }), source: agent, history })).decision).toBe("auto-approve");
     });
   });
 });
@@ -705,6 +705,16 @@ describe("decide: deferred review", () => {
     expect(out.reasons[0]).toContain("(0.14–0.20)");
     expect(decide(input({ cfg, model, score: 0.2 })).decision).toBe("human-review");
     expect(decide(input({ cfg, score: 0.34 })).decision).toBe("human-review");
+  });
+
+  it("says why a percentile below did not defer, only when the tier rule alone fired", () => {
+    const cfg = deferred({ below: 75 }, { thresholds: { mode: "percentile", green: 60, yellow: 90, red: 95 } });
+    const note = "deferred review: percentile below 75 needs a calibrated model; not deferred";
+    const out = decide(input({ cfg, score: 0.34 }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons).toContain(note);
+    expect(decide(input({ cfg, score: 0.34, pr: { successfulChecks: [], draft: true } })).reasons).not.toContain(note);
+    expect(decide(input({ cfg, score: 0.1 })).reasons).not.toContain(note);
   });
 
   it("relaxes only the tier rule: every other rule still decides", () => {

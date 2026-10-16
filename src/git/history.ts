@@ -10,7 +10,7 @@ const RECORD = "\0";
 const FIELD = "\x1f";
 const END = "\x1d";
 const FORMAT = "%x00%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
-const REVERTS = /This reverts commit ([0-9a-f]{7,40})/i;
+const REVERTS = /This reverts commit ([0-9a-f]{7,64})/i;
 
 interface Change {
   kind: string; // first letter of git's name-status: A M D R C T

@@ -4,6 +4,15 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+- `opendrs feedback` records an incident in `.opendrs/incidents.jsonl`, by commit
+  (`--inducing`, `--fix`) or by PR number (`--pr <n> --was-incident`).
+- `opendrs hotspots` (and the MCP tool `list_hotspots`) ranks files by risk at rest, after Meta's
+  metrics-driven reengineering work: ranks by fixes, churn, dependents and critical paths; shows authors.
+- Reviewer recommendation: for yellow and red PRs, authors of earlier fixes and reverts in the
+  changed files rank higher, and the Action requests a review from one of the top three experts
+  (picked per PR) instead of a team.
+- The Anthropic LLM judge uses structured outputs, so its reply always has the expected shape.
+
 - Deferred review and landing delay, after Meta's RADAR (both off by default).
   `autoApprove.deferredReview` adds the decision `deferred-review`: a PR just above green that
   passes every other rule is approved and lands now, with a post-merge review requested and the

@@ -16,6 +16,7 @@ import type { LlmJudgeInput, LlmJudgement, LlmProvider, ScoringContext, Signal }
 import { loadDiff } from "../../dist/git/diff.js";
 import { buildDiffText, buildMessages } from "../../dist/llm/prompt.js";
 import { createLlmProvider } from "../../dist/llm/provider.js";
+import { JUDGEMENT_SCHEMA } from "../../dist/llm/schema.js";
 import { fitModel } from "../../dist/model/calibrate.js";
 import { DEFAULT_WEIGHTS } from "../../dist/model/defaults.js";
 import { fitLogistic, mulberry32 } from "../../dist/model/fit.js";
@@ -41,7 +42,7 @@ const PRICES: Record<string, [number, number]> = {
 /** Rough upper bounds for one judgement: ~3.5 characters per input token, and output with thinking. */
 const CHARS_PER_TOKEN = 3.5;
 const PROMPT_CHARS = 9_000;
-const OUTPUT_TOKENS = 2_000;
+const OUTPUT_TOKENS = 4_000;
 
 interface Options {
   workDir: string;
@@ -251,8 +252,16 @@ async function main(): Promise<number> {
   }
   if (!provider) usageError("LLM provider not created");
 
+  // Everything that shapes a judgement besides the commit itself: both prompts, the reply schema and the diff cut.
   const empty: LlmJudgeInput = { diff: "", files: [], hunks: [], truncated: false };
-  const promptHash = createHash("sha256").update(buildMessages(empty).system).digest("hex").slice(0, 12);
+  const { system, user } = buildMessages(empty);
+  const promptHash = createHash("sha256")
+    .update(system)
+    .update(user)
+    .update(JSON.stringify(JUDGEMENT_SCHEMA))
+    .update(String(config.llm.maxDiffChars))
+    .digest("hex")
+    .slice(0, 12);
   const cachePath = join(o.workDir, "llm", `${o.model}.${promptHash}.jsonl`);
 
   const { jit } = await ensureDataset(o.workDir);

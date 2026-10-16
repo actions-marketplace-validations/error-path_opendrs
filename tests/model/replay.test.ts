@@ -98,7 +98,7 @@ describe("replayHistory", () => {
       const labels = new Map<string, 0 | 1>([[b, 1], ["f".repeat(40), 1], [b.slice(0, 12), 1], [b.toUpperCase(), 1], [merge, 0]]);
       const { rows, warnings } = await replayHistory({ repoDir: repo.dir, config: config(), labels });
       expect(rows.map((r) => r.sha)).toEqual([b]);
-      expect(warnings).toContain("4 labelled commits not found in the history up to HEAD");
+      expect(warnings).toContain("4 labelled commits not found in the history up to HEAD (or outside --since / history.maxCommits)");
     });
 
     it("does not apply the label horizon to labelled commits", async () => {
@@ -119,7 +119,7 @@ describe("replayHistory", () => {
       const later = repo.commit({ "a.ts": "3\n" }, "later");
       const { rows, warnings } = await replayHistory({ repoDir: repo.dir, config: config(), head: b, labels: new Map([[b, 1], [later, 1]]) });
       expect(rows.map((r) => r.sha)).toEqual([b]);
-      expect(warnings).toContain(`1 labelled commits not found in the history up to ${b}`);
+      expect(warnings).toContain(`1 labelled commits not found in the history up to ${b} (or outside --since / history.maxCommits)`);
     });
   });
 });

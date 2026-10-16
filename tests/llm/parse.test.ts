@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { OpendrsError } from "../../src/domain/types.js";
 import { parseJudgement } from "../../src/llm/parse.js";
+import { buildDiffText } from "../../src/llm/prompt.js";
+import { diffOf, file } from "./fixtures.js";
 
 const files = ["src/a.ts", "src/b.ts"];
 const hunks = [
@@ -68,6 +70,37 @@ describe("parseJudgement", () => {
     expect(j.riskySnippets[0]).toEqual({ file: "src/a.ts", reason: "r" });
   });
 
+  it("drops a zero or negative snippet line but keeps the snippet", () => {
+    const snippets = [
+      { file: "src/a.ts", line: 0, reason: "zero" },
+      { file: "src/b.ts", line: -3, reason: "negative" },
+    ];
+    expect(parse(ok(0.1, { risky_snippets: snippets })).riskySnippets).toEqual([
+      { file: "src/a.ts", reason: "zero" },
+      { file: "src/b.ts", reason: "negative" },
+    ]);
+  });
+
+  it("defaults a missing top-level confidence to 0", () => {
+    const text = JSON.stringify({ risk: 0.2, rationale: "r", hunks: [verdict(1, "docs"), verdict(2, "docs")], risky_snippets: [] });
+    expect(parse(text).confidence).toBe(0);
+  });
+
+  it("lists a shown file with no hunk at line 0 as unclassified", () => {
+    const j = parseJudgement(ok(0.1), [...files, "img/logo.png"], hunks, false);
+    expect(j.unclassified).toEqual([{ file: "img/logo.png", line: 0 }]);
+  });
+
+  it("never classifies a binary-only diff: it has no hunk, so the file is unclassified", () => {
+    const diff = diffOf([file("img/logo.png", [], { binary: true, added: 0, deleted: 0 })]);
+    const { hunks: shown, truncated } = buildDiffText(diff, 10_000);
+    expect(shown).toEqual([]);
+    const text = JSON.stringify({ risk: 0.01, confidence: 10, rationale: "image swap", hunks: [], risky_snippets: [] });
+    const j = parseJudgement(text, ["img/logo.png"], shown, truncated);
+    expect(j.hunks).toEqual([]);
+    expect(j.unclassified).toEqual([{ file: "img/logo.png", line: 0 }]);
+  });
+
   it("passes the truncated flag through", () => {
     expect(parseJudgement(ok(0.1), files, hunks, true).truncated).toBe(true);
   });
@@ -111,7 +144,6 @@ describe("parseJudgement", () => {
     ["risk missing", JSON.stringify({ confidence: 8, rationale: "r", hunks: [], risky_snippets: [] })],
     ["risk null (NaN serialises to null)", ok(Number.NaN)],
     ["rationale missing", JSON.stringify({ risk: 0.2, confidence: 8, hunks: [], risky_snippets: [] })],
-    ["confidence missing", JSON.stringify({ risk: 0.2, rationale: "r", hunks: [], risky_snippets: [] })],
     ["hunks missing", JSON.stringify({ risk: 0.2, confidence: 8, rationale: "r", risky_snippets: [] })],
     ["an unknown category", ok(0.2, { hunks: [verdict(1, "looks_fine")] })],
     ["a hunk without a category", ok(0.2, { hunks: [{ hunk: 1, confidence: 9, reason: "r" }] })],

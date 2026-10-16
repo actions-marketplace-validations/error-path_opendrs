@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OpendrsError } from "../../src/domain/types.js";
+import { LLM_RISK_CATEGORIES, LLM_SAFE_CATEGORIES, OpendrsError } from "../../src/domain/types.js";
 import { createAnthropicProvider } from "../../src/llm/anthropic.js";
+import { JUDGEMENT_SCHEMA } from "../../src/llm/schema.js";
 
 const KEY = "sk-ant-test-SECRET-123";
 const input = { title: "Add cache", diff: "diff --git a/src/a.ts b/src/a.ts\n[hunk 1]\n+x", files: ["src/a.ts"], hunks: [{ id: 1, file: "src/a.ts", line: 1 }], truncated: true };
@@ -63,7 +64,7 @@ describe("anthropic provider", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
     const body = sentBody();
     expect(body.model).toBe("claude-sonnet-5");
-    expect(body.max_tokens).toBeGreaterThanOrEqual(4096);
+    expect(body.max_tokens).toBeGreaterThanOrEqual(32_000);
     expect(typeof body.system).toBe("string");
     expect(body.messages).toEqual([{ role: "user", content: expect.stringContaining("<untrusted_diff>") }]);
     expect((body.messages as Array<{ content: string }>)[0]!.content).toContain("Hunks to classify: 1");
@@ -83,6 +84,44 @@ describe("anthropic provider", () => {
       expect(sentBody().temperature).toBe(0);
     },
   );
+
+  it("asks for structured output matching the judge schema on models that support it", async () => {
+    fetchMock.mockResolvedValue(messageResponse(JSON.stringify(reply)));
+    await createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).judge(input);
+    expect(sentBody().output_config).toEqual({ effort: "low", format: { type: "json_schema", schema: JUDGEMENT_SCHEMA } });
+  });
+
+  it("keeps temperature 0 alongside the schema on Sonnet 4.5", async () => {
+    fetchMock.mockResolvedValue(messageResponse(JSON.stringify(reply)));
+    await createAnthropicProvider({ model: "claude-sonnet-4-5", apiKey: KEY }).judge(input);
+    const body = sentBody();
+    expect(body.temperature).toBe(0);
+    expect(body.output_config).toEqual({ format: { type: "json_schema", schema: JUDGEMENT_SCHEMA } });
+  });
+
+  it.each(["claude-3-5-sonnet-20241022", "claude-sonnet-4-20250514", "claude-opus-4"])("sends no output_config to %s", async (model) => {
+    fetchMock.mockResolvedValue(messageResponse(JSON.stringify(reply)));
+    await createAnthropicProvider({ model, apiKey: KEY }).judge(input);
+    expect(sentBody()).not.toHaveProperty("output_config");
+  });
+
+  it("schema enumerates exactly the judge categories and closes every object", () => {
+    const { category } = JUDGEMENT_SCHEMA.properties.hunks.items.properties;
+    expect(category.enum).toEqual([...LLM_SAFE_CATEGORIES, ...LLM_RISK_CATEGORIES]);
+    expect(category.enum).toHaveLength(14);
+    expect(JUDGEMENT_SCHEMA.required).toEqual(["risk", "confidence", "rationale", "hunks", "risky_snippets"]);
+    const objects: Array<Record<string, unknown>> = [];
+    const walk = (node: unknown) => {
+      if (typeof node !== "object" || node === null) return;
+      const n = node as Record<string, unknown>;
+      if (n.type === "object") objects.push(n);
+      Object.values(n).forEach(walk);
+    };
+    walk(JUDGEMENT_SCHEMA);
+    expect(objects).toHaveLength(3);
+    for (const o of objects) expect(o.additionalProperties).toBe(false);
+    expect(JSON.stringify(JUDGEMENT_SCHEMA)).not.toMatch(/minimum|maximum|minLength|maxLength/);
+  });
 
   it("uses a configured base URL", async () => {
     fetchMock.mockResolvedValue(messageResponse(JSON.stringify(reply)));
@@ -161,6 +200,14 @@ describe("anthropic provider", () => {
   it("treats a refusal as an error rather than a score", async () => {
     fetchMock.mockResolvedValue(messageResponse("", "refusal"));
     await expect(createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).judge(input)).rejects.toThrow(/refus/);
+  });
+
+  it("fails clearly when the reply was cut off at max_tokens", async () => {
+    fetchMock.mockResolvedValue(messageResponse('{"risk": 0.2, "confidence": 8, "rationale": "cut', "max_tokens"));
+    const err = await createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).judge(input).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OpendrsError);
+    expect((err as OpendrsError).code).toBe("llm");
+    expect((err as Error).message).toMatch(/cut off at max_tokens/);
   });
 
   it("rejects an unparseable reply", async () => {

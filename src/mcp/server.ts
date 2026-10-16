@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { VERSION } from "../version.js";
-import { explainFileRiskTool, scoreDiffTool, suggestReviewersTool } from "./tools.js";
+import { explainFileRiskTool, listHotspotsTool, scoreDiffTool, suggestReviewersTool } from "./tools.js";
 
 const repoDir = z.string().min(1).describe("Absolute path to the git repository (any directory inside the work tree).");
 
@@ -43,6 +43,23 @@ export function createMcpServer(): McpServer {
       annotations: { readOnlyHint: true },
     },
     (args) => explainFileRiskTool(args),
+  );
+
+  server.registerTool(
+    "list_hotspots",
+    {
+      title: "List hotspots",
+      description:
+        "Rank the files tracked at HEAD by code-at-rest risk: bug-fix commits, churn, dependents and critical paths in the history lookback window (authors shown, not scored); returns { hotspots, warnings }, " +
+        "transitive dependents in the import graph (null when the language is not supported), and critical or blocked path flags. " +
+        "Use it to find where a codebase is most likely to break, or to pick files for reengineering or extra test coverage.",
+      inputSchema: {
+        repoDir,
+        top: z.number().int().positive().optional().describe("How many files to return. Defaults to 20."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    (args) => listHotspotsTool(args),
   );
 
   server.registerTool(

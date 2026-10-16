@@ -22,8 +22,11 @@ describe("workflows that run the Action", () => {
     expect(docWorkflows.length).toBeGreaterThanOrEqual(2);
   });
 
-  it.each(workflows)("%s cancels a run superseded by a newer push to the same PR", (_, text) => {
-    expect(parse(text).concurrency).toEqual({ group: "opendrs-${{ github.event.pull_request.number }}", "cancel-in-progress": true });
+  it.each(workflows)("%s cancels a run superseded by a newer push to the same PR, but never a sweep", (_, text) => {
+    const wf = parse(text);
+    // Sweeps share the group (no PR number); cancelling one every 15 minutes would starve long sweeps.
+    const cancel = "schedule" in wf.on ? "${{ github.event_name == 'pull_request' }}" : true;
+    expect(wf.concurrency).toEqual({ group: "opendrs-${{ github.event.pull_request.number }}", "cancel-in-progress": cancel });
   });
 
   it.each([...workflows, ["action.yml", read("action.yml")] as [string, string]])("%s never uses pull_request_target", (_, text) => {

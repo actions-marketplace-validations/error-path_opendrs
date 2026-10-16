@@ -7410,11 +7410,22 @@ function isSelf(user, viewer) {
   if (!user) return false;
   return viewer === void 0 ? user.type === "Bot" : sameLogin(user.login, viewer);
 }
+var OPENDRS_LABELS = {
+  "risk:green": { color: "2ea44f", description: "opendrs: low-risk change" },
+  "risk:yellow": { color: "fbca04", description: "opendrs: medium-risk change" },
+  "risk:red": { color: "d73a4a", description: "opendrs: high-risk change" },
+  "opendrs:landing": { color: "1d76db", description: "opendrs: approval is waiting out the landing delay" },
+  "opendrs:hold": { color: "b60205", description: "opendrs: do not approve until this label is removed" },
+  "opendrs:review-after-merge": { color: "5319e7", description: "opendrs: landed, needs a human review after merge" }
+};
+var DEFAULT_LABEL_COLOR = "ededed";
 var GitHubClient = class {
   constructor(opts) {
     this.opts = opts;
   }
   opts;
+  /** opendrs labels already checked by `ensureLabel` in this run. */
+  ensuredLabels = /* @__PURE__ */ new Set();
   async send(method, url2, body) {
     const res = await fetch(url2, {
       method,
@@ -7478,7 +7489,28 @@ var GitHubClient = class {
   async updateComment(id, body) {
     await this.rest("PATCH", `${this.repoPath}/issues/comments/${id}`, { body });
   }
+  /**
+   * Create a missing opendrs label with its colour, or recolour one GitHub auto-created in default
+   * grey; a colour the user chose stays. Best-effort: adding the label works without it.
+   */
+  async ensureLabel(name) {
+    const want = OPENDRS_LABELS[name];
+    if (!want || this.ensuredLabels.has(name)) return;
+    this.ensuredLabels.add(name);
+    const path = `${this.repoPath}/labels/${encodeURIComponent(name)}`;
+    try {
+      const existing = await this.rest("GET", path).catch((e) => {
+        if (e instanceof GitHubError && e.status === 404) return void 0;
+        throw e;
+      });
+      if (!existing) await this.rest("POST", `${this.repoPath}/labels`, { name, ...want });
+      else if (existing.color.toLowerCase() === DEFAULT_LABEL_COLOR) await this.rest("PATCH", path, want);
+    } catch (e) {
+      if (!(e instanceof GitHubError)) throw e;
+    }
+  }
   async addLabels(pr, labels) {
+    for (const label of labels) await this.ensureLabel(label);
     await this.rest("POST", `${this.repoPath}/issues/${pr}/labels`, { labels });
   }
   /** Removing a label the PR does not have (404) is not an error. */
@@ -27568,6 +27600,13 @@ var configSchema = external_exports.object({
       path: ["autoApprove", "deferredReview", "below"]
     });
   }
+  if (deferred.enabled && deferred.sources.length === 0) {
+    ctx.addIssue({
+      code: "custom",
+      message: "autoApprove.deferredReview.sources must list at least one source kind (a PR from a user account is human); with none, deferral can never apply",
+      path: ["autoApprove", "deferredReview", "sources"]
+    });
+  }
   for (const kind of ["human", "bot", "agent"]) {
     const policy = sources[kind];
     if (policy.green !== void 0 && policy.green >= thresholds.green) {
@@ -28086,7 +28125,7 @@ var RECORD = "\0";
 var FIELD = "";
 var END = "";
 var FORMAT = "%x00%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
-var REVERTS = /This reverts commit ([0-9a-f]{7,40})/i;
+var REVERTS = /This reverts commit ([0-9a-f]{7,64})/i;
 async function buildHistoryIndex(repoDir, ref, config2) {
   const fixRe = compileFixPattern(config2.history.fixPattern);
   const patterns = agentPatterns(config2);
@@ -29094,9 +29133,11 @@ var MAX_SNIPPETS = 5;
 var SAFE = new Set(LLM_SAFE_CATEGORIES);
 var finite = (name) => external_exports.number().refine(Number.isFinite, `${name} must be a finite number`);
 var clampConfidence = (c) => Math.round(Math.min(10, Math.max(0, c)));
+var validLine = (line2) => line2 != null && Number.isInteger(line2) && line2 > 0;
 var outputSchema = external_exports.object({
   risk: finite("risk"),
-  confidence: finite("confidence"),
+  // Nothing reads the top-level confidence, so a prompt-only provider that omits it must not fail.
+  confidence: finite("confidence").default(0),
   rationale: external_exports.string(),
   hunks: external_exports.array(
     external_exports.object({
@@ -29109,7 +29150,8 @@ var outputSchema = external_exports.object({
   risky_snippets: external_exports.array(
     external_exports.object({
       file: external_exports.string(),
-      line: external_exports.number().int().positive().nullish(),
+      // A bad line (0, negative, fractional) drops the line, not the judgement; see validLine.
+      line: external_exports.number().nullish(),
       reason: external_exports.string()
     })
   ).default([])
@@ -29176,22 +29218,74 @@ function parseJudgement(text, files, hunks, truncated) {
   return {
     risk: Math.min(1, Math.max(0, risk)),
     rationale: rationale.slice(0, MAX_RATIONALE),
-    riskySnippets: risky_snippets.filter((s) => changed.has(s.file)).slice(0, MAX_SNIPPETS).map((s) => ({ file: s.file, ...s.line != null ? { line: s.line } : {}, reason: s.reason.slice(0, MAX_REASON) })),
+    riskySnippets: risky_snippets.filter((s) => changed.has(s.file)).slice(0, MAX_SNIPPETS).map((s) => ({ file: s.file, ...validLine(s.line) ? { line: s.line } : {}, reason: s.reason.slice(0, MAX_REASON) })),
     confidence: clampConfidence(confidence),
     hunks: hunks.filter((h) => verdicts.has(h.id)).map((h) => verdicts.get(h.id)),
-    unclassified: hunks.filter((h) => !verdicts.has(h.id)).map((h) => ({ file: h.file, line: h.line })),
+    // A file with no hunk at all (binary swap, mode-only change, pure rename) had nothing the judge
+    // could classify, so it is unclassified at line 0: requireSafe must not pass it unread.
+    unclassified: [
+      ...hunks.filter((h) => !verdicts.has(h.id)).map((h) => ({ file: h.file, line: h.line })),
+      ...files.filter((f) => !hunks.some((h) => h.file === f)).map((file2) => ({ file: file2, line: 0 }))
+    ],
     truncated
   };
 }
 
+// src/llm/schema.ts
+var JUDGEMENT_SCHEMA = {
+  type: "object",
+  properties: {
+    risk: { type: "number" },
+    confidence: { type: "number" },
+    rationale: { type: "string" },
+    hunks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          hunk: { type: "integer" },
+          category: { type: "string", enum: [...LLM_SAFE_CATEGORIES, ...LLM_RISK_CATEGORIES] },
+          confidence: { type: "number" },
+          reason: { type: "string" }
+        },
+        required: ["hunk", "category", "confidence", "reason"],
+        additionalProperties: false
+      }
+    },
+    risky_snippets: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          file: { type: "string" },
+          line: { type: ["integer", "null"] },
+          reason: { type: "string" }
+        },
+        required: ["file", "line", "reason"],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ["risk", "confidence", "rationale", "hunks", "risky_snippets"],
+  additionalProperties: false
+};
+
 // src/llm/anthropic.ts
 var ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com";
 var API_VERSION = "2023-06-01";
-var MAX_TOKENS = 16e3;
+var MAX_TOKENS = 32e3;
 var ACCEPTS_TEMPERATURE = /claude-(?:3[\w.-]*|(?:opus|sonnet|haiku)-4(?:-[0-6])?(?:[-@]\d{8})?)$/;
+var LACKS_STRUCTURED_OUTPUTS = /claude-(?:3[\w.-]*|(?:opus|sonnet|haiku)-4(?:-0)?(?:[-@]\d{8})?)$/;
 function createAnthropicProvider(opts) {
   const url2 = `${(opts.baseUrl ?? ANTHROPIC_DEFAULT_BASE_URL).replace(/\/+$/, "")}/v1/messages`;
-  const sampling = ACCEPTS_TEMPERATURE.test(opts.model) ? { temperature: 0 } : { output_config: { effort: "low" } };
+  const outputConfig = {
+    ...ACCEPTS_TEMPERATURE.test(opts.model) ? {} : { effort: "low" },
+    ...LACKS_STRUCTURED_OUTPUTS.test(opts.model) ? {} : { format: { type: "json_schema", schema: JUDGEMENT_SCHEMA } }
+  };
+  const sampling = {
+    ...ACCEPTS_TEMPERATURE.test(opts.model) ? { temperature: 0 } : {},
+    ...Object.keys(outputConfig).length > 0 ? { output_config: outputConfig } : {}
+  };
   return {
     name: "anthropic",
     async judge(input2) {
@@ -29204,6 +29298,9 @@ function createAnthropicProvider(opts) {
         opts.apiKey
       );
       if (res.stop_reason === "refusal") throw new OpendrsError("Anthropic API refused to judge this diff", "llm");
+      if (res.stop_reason === "max_tokens") {
+        throw new OpendrsError(`LLM reply was cut off at max_tokens (${MAX_TOKENS}); the diff has too many hunks to classify in one reply`, "llm");
+      }
       const text = (res.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
       return parseJudgement(text, input2.files, input2.hunks, input2.truncated);
     }
@@ -29226,7 +29323,7 @@ function createOpenAiProvider(opts) {
         {
           model: opts.model,
           temperature: 0,
-          response_format: { type: "json_object" },
+          response_format: { type: "json_schema", json_schema: { name: "judgement", schema: JUDGEMENT_SCHEMA, strict: true } },
           messages: [
             { role: "system", content: system },
             { role: "user", content: user }
@@ -29341,12 +29438,13 @@ function featureValues(signals, priors) {
 }
 
 // src/policy/gate.ts
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 
 // src/policy/reviewers.ts
+import { createHash } from "node:crypto";
 var RECENT_SECONDS = 90 * 86400;
 var isBot = (email3) => email3.includes("[bot]") || email3 === "noreply@github.com" || email3 === "actions@github.com";
-function suggestReviewers(history, paths, exclude, n = 3) {
+function suggestReviewers(history, paths, exclude, n = 3, risky = false) {
   const now = history.commits[0]?.time ?? 0;
   const excluded = exclude?.toLowerCase();
   const seen = /* @__PURE__ */ new Set();
@@ -29358,12 +29456,17 @@ function suggestReviewers(history, paths, exclude, n = 3) {
       const email3 = c.authorEmail.toLowerCase();
       if (email3 === excluded || isBot(email3)) continue;
       const t = tally.get(email3) ?? { score: 0, latest: 0 };
-      t.score += now - c.time <= RECENT_SECONDS ? 2 : 1;
+      t.score += (now - c.time <= RECENT_SECONDS ? 2 : 1) * (risky && (c.isFix || c.isRevert) ? 2 : 1);
       t.latest = Math.max(t.latest, c.time);
       tally.set(email3, t);
     }
   }
   return [...tally].sort(([ea, a], [eb, b]) => b.score - a.score || b.latest - a.latest || (ea < eb ? -1 : 1)).slice(0, n).map(([email3]) => email3);
+}
+function assignReviewer(candidates, seed) {
+  const top2 = candidates.slice(0, 3);
+  if (top2.length === 0) return void 0;
+  return top2[createHash("sha256").update(seed).digest().readUInt32BE(0) % top2.length];
 }
 
 // src/policy/gate.ts
@@ -29391,7 +29494,7 @@ var PLAUSIBLE_RANGE = {
 };
 var rangeOf = (id) => PLAUSIBLE_RANGE[id] ?? (id.startsWith("lang.") || id.startsWith("llm.risk.") ? [0, 1] : void 0);
 function sampleValue(head) {
-  return createHash("sha256").update(head).digest().readUIntBE(0, 6) / 2 ** 48;
+  return createHash2("sha256").update(head).digest().readUIntBE(0, 6) / 2 ** 48;
 }
 function decide(input2) {
   const { config: config2, diff, model } = input2;
@@ -29455,6 +29558,7 @@ function decide(input2) {
     }
   }
   const inPr = new Set(input2.prCommits ?? []);
+  const reverted = input2.history.commits.flatMap((c) => c.revertsSha === void 0 ? [] : [c.revertsSha.toLowerCase()]);
   for (const kind of kinds) {
     const source = config2.sources[kind];
     if (source.green !== void 0) {
@@ -29479,7 +29583,6 @@ function decide(input2) {
       if (recent.length < minCommits) {
         fired.push({ decision: "human-review", reason: `source ${kind}: track record too short (${recent.length} of ${minCommits} landed commits in ${days} days)` });
       } else if (recent.length > 0) {
-        const reverted = input2.history.commits.map((c) => c.revertsSha).filter((s) => s !== void 0 && s.length >= 7);
         const n = recent.filter((c) => reverted.some((s) => c.sha.startsWith(s))).length;
         const rate = n / recent.length;
         if (rate > maxRevertRate) {
@@ -29562,6 +29665,9 @@ function decide(input2) {
       reason: `deferred review: score ${input2.score.toFixed(2)} is in the deferred band (${thresholds.green.toFixed(2)}\u2013${deferredBelow.toFixed(2)}); lands now, reviewed after merge`
     });
   }
+  if (deferredReview.enabled && deferredReview.below !== void 0 && deferredBelow === void 0 && tier !== "green" && fired.length === 1) {
+    notes.push(`deferred review: percentile below ${deferredReview.below} needs a calibrated model; not deferred`);
+  }
   if (lands && !auto.enabled) notes.push("dry run: autoApprove.enabled=false");
   return {
     tier,
@@ -29573,7 +29679,9 @@ function decide(input2) {
     suggestedReviewers: suggestReviewers(
       input2.history,
       diff.files.filter((f) => !f.ignored).map((f) => f.path),
-      diff.author?.email
+      diff.author?.email,
+      3,
+      tier !== "green"
     ),
     landingDelayMinutes: Math.max(auto.landingDelayMinutes, ...kinds.map((k) => config2.sources[k].landingDelayMinutes ?? 0))
   };
@@ -30304,10 +30412,10 @@ async function loadModel(repoDir, config2) {
   return { model: DEFAULT_WEIGHTS, kind: "default" };
 }
 var FIELD2 = "";
-var SHA = /^[0-9a-f]{40}$/;
-async function prCommits(repoDir, base, head) {
+var SHA = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
+async function prCommits(repoDir, base, head, maxCommits) {
   const range = base === EMPTY_TREE ? head : `${base}..${head}`;
-  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%x00%H${FIELD2}%an${FIELD2}%ae${FIELD2}%B`, "--end-of-options", range]);
+  const out = await git(repoDir, ["log", `-n${maxCommits}`, "--no-merges", "--no-show-signature", `--format=%x00%H${FIELD2}%an${FIELD2}%ae${FIELD2}%B`, "--end-of-options", range]);
   return out.split("\0").flatMap((record2) => {
     const [sha = "", authorName = "", authorEmail = "", ...message] = record2.trim().split(FIELD2);
     return SHA.test(sha) ? [{ sha, authorName, authorEmail, message: message.join(FIELD2) }] : [];
@@ -30363,7 +30471,9 @@ async function scoreDiff(opts) {
     ctx.llm = { error: e instanceof OpendrsError ? e.message : `LLM judge failed: ${e.message}` };
   }
   const signals = await computeSignals(ctx);
-  const commits = await prCommits(repoDir, diff.base, diff.head);
+  const commits = await prCommits(repoDir, diff.base, diff.head, config2.history.maxCommits);
+  const countsLanded = Object.values(config2.sources).some((s) => s.dailyCap !== void 0 || s.trackRecord !== void 0);
+  const baseHistory = opts.baseHistory ?? (countsLanded ? await buildHistoryIndex(repoDir, opts.base, config2) : history);
   const source = classifyPr(commits, opts.account, agentPatterns(config2));
   const { model, kind } = opts.model ? { model: opts.model, kind: "calibrated" } : await loadModel(repoDir, config2);
   const { score, logit: logit2, contributions } = scoreSignals(signals, model);
@@ -30375,7 +30485,7 @@ async function scoreDiff(opts) {
     diff,
     config: config2,
     model,
-    history,
+    history: baseHistory,
     pr: opts.pr,
     llmFailed: Boolean(ctx.llm?.error),
     llm: ctx.llm?.judgement,
@@ -30513,10 +30623,11 @@ var noreplyLogin = (email3) => email3.match(/^(?:\d+\+)?([A-Za-z0-9-]+)@users\.n
 var APPROVAL_FORBIDDEN = 'GitHub refused the approval (403). In Settings > Actions > General > Workflow permissions, enable "Allow GitHub Actions to create and approve pull requests", and give the job `pull-requests: write`.';
 var staleApprovalsUnverified = (branch) => `Not approving: could not confirm that ${branch} requires an approval and dismisses it when new commits are pushed. Without that, a commit pushed after opendrs approves can merge on the earlier approval. In Settings > Rules > Rulesets, add an active branch ruleset for ${branch} with "Require a pull request before merging", "Required approvals" of at least 1 and "Dismiss stale pull request approvals when new commits are pushed". Classic branch protection with the same settings also counts, but only when github-token can read it (Administration: read), which the default GITHUB_TOKEN cannot.`;
 var isFork = (pr) => pr.head.repo?.full_name !== pr.base.repo.full_name;
-function blockers({ config: config2, result, files, pr }) {
+function blockers({ config: config2, result, files, pr, commentEnabled }) {
   const out = [];
   if (!config2.autoApprove.enabled) out.push("autoApprove.enabled is false (comment-only mode)");
   if (!ELIGIBLE.has(result.policy.decision)) out.push(`decision is ${result.policy.decision}`);
+  if (result.policy.landingDelayMinutes > 0 && !commentEnabled) out.push("landing delay needs the comment input");
   const touched = selfModifiedPaths(files, [config2.model.replace(/^\.\//, "")]);
   if (touched.length) {
     const shown = touched.slice(0, 5).join(", ") + (touched.length > 5 ? `, and ${touched.length - 5} more` : "");
@@ -30723,6 +30834,21 @@ async function prAuthor(d, pr) {
   const emails = theirs.flatMap((c) => c.commit.author?.email ? [c.commit.author.email.toLowerCase()] : []);
   return { verified, emails: new Set(emails) };
 }
+async function requestOneReviewer({ client, io }, pr, reviewers, decision) {
+  if (decision !== "human-review") return void 0;
+  const logins = reviewers.map(noreplyLogin).filter((l) => l !== void 0);
+  const login = assignReviewer(logins, `${pr.base.repo.full_name}#${pr.number}`);
+  if (login === void 0 || sameLogin(login, pr.user?.login) || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return void 0;
+  if ((await client.listReviews(pr.number)).some((r) => sameLogin(r.user?.login, login))) return void 0;
+  try {
+    await client.requestReviewers(pr.number, [login]);
+    return login;
+  } catch (e) {
+    if (!(e instanceof GitHubError && (e.status === 403 || e.status === 422))) throw e;
+    io.warning(`Could not request a review from @${login} (${e.message}). Ask them by hand.`);
+    return void 0;
+  }
+}
 async function changedFiles(repoDir, base, head) {
   const out = await git(repoDir, ["diff", "--name-only", "--no-renames", "-z", `${base}...${head}`]);
   return out.split("\0").filter(Boolean);
@@ -30730,7 +30856,7 @@ async function changedFiles(repoDir, base, head) {
 async function runAction(d) {
   return runPullRequest(d, readPullRequest(d.event));
 }
-var MAX_RUN_MS = 15 * 6e4;
+var MAX_RUN_MS = 2 * 6e4;
 function trustedSince(comment, head) {
   const since = readEligibleSince(comment?.body ?? void 0, head);
   const created = comment?.created_at ? Date.parse(comment.created_at) : NaN;
@@ -30803,9 +30929,15 @@ async function scorePullRequest(d, pr) {
   io.setOutput("score", result.score.toFixed(4));
   io.setOutput("tier", result.tier);
   io.setOutput("decision", result.policy.decision);
+  const current = await client.pullHeadSha(pr.number);
+  if (current !== pr.head.sha) {
+    io.notice(`The PR head moved to ${current} while opendrs scored ${pr.head.sha}: not approving. The run for the new head decides.`);
+    return { score: result.score, tier: result.tier, decision: result.policy.decision, approved: false };
+  }
   const files = await changedFiles(d.repoDir, pr.base.sha, pr.head.sha);
   const paths = files.filter((f) => !matchAny(config2.paths.ignore, f));
-  result.policy.suggestedReviewers = suggestReviewers(history, paths, void 0, 3 + author.emails.size).filter((email3) => !author.emails.has(email3)).slice(0, 3);
+  result.policy.suggestedReviewers = suggestReviewers(history, paths, void 0, 3 + author.emails.size, result.tier !== "green").filter((email3) => !author.emails.has(email3)).slice(0, 3);
+  const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
   const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : void 0;
   const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
   const labels = pr.labels.map((l) => l.name);
@@ -30814,7 +30946,7 @@ async function scorePullRequest(d, pr) {
   }
   const approval = await io.group(
     "Approval",
-    () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer, now: /* @__PURE__ */ new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels })
+    () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer, now: /* @__PURE__ */ new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment })
   );
   const report = renderMarkdown(result);
   const warning = predictable ? `
@@ -30822,10 +30954,12 @@ async function scorePullRequest(d, pr) {
 **Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `
 ${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
+  const reviewer = assigned ? `
+**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
   const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}
 ${report}`}${warning}
 
-**Auto-approval:** ${cell(approval.status)}${eligible}`;
+**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
   if (comments) {
     await unlessForbidden(
       async () => {
@@ -30901,9 +31035,13 @@ async function runSweep(d) {
   io.info(pulls.length ? `Sweeping ${pulls.length} open PR(s) labelled ${LANDING_LABEL}: ${pulls.map((p) => `#${p.number}`).join(", ")}.` : `No open PRs labelled ${LANDING_LABEL}.`);
   const failed = [];
   for (const pr of pulls) {
+    if (pr.labels.some((l) => l.name === HOLD_LABEL)) {
+      io.info(`PR #${pr.number}: on hold (${HOLD_LABEL}); skipped until the label is removed.`);
+      continue;
+    }
     await io.group(`PR #${pr.number}: ${pr.title}`, async () => {
       try {
-        await git(d.repoDir, ["fetch", "-q", "origin", `refs/pull/${pr.number}/head`]);
+        await git(d.repoDir, ["fetch", "-q", "origin", `refs/heads/${pr.base.ref}`, `refs/pull/${pr.number}/head`]);
         await runPullRequest(d, pr);
       } catch (e) {
         failed.push(pr.number);

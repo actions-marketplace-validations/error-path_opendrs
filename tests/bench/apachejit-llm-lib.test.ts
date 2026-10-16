@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categoryStats, gateStats, passesGate, renderLlmReport, sample } from "../../bench/apachejit/lib.js";
+import { LLM_CAVEATS, categoryStats, gateStats, passesGate, renderLlmReport, sample } from "../../bench/apachejit/lib.js";
 import type { JudgedCommit } from "../../bench/apachejit/lib.js";
 import { mulberry32 } from "../../src/model/fit.js";
 
@@ -71,5 +71,8 @@ it("renderLlmReport shows — for undefined rates and metrics, never NaN", () =>
   expect(md).toContain("| logic_bug | 0 | 0 | — |");
   expect(md).toContain("prompt hash: 0123456789ab");
   expect(md).toContain("- a note");
+  expect(md).toContain("## Caveats");
+  for (const c of LLM_CAVEATS) expect(md).toContain(c);
+  expect(LLM_CAVEATS.join("\n")).toMatch(/training/);
   expect(md).not.toContain("NaN");
 });

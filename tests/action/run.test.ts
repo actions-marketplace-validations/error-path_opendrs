@@ -408,6 +408,77 @@ describe("author verification", () => {
     expect(reviewersShown()).toContain("maintainer@example.com");
     expect(reviewersShown()).not.toContain(PR_EMAIL);
   });
+
+  it("requests a review from exactly one expert's GitHub login when a human must review", async () => {
+    const experts = (repo: TestRepo) => {
+      for (const [n, login] of [["1", "ana"], ["2", "bo"], ["3", "cy"], ["4", "di"]]) {
+        repo.commit({ "src/a.ts": `${n}\n` }, `fix ${n}`, { name: login!, email: `${n}0+${login}@users.noreply.github.com` });
+      }
+    };
+    const t = await run({ before: experts, result: result(0.6, "yellow", "human-review") });
+    await t.promise;
+    const requested = t.gh.ops("requestReviewers").map((e) => e.body as { reviewers: string[] });
+    expect(requested).toHaveLength(1);
+    expect(requested[0]!.reviewers).toHaveLength(1);
+    const [login] = requested[0]!.reviewers;
+    // The three most recent committers tie on score; "ana", the oldest, is outside the top three.
+    expect(["bo", "cy", "di"]).toContain(login);
+    expect(t.gh.comments[0]!.body).toContain(`**Reviewer:** @${login} (one of the top experts, picked at random so the work spreads)`);
+  });
+
+  it("requests no review when the PR lands without a human", async () => {
+    const t = await run({ before: (repo) => repo.commit({ "src/a.ts": "0\n" }, "fix", { name: "ana", email: "ana@users.noreply.github.com" }) });
+    await t.promise;
+    expect(t.gh.ops("requestReviewers")).toHaveLength(0);
+  });
+
+  const ana = (repo: TestRepo, message = "tidy") => repo.commit({ "src/a.ts": "0\n" }, message, { name: "ana", email: "ana@users.noreply.github.com" });
+
+  it("picks the reviewer among the experts with a GitHub login, so an email-only expert does not leave the PR without one", async () => {
+    const t = await run({
+      before: (repo) => {
+        repo.commit({ "src/a.ts": "x\n" }, "tidy", { name: "X", email: "x@example.com" });
+        ana(repo);
+      },
+      result: result(0.6, "yellow", "human-review"),
+    });
+    await t.promise;
+    expect(t.gh.ops("requestReviewers").map((e) => e.body)).toEqual([{ reviewers: ["ana"] }]);
+  });
+
+  it("does not re-request a review from an expert who has already reviewed the PR", async () => {
+    const t = await run({
+      before: ana,
+      result: result(0.6, "yellow", "human-review"),
+      gh: { reviews: [{ id: 3, body: "looks fine", state: "COMMENTED", user: { login: "ana", type: "User" }, commit_id: "old" }] },
+    });
+    await t.promise;
+    expect(t.gh.ops("requestReviewers")).toEqual([]);
+    expect(t.gh.comments[0]!.body).not.toContain("**Reviewer:**");
+  });
+
+  it("ranks the authors of fix commits higher for a yellow or red PR, as the gate does", async () => {
+    const t = await run({
+      before: (repo) => {
+        ana(repo, "fix: crash on empty input");
+        repo.commit({ "src/a.ts": "00\n" }, "tidy", { name: "bo", email: "bo@users.noreply.github.com" });
+      },
+      result: result(0.6, "yellow", "human-review"),
+    });
+    await t.promise;
+    expect(reviewersShown()[0]).toBe("ana@users.noreply.github.com");
+    expect(t.gh.ops("requestReviewers").map((e) => e.body)).toEqual([{ reviewers: ["ana"] }]);
+  });
+
+  it("leaves the comment, labels and reviewer request to the run for the new head when the head moved while scoring", async () => {
+    const t = await run({ before: ana, result: result(0.6, "yellow", "human-review") });
+    t.gh.headSha = "f".repeat(40);
+    await expect(t.promise).resolves.toMatchObject({ approved: false, decision: "human-review" });
+    expect(t.gh.ops("createComment")).toEqual([]);
+    expect(t.gh.ops("addLabels")).toEqual([]);
+    expect(t.gh.ops("requestReviewers")).toEqual([]);
+    expect(t.log()).toMatch(/::notice::.*head moved/);
+  });
 });
 
 describe("base-branch config", () => {
@@ -943,6 +1014,27 @@ describe("landing delay", () => {
     const t = await run({ baseConfig: DELAYED, result: delayed(), ownComment: (head) => markerFor(head, 120), ownCommentCreated: new Date().toISOString() });
     await expect(t.promise).resolves.toMatchObject({ approved: false });
     expect(t.gh.comments[0]!.body).toContain("approves at");
+  });
+
+  const created = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+
+  it("ignores a marker more than two minutes older than the comment that carries it", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), ownComment: (head) => markerFor(head, 40), ownCommentCreated: created(35) });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.comments[0]!.body).toContain("approves at");
+  });
+
+  it("trusts a marker written within two minutes before its comment", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), ownComment: (head) => markerFor(head, 36), ownCommentCreated: created(35) });
+    await expect(t.promise).resolves.toMatchObject({ approved: true });
+  });
+
+  it("does not approve or set opendrs:landing when the comment input is false: the delay has nowhere to keep its clock", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), inputs: { comment: false } });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.ops("createReview")).toEqual([]);
+    expect(t.gh.labels).not.toContain(LANDING_LABEL);
+    expect(t.log()).toContain("landing delay needs the comment input");
   });
 
   it("sets opendrs:landing even when the labels input is false", async () => {

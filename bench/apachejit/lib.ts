@@ -291,6 +291,11 @@ export const CAVEATS: string[] = [
   "**Balanced training file.** `train` is undersampled to about 50/50 overall (from 5 % to 85 % positive per project), so `fitModel`'s 5:1 resample keeps every row and its prior correction centres scores on the training file's rate, not the real one. AUC and recall@k do not depend on that, but F1 does. The F1 threshold is therefore chosen on training scores with each negative weighted so the training set has the real pre-2017 positive rate of the same projects (from `apachejit_total.csv`); test rows never choose it.",
 ];
 
+/** Caveats specific to the LLM report, on top of the benchmark's own (which `renderLlmReport` does not repeat). */
+export const LLM_CAVEATS: string[] = [
+  "**Memorization.** The judged commits are public 2003–2019 Apache commits that the model has most likely seen in training, fixes included. The LLM rows may therefore overstate performance on unseen code; treat them as an upper bound, not an estimate for your repository.",
+];
+
 function fmtNum(x: number | null | undefined): string {
   return x === null || x === undefined || !Number.isFinite(x) ? "—" : x.toFixed(3);
 }
@@ -474,6 +479,10 @@ export function renderLlmReport(report: LlmReport): string {
 
   lines.push("## Risk categories", "", "| Category | Flagged test commits | Buggy | Buggy rate |", "|---|---|---|---|");
   for (const c of report.categories) lines.push(`| ${c.category} | ${c.flagged} | ${c.buggy} | ${fmtPct(rate(c.buggy, c.flagged))} |`);
+  lines.push("");
+
+  lines.push("## Caveats", "");
+  for (const c of LLM_CAVEATS) lines.push(`- ${c}`);
   lines.push("");
 
   lines.push("## Notes", "");

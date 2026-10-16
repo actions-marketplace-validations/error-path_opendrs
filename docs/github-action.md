@@ -61,7 +61,7 @@ opendrs checks out and reads the PR's code. opendrs scores on events that carry 
 | `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. When `false`, the `llm` section and the `model` path still come from the base commit, so a PR cannot send the LLM key to its own `llm.baseUrl` or export another secret through `llm.apiKeyEnv`. |
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). A landing delay needs it: the comment records when the head commit became eligible. |
-| `labels` | `true` | Set the risk label and remove stale ones. |
+| `labels` | `true` | Set the risk label and remove stale ones. opendrs creates its labels (`risk:*`, `opendrs:landing`, `opendrs:hold`, `opendrs:review-after-merge`) with their own colours and descriptions, and recolours one GitHub auto-created in default grey; a colour you chose is kept. |
 | `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 
 | Output | Values |
@@ -317,10 +317,12 @@ only for the current head: a push restarts the delay. To veto, do any of these b
 
 Nothing runs when the delay ends unless something re-runs the Action, so add a scheduled sweep to
 the same workflow. On `schedule` and `workflow_dispatch` events the Action lists the open PRs
-labelled `opendrs:landing`, fetches `refs/pull/<n>/head` for each into the checkout and runs the
-same per-PR flow (score, comment, labels, approval). One PR's error is logged as `::error::` and
-the sweep goes on to the next; the job fails at the end if any PR failed. The checkout must be
-the default branch with `fetch-depth: 0`, so the base commit and the history are present:
+labelled `opendrs:landing`, fetches `refs/pull/<n>/head` and the base branch for each into the
+checkout and runs the same per-PR flow (score, comment, labels, approval). A PR that also carries
+`opendrs:hold` is skipped, not re-scored every sweep; removing the label resumes it through the
+`unlabeled` event. One PR's error is logged as `::error::` and the sweep goes on to the next; the
+job fails at the end if any PR failed. The checkout must be the default branch with
+`fetch-depth: 0`, so the base commit and the history are present:
 
 ```yaml
 on:
@@ -331,7 +333,7 @@ on:
   workflow_dispatch:
 concurrency:
   group: opendrs-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   opendrs:
     runs-on: ubuntu-latest
@@ -343,7 +345,8 @@ jobs:
 ```
 
 The same `concurrency` block serves both: a sweep has no PR number, so sweeps share the group
-`opendrs-` and a new one cancels a stale one. The sweep needs the same permissions as a PR run, plus `contents: write` when it merges, and it
+`opendrs-`, and the next one queues behind a running one instead of cancelling it, so a long sweep
+still finishes. The sweep needs the same permissions as a PR run, plus `contents: write` when it merges, and it
 uses the sweep run's `github-token`, so it cannot run on fork PRs (which are never approved anyway).
 On a sweep the `score`, `tier` and `decision` outputs are those of the last PR swept.
 

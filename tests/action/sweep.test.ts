@@ -19,7 +19,7 @@ vi.mock("../../src/report/markdown.js", async (importOriginal) => ({
 
 const { scoreDiff } = await import("../../src/engine.js");
 const { COMMENT_MARKER, LANDING_LABEL } = await import("../../src/action/run.js");
-const { eligibleMarker } = await import("../../src/action/approval.js");
+const { HOLD_LABEL, eligibleMarker } = await import("../../src/action/approval.js");
 const { listLabelledPulls, runSweep } = await import("../../src/action/sweep.js");
 const { runFromEnv } = await import("../../src/action/env.js");
 
@@ -43,14 +43,14 @@ function delayed(): ScoreResult {
 }
 
 /** A node of the GraphQL `pullRequests` connection for PR `number` on head `head`. */
-const node = (number: number, base: string, head: string, author = { login: "octocat", __typename: "User" }) => ({
+const node = (number: number, base: string, head: string, author = { login: "octocat", __typename: "User" }, labels = [LANDING_LABEL]) => ({
   number,
   id: `PR_${number}`,
   title: `PR ${number}`,
   body: null,
   isDraft: false,
   author,
-  labels: { nodes: [{ name: LANDING_LABEL }] },
+  labels: { nodes: labels.map((name) => ({ name })) },
   baseRefOid: base,
   baseRefName: "main",
   baseRepository: { nameWithOwner: "o/r" },
@@ -82,11 +82,12 @@ function answerPulls(pages: Response[]): Array<Record<string, unknown>> {
 
 /**
  * A PR #7 on `origin` reachable only as refs/pull/7/head, and a clone of origin's main as the job's
- * checkout; `numbers` are the PRs the sweep lists, all pointing at that head.
+ * checkout; `numbers` are the PRs the sweep lists, all pointing at that head and carrying `labels`.
+ * With `baseMoves`, main gains a commit on origin after the clone, as a push during the sweep would.
  */
-function setup(numbers: number[], gh: Partial<FakeGitHub> = {}) {
+function setup(numbers: number[], gh: Partial<FakeGitHub> = {}, { labels = [LANDING_LABEL], baseMoves = false } = {}) {
   origin = makeRepo();
-  const baseSha = origin.commit({ "src/a.ts": "1\n", ".opendrs.yml": stringify(DELAYED) }, "base");
+  let baseSha = origin.commit({ "src/a.ts": "1\n", ".opendrs.yml": stringify(DELAYED) }, "base");
   origin.git("checkout", "-q", "-b", "feature");
   const headSha = origin.commit({ "src/a.ts": "2\n" }, "change");
   origin.git("checkout", "-q", "main");
@@ -94,9 +95,10 @@ function setup(numbers: number[], gh: Partial<FakeGitHub> = {}) {
   origin.git("branch", "-D", "feature");
   checkout = mkdtempSync(join(tmpdir(), "opendrs-sweep-"));
   execFileSync("git", ["clone", "-q", origin.dir, checkout]);
+  if (baseMoves) baseSha = origin.commit({ "src/b.ts": "1\n" }, "base moves");
 
-  const fake = installFakeGitHub({ labels: [LANDING_LABEL], headSha, commits: [{ sha: headSha, author: { login: "octocat" }, commit: { author: { email: "octocat@example.com" } } }], ...gh });
-  const queries = answerPulls([page(numbers.map((n) => node(n, baseSha, headSha)))]);
+  const fake = installFakeGitHub({ labels, headSha, commits: [{ sha: headSha, author: { login: "octocat" }, commit: { author: { email: "octocat@example.com" } } }], ...gh });
+  const queries = answerPulls([page(numbers.map((n) => node(n, baseSha, headSha, undefined, labels)))]);
   vi.mocked(scoreDiff).mockResolvedValue(delayed());
   let log = "";
   const io = createWorkflowIO({}, (s) => void (log += s));
@@ -111,7 +113,7 @@ function setup(numbers: number[], gh: Partial<FakeGitHub> = {}) {
     owner: "o",
     repo: "r",
   };
-  return { deps, gh: fake, queries, headSha, log: () => log };
+  return { deps, gh: fake, queries, baseSha, headSha, log: () => log };
 }
 
 describe("runSweep", () => {
@@ -133,6 +135,19 @@ describe("runSweep", () => {
     await expect(runSweep(t.deps)).resolves.toBeUndefined();
     expect(t.gh.ops("createReview")).toHaveLength(1);
     expect(t.gh.labels).not.toContain(LANDING_LABEL);
+  });
+
+  it("skips a PR on hold instead of re-scoring it; removing the hold label resumes it through the unlabeled event", async () => {
+    const t = setup([7], {}, { labels: [LANDING_LABEL, HOLD_LABEL] });
+    await expect(runSweep(t.deps)).resolves.toBeUndefined();
+    expect(scoreDiff).not.toHaveBeenCalled();
+    expect(t.log()).toMatch(new RegExp(`PR #7.*${HOLD_LABEL}`));
+  });
+
+  it("fetches the base branch too, so a push to it during the sweep does not leave the base commit missing", async () => {
+    const t = setup([7], {}, { baseMoves: true });
+    await expect(runSweep(t.deps)).resolves.toBeUndefined();
+    expect(vi.mocked(scoreDiff).mock.calls.map((c) => c[0].base)).toEqual([t.baseSha]);
   });
 
   it("does nothing when no open PR carries the label", async () => {
