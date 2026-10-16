@@ -176,6 +176,18 @@ freezes: []
 #    from: "2026-11-26"           # inclusive local dates
 #    to: "2026-11-30"
 #    green: 0.15
+
+# Per-source policy (RADAR): PRs are classified as human, bot or agent (AI coding agent) from commit
+# trailers, author emails and, in CI, the GitHub account type. Every setting only tightens the gate.
+sources:
+  agent: {}
+#    green: 0.2               # stricter green for AI-agent PRs
+#    requireSafe: true        # LLM judge must call every hunk safe (needs llm.enabled)
+#    dailyCap: 20             # at most 20 agent commits landed in the last 24 hours
+#    trackRecord: { days: 60, minCommits: 10, maxRevertRate: 0.05 }
+#    patterns: []             # extra regexes over commit messages and author emails
+  bot: {}
+  human: {}
 `;
 
 export const WORKFLOW_TEMPLATE = `# opendrs: comment a risk score on every pull request.

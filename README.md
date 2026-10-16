@@ -143,7 +143,8 @@ The decision rules run in this order; the first that matches wins:
    `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
 4. tier is not green, or an active freeze window suspends auto-approval or holds it to a
-   stricter green → `human-review`;
+   stricter green, or the PR's source (human, bot or AI agent) has its own stricter green, has
+   hit its daily cap, or lacks the required track record → `human-review`;
 5. the LLM judge failed, or `llm.requireSafe` is on and the judge did not call every hunk safe
    with enough confidence, or the `unknown` signals, all at their worst at once, could have changed
    the tier → `human-review`;
@@ -185,6 +186,15 @@ The rails that matter when the Action can approve PRs:
 - **Freeze windows.** Meta gates more diffs on weekends and around peak events, when fewer people
   can respond to an incident. A `freezes` window (weekdays and/or dates in a timezone) suspends
   auto-approval, or with `green` holds it to a stricter threshold. Tiers and labels do not change.
+- **Per-source policy.** Like RADAR, opendrs classifies each PR as written by a person, a bot
+  account (Dependabot, Renovate) or an AI coding agent (Claude Code, GitHub Copilot's coding agent,
+  Cursor, Codex, Devin, Jules, Aider, or your own `sources.agent.patterns`). It reads commit
+  trailers, author emails and, in CI, the GitHub account type. The comment shows the source and
+  why. `sources.<human|bot|agent>` can set a stricter `green`, `requireSafe` (the LLM gate for that
+  source only), a `dailyCap` on that source's commits landed in the last 24 hours, and a
+  `trackRecord` (by default: at least 10 landed commits in 60 days, at most 5 % of them reverted).
+  These settings can only tighten the gate. Trailers are written by the PR author's tools, so a
+  source must never earn a looser threshold than a person gets.
 - **Content blocklist.** `content.block` regexes are checked against every added line, like
   Meta's RADAR blocklisted code phrases. A match goes to a human, and the reason names
   `file:line`.
@@ -452,6 +462,15 @@ content:
   block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]
 
 freezes: []   # while a window is active: auto-approval suspended, or held to a stricter green
+sources:      # per-source policy; every setting only tightens the gate
+  agent:
+    green: 0.2                # stricter green for AI-agent PRs (thresholds.mode units)
+    requireSafe: true         # LLM judge must call every hunk safe (needs llm.enabled)
+    dailyCap: 20              # at most 20 agent commits landed in the last 24 hours
+    trackRecord: { days: 60, minCommits: 10, maxRevertRate: 0.05 }
+    patterns: []              # extra regexes over commit messages / author emails
+  bot: {}
+  human: {}
 #  - name: weekend
 #    timezone: America/New_York   # IANA name; default UTC
 #    days: [sat, sun]
