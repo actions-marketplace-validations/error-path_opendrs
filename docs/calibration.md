@@ -76,6 +76,40 @@ about an `inducing` sha that is not in the indexed history or a `fix` sha that d
 the repository, and do not count it. They also report how many commits they skipped because they
 could not be read (for example objects missing from a partial clone).
 
+## Results on ApacheJIT
+
+[ApacheJIT](https://zenodo.org/records/5907002) (Keshavarz and Nagappan, MSR 2022) is a public
+benchmark of 106,674 commits from 15 Apache Java projects, labelled by SZZ with JIRA links. We
+replayed its commits with opendrs's own signals, fitted `calibrate`'s model on the official
+training years (2003–2016), and scored the held-out years (2017–2019). The Kamei row is a logistic
+regression on the dataset's classic JIT metrics for the same commits. The DRS-OSS row is quoted
+from [its paper](https://arxiv.org/abs/2511.21964), which used a fine-tuned LLM on a different
+split, so read it as a reference point, not a like-for-like comparison.
+
+Held-out commits, excluding `apache/hadoop` (it has no positive labels): 24,686 commits, 5,818
+labelled positive.
+
+| Model | AUC | Caught at 5 % | at 10 % | at 30 % | at 50 % | F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| opendrs, default priors | 0.771 | 13.6 % | 24.9 % | 59.6 % | 80.0 % | 0.473 |
+| opendrs, calibrated | 0.819 | 15.5 % | 29.1 % | 66.1 % | 85.3 % | 0.559 |
+| Kamei LR (dataset metrics) | 0.821 | 15.8 % | 29.6 % | 66.2 % | 85.4 % | 0.554 |
+| DRS-OSS (published, other split) | 0.895 | 31.5 % | 50.3 % | 86.4 % | — | 0.641 |
+
+- **Calibration helps.** Fitting the weights raised AUC from 0.771 to 0.819 pooled, and in 13 of
+  the 14 projects with positives (hadoop-hdfs, 0.866 → 0.851, is the exception).
+- **opendrs ties the classic JIT metrics; it does not beat them.** Calibrated opendrs and the
+  Kamei regression are within 0.002 AUC pooled. Per project, opendrs is ahead in 4 of 14
+  (activemq, kafka, hadoop-mapreduce, zeppelin) and behind in the other 10, by up to 0.09
+  (zookeeper). Note that opendrs computes its signals from git alone, with no issue tracker.
+- **A model that reads the diff ranks much better.** DRS-OSS catches 86 % of buggy commits in its
+  riskiest 30 %, against 66 % here. That gap is what an LLM signal such as `llm.semantic` would have to
+  close, and this benchmark is how to measure it.
+
+The full report, with per-project numbers, coverage and caveats, is in
+[`bench/apachejit/results.md`](../bench/apachejit/results.md); [`bench/apachejit/README.md`](../bench/apachejit/README.md)
+explains how to reproduce it.
+
 ## Reading the metrics
 
 **captured@X%.** Sort the commits by score, gate the riskiest X %, and count what share of
