@@ -40,7 +40,7 @@ function result(): ScoreResult {
       mergeMethod: "queue",
       suggestedReviewers: ["ana@example.com"],
     },
-    llm: { risk: 0.6, rationale: "changes locking", riskySnippets: [] },
+    llm: { risk: 0.6, rationale: "changes locking", riskySnippets: [], confidence: 7, hunks: [], unclassified: [], truncated: false },
     diff: { base: "b", head: "h", files: 3, added: 40, deleted: 2 },
     model: "default",
     version: "0.1.5",
