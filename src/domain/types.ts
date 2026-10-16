@@ -69,6 +69,11 @@ export interface Authorship {
   evidence: string[];
   /** True when the kind came from the GitHub account type (CI), which the PR itself cannot change. */
   verified: boolean;
+  /**
+   * The kind the PR is at least, from data its commits cannot change (the account type in CI);
+   * "human" when absent. The gate applies this kind's policy too, so commit text cannot escape it.
+   */
+  floor?: SourceKind;
 }
 
 /** One commit as seen by the history index. */

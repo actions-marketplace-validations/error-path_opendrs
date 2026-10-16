@@ -38,7 +38,7 @@ describe("scoreDiff source", () => {
     const s2 = repo.commit({ "a.ts": "4\n" }, CLAUDE);
 
     const r = await score("side");
-    expect(r.source).toEqual({ kind: "agent", name: "Claude Code", evidence: [`commit ${s2.slice(0, 7)}: trailer "Co-Authored-By: Claude <noreply@anthropic.com>"`], verified: false });
+    expect(r.source).toEqual({ kind: "agent", name: "Claude Code", evidence: [`commit ${s2.slice(0, 7)}: trailer "Co-Authored-By: Claude <noreply@anthropic.com>"`], verified: false, floor: "human" });
     expect(gateInput().source).toEqual(r.source);
     // Newest first, merges left out.
     expect(gateInput().prCommits).toEqual([s2, s1]);
@@ -47,7 +47,7 @@ describe("scoreDiff source", () => {
   it("is human for a plain branch", async () => {
     repo.git("checkout", "-q", "-b", "side");
     repo.commit({ "a.ts": "3\n" }, "human work");
-    expect((await score("side")).source).toEqual({ kind: "human", name: "human", evidence: [], verified: false });
+    expect((await score("side")).source).toEqual({ kind: "human", name: "human", evidence: [], verified: false, floor: "human" });
   });
 
   it("takes the PR account from the Action over the commits", async () => {

@@ -28033,8 +28033,8 @@ function classifyCommit(c, patterns = []) {
 function accountSource({ login, type }) {
   const evidence = [`PR opened by ${login}${type === "Bot" ? " (GitHub App)" : ""}`];
   const agent = AGENTS.find((a) => a.logins?.includes(login.toLowerCase()));
-  if (agent) return { kind: "agent", name: agent.name, evidence, verified: true };
-  if (type === "Bot" || BOT_NAME.test(login)) return { kind: "bot", name: login, evidence, verified: true };
+  if (agent) return { kind: "agent", name: agent.name, evidence, verified: true, floor: "agent" };
+  if (type === "Bot" || BOT_NAME.test(login)) return { kind: "bot", name: login, evidence, verified: true, floor: "bot" };
   return void 0;
 }
 function classifyPr(commits, account, patterns = []) {
@@ -28044,21 +28044,22 @@ function classifyPr(commits, account, patterns = []) {
   const cite = (kind) => sources.filter((s) => s.kind === kind).map((s) => `commit ${s.sha.slice(0, 7)}: ${s.evidence}`);
   const agent = sources.find((s) => s.kind === "agent");
   if (agent) {
-    return { kind: "agent", name: agent.name, evidence: [...opener?.evidence ?? [], ...cite("agent")].slice(0, MAX_EVIDENCE), verified: false };
+    const floor = opener?.floor ?? "human";
+    return { kind: "agent", name: agent.name, evidence: [...opener?.evidence ?? [], ...cite("agent")].slice(0, MAX_EVIDENCE), verified: false, floor };
   }
   if (opener) return opener;
   const bot = sources.find((s) => s.kind === "bot");
   if (bot && sources.every((s) => s.kind === "bot")) {
-    return { kind: "bot", name: bot.name, evidence: cite("bot").slice(0, MAX_EVIDENCE), verified: false };
+    return { kind: "bot", name: bot.name, evidence: cite("bot").slice(0, MAX_EVIDENCE), verified: false, floor: "human" };
   }
-  return { kind: "human", name: "human", evidence: [], verified: false };
+  return { kind: "human", name: "human", evidence: [], verified: false, floor: "human" };
 }
 
 // src/git/history.ts
-var RECORD = "";
+var RECORD = "\0";
 var FIELD = "";
 var END = "";
-var FORMAT = "%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
+var FORMAT = "%x00%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
 var REVERTS = /This reverts commit ([0-9a-f]{7,40})/i;
 async function buildHistoryIndex(repoDir, ref, config2) {
   const fixRe = compileFixPattern(config2.history.fixPattern);
@@ -28076,7 +28077,7 @@ async function buildHistoryIndex(repoDir, ref, config2) {
   const commits = [];
   const changes = [];
   for (const record2 of out.split(RECORD)) {
-    const end = record2.indexOf(END);
+    const end = record2.lastIndexOf(END);
     if (end < 0) continue;
     const [sha = "", parents = "", authorName = "", authorEmail = "", time3 = "0", subject = "", ...body] = record2.slice(0, end).split(FIELD);
     const revertsSha = REVERTS.exec(body.join(FIELD))?.[1];
@@ -29423,9 +29424,10 @@ function decide(input2) {
       fired.push({ decision: "human-review", reason: `freeze "${f.name}": score ${input2.score.toFixed(2)} \u2265 freeze green ${green.toFixed(2)}` });
     }
   }
-  const kind = input2.source?.kind;
-  const source = kind ? config2.sources[kind] : void 0;
-  if (kind && source) {
+  const kinds = input2.source ? [.../* @__PURE__ */ new Set([input2.source.floor ?? "human", input2.source.kind])] : [];
+  const inPr = new Set(input2.prCommits ?? []);
+  for (const kind of kinds) {
+    const source = config2.sources[kind];
     if (source.green !== void 0) {
       const green = config2.thresholds.mode === "absolute" ? source.green : percentileScore(model.percentiles, source.green);
       if (green === void 0) {
@@ -29437,7 +29439,6 @@ function decide(input2) {
         fired.push({ decision: "human-review", reason: `source ${kind}: score ${input2.score.toFixed(2)} \u2265 source green ${green.toFixed(2)}` });
       }
     }
-    const inPr = new Set(input2.prCommits ?? []);
     const landed = (ms) => input2.history.commits.filter((c) => c.source === kind && !inPr.has(c.sha) && c.time * 1e3 > now - ms && c.time * 1e3 <= now);
     if (source.dailyCap !== void 0) {
       const n = landed(DAY_MS).length;
@@ -29463,7 +29464,8 @@ function decide(input2) {
     }
   }
   if (input2.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
-  const requireSafe = config2.llm.requireSafe ? "llm.requireSafe" : source?.requireSafe ? `sources.${kind}.requireSafe` : void 0;
+  const safeKind = kinds.find((k) => config2.sources[k].requireSafe);
+  const requireSafe = config2.llm.requireSafe ? "llm.requireSafe" : safeKind ? `sources.${safeKind}.requireSafe` : void 0;
   if (requireSafe && !input2.llm && !input2.llmFailed) {
     fired.push({ decision: "human-review", reason: `LLM judge did not run; ${requireSafe} needs its verdict` });
   }
@@ -30266,13 +30268,13 @@ async function loadModel(repoDir, config2) {
   return { model: DEFAULT_WEIGHTS, kind: "default" };
 }
 var FIELD2 = "";
-var RECORD2 = "";
+var SHA = /^[0-9a-f]{40}$/;
 async function prCommits(repoDir, base, head) {
   const range = base === EMPTY_TREE ? head : `${base}..${head}`;
-  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%H${FIELD2}%an${FIELD2}%ae${FIELD2}%B${RECORD2}`, "--end-of-options", range]);
-  return out.split(RECORD2).flatMap((record2) => {
+  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%x00%H${FIELD2}%an${FIELD2}%ae${FIELD2}%B`, "--end-of-options", range]);
+  return out.split("\0").flatMap((record2) => {
     const [sha = "", authorName = "", authorEmail = "", ...message] = record2.trim().split(FIELD2);
-    return sha ? [{ sha, authorName, authorEmail, message: message.join(FIELD2) }] : [];
+    return SHA.test(sha) ? [{ sha, authorName, authorEmail, message: message.join(FIELD2) }] : [];
   });
 }
 async function computeSignals(ctx) {

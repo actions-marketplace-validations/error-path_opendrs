@@ -52,15 +52,16 @@ export async function loadModel(repoDir: string, config: OpendrsConfig): Promise
 }
 
 const FIELD = "\x1f";
-const RECORD = "\x1e";
+const SHA = /^[0-9a-f]{40}$/;
 
 /** The PR's own commits, newest first, without merges: what `classifyPr` reads and the gate excludes from "landed". */
 async function prCommits(repoDir: string, base: string, head: string) {
   const range = base === EMPTY_TREE ? head : `${base}..${head}`;
-  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%H${FIELD}%an${FIELD}%ae${FIELD}%B${RECORD}`, "--end-of-options", range]);
-  return out.split(RECORD).flatMap((record) => {
+  // Records start with NUL, which a commit message cannot contain, so a message cannot forge a record.
+  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%x00%H${FIELD}%an${FIELD}%ae${FIELD}%B`, "--end-of-options", range]);
+  return out.split("\0").flatMap((record) => {
     const [sha = "", authorName = "", authorEmail = "", ...message] = record.trim().split(FIELD);
-    return sha ? [{ sha, authorName, authorEmail, message: message.join(FIELD) }] : [];
+    return SHA.test(sha) ? [{ sha, authorName, authorEmail, message: message.join(FIELD) }] : [];
   });
 }
 

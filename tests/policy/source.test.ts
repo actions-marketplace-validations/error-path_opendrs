@@ -62,8 +62,8 @@ describe("classifyPr", () => {
   const dependabot = (sha: string) => by("dependabot[bot]", "49699333+dependabot[bot]@users.noreply.github.com", "chore: bump", sha);
 
   it("is human with no evidence when every commit is human, or when there are none", () => {
-    expect(classifyPr([human()])).toEqual({ kind: "human", name: "human", evidence: [], verified: false });
-    expect(classifyPr([])).toEqual({ kind: "human", name: "human", evidence: [], verified: false });
+    expect(classifyPr([human()])).toEqual({ kind: "human", name: "human", evidence: [], verified: false, floor: "human" });
+    expect(classifyPr([])).toEqual({ kind: "human", name: "human", evidence: [], verified: false, floor: "human" });
   });
 
   it("is agent when any commit is, with the commit named in the evidence", () => {
@@ -72,6 +72,7 @@ describe("classifyPr", () => {
       name: "Claude Code",
       evidence: ['commit 3f2a9c1: trailer "Co-Authored-By: Claude <noreply@anthropic.com>"'],
       verified: false,
+      floor: "human",
     });
   });
 
@@ -92,6 +93,7 @@ describe("classifyPr", () => {
       name: "dependabot[bot]",
       evidence: ["PR opened by dependabot[bot] (GitHub App)"],
       verified: true,
+      floor: "bot",
     });
     expect(classifyPr([human()], { login: "renovate[bot]" })).toMatchObject({ kind: "bot", name: "renovate[bot]", verified: true });
     expect(classifyPr([human()], { login: "devin-ai-integration[bot]", type: "Bot" })).toEqual({
@@ -99,6 +101,7 @@ describe("classifyPr", () => {
       name: "Devin",
       evidence: ["PR opened by devin-ai-integration[bot] (GitHub App)"],
       verified: true,
+      floor: "agent",
     });
     expect(classifyPr([human()], { login: "octocat", type: "User" })).toMatchObject({ kind: "human", verified: false });
   });

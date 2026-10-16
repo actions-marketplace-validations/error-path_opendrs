@@ -100,8 +100,8 @@ export function classifyCommit(c: CommitLike, patterns: RegExp[] = []): CommitSo
 function accountSource({ login, type }: { login: string; type?: string }): Authorship | undefined {
   const evidence = [`PR opened by ${login}${type === "Bot" ? " (GitHub App)" : ""}`];
   const agent = AGENTS.find((a) => a.logins?.includes(login.toLowerCase()));
-  if (agent) return { kind: "agent", name: agent.name, evidence, verified: true };
-  if (type === "Bot" || BOT_NAME.test(login)) return { kind: "bot", name: login, evidence, verified: true };
+  if (agent) return { kind: "agent", name: agent.name, evidence, verified: true, floor: "agent" };
+  if (type === "Bot" || BOT_NAME.test(login)) return { kind: "bot", name: login, evidence, verified: true, floor: "bot" };
   return undefined;
 }
 
@@ -118,12 +118,13 @@ export function classifyPr(commits: Array<CommitLike & { sha: string }>, account
   const cite = (kind: SourceKind) => sources.filter((s) => s.kind === kind).map((s) => `commit ${s.sha.slice(0, 7)}: ${s.evidence}`);
   const agent = sources.find((s) => s.kind === "agent");
   if (agent) {
-    return { kind: "agent", name: agent.name, evidence: [...(opener?.evidence ?? []), ...cite("agent")].slice(0, MAX_EVIDENCE), verified: false };
+    const floor = opener?.floor ?? "human";
+    return { kind: "agent", name: agent.name, evidence: [...(opener?.evidence ?? []), ...cite("agent")].slice(0, MAX_EVIDENCE), verified: false, floor };
   }
   if (opener) return opener;
   const bot = sources.find((s) => s.kind === "bot");
   if (bot && sources.every((s) => s.kind === "bot")) {
-    return { kind: "bot", name: bot.name, evidence: cite("bot").slice(0, MAX_EVIDENCE), verified: false };
+    return { kind: "bot", name: bot.name, evidence: cite("bot").slice(0, MAX_EVIDENCE), verified: false, floor: "human" };
   }
-  return { kind: "human", name: "human", evidence: [], verified: false };
+  return { kind: "human", name: "human", evidence: [], verified: false, floor: "human" };
 }

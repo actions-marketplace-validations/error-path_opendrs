@@ -154,9 +154,12 @@ export function decide(input: GateInput): PolicyOutcome {
 
   // 3c. per-source policy (RADAR §2.5): the source's own stricter green, daily landing cap and track
   // record. Each only tightens; with no `sources` config or no classified source nothing changes.
-  const kind = input.source?.kind;
-  const source = kind ? config.sources[kind] : undefined;
-  if (kind && source) {
+  // Commit text can raise the kind (a trailer makes it "agent") but never lower it, so the policy of
+  // the trusted floor (the account type in CI, else human) applies as well.
+  const kinds = input.source ? [...new Set([input.source.floor ?? "human", input.source.kind])] : [];
+  const inPr = new Set(input.prCommits ?? []);
+  for (const kind of kinds) {
+    const source = config.sources[kind];
     if (source.green !== undefined) {
       const green = config.thresholds.mode === "absolute" ? source.green : percentileScore(model.percentiles, source.green);
       if (green === undefined) {
@@ -169,7 +172,6 @@ export function decide(input: GateInput): PolicyOutcome {
       }
     }
     // Landed commits of this source in the last `ms`: in the index, at or before now, not in this PR.
-    const inPr = new Set(input.prCommits ?? []);
     const landed = (ms: number) =>
       input.history.commits.filter((c) => c.source === kind && !inPr.has(c.sha) && c.time * 1000 > now - ms && c.time * 1000 <= now);
     if (source.dailyCap !== undefined) {
@@ -202,7 +204,8 @@ export function decide(input: GateInput): PolicyOutcome {
   // 4a. requireSafe (RADAR §2.8): every hunk the judge saw must be in a safe category at or above
   // minConfidence, and it must have seen and classified all of them. The judge can only block here.
   // A source's own requireSafe (3c) turns the same rule on for that source.
-  const requireSafe = config.llm.requireSafe ? "llm.requireSafe" : source?.requireSafe ? `sources.${kind}.requireSafe` : undefined;
+  const safeKind = kinds.find((k) => config.sources[k].requireSafe);
+  const requireSafe = config.llm.requireSafe ? "llm.requireSafe" : safeKind ? `sources.${safeKind}.requireSafe` : undefined;
   if (requireSafe && !input.llm && !input.llmFailed) {
     fired.push({ decision: "human-review", reason: `LLM judge did not run; ${requireSafe} needs its verdict` });
   }

@@ -5,10 +5,11 @@ import { agentPatterns, classifyCommit } from "../policy/source.js";
 import { unquotePath } from "./diff.js";
 import { git } from "./exec.js";
 
-const RECORD = "\x1e";
+// Records start with NUL, which a commit message cannot contain, so a message cannot forge a record.
+const RECORD = "\0";
 const FIELD = "\x1f";
 const END = "\x1d";
-const FORMAT = "%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
+const FORMAT = "%x00%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
 const REVERTS = /This reverts commit ([0-9a-f]{7,40})/i;
 
 interface Change {
@@ -44,7 +45,8 @@ export async function buildHistoryIndex(repoDir: string, ref: string, config: Op
   const commits: CommitInfo[] = [];
   const changes: Change[][] = [];
   for (const record of out.split(RECORD)) {
-    const end = record.indexOf(END);
+    // The last END: one inside the body must not turn the rest of the message into file names.
+    const end = record.lastIndexOf(END);
     if (end < 0) continue;
     const [sha = "", parents = "", authorName = "", authorEmail = "", time = "0", subject = "", ...body] = record.slice(0, end).split(FIELD);
     const revertsSha = REVERTS.exec(body.join(FIELD))?.[1];

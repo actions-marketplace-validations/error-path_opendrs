@@ -71,7 +71,10 @@ already reads (and `sources.agent.patterns`).
 
 ## 5. Policy (`src/policy/gate.ts`)
 
-`GateInput.source?: Authorship`. With `p = config.sources[source.kind]`, new rules right after the
+`GateInput.source?: Authorship`. Commit text can raise the kind but never lower it, so the gate
+applies the policy of `source.floor` (the kind the CI account type proves, else `human`) as well as
+the classified kind's: a human who adds an agent trailer still gets the human policy. For each of
+those kinds, `p = config.sources[kind]`, new rules right after the
 freeze rule (rule 4 group), each only adding `human-review`:
 
 1. `p.green` set: score ≥ effective green (absolute, or the percentile score from the model like the

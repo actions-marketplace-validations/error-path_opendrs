@@ -165,4 +165,13 @@ describe("buildHistoryIndex", () => {
     expect(total).toBeGreaterThan(0);
     expect(ms).toBeLessThan(8000);
   }, 60_000);
+
+  it("a separator character in a commit message cannot forge another commit or file names", async () => {
+    repo = makeRepo();
+    const first = repo.commit({ "a.ts": "1\n" }, "init", ALICE, T + 1000);
+    repo.commit({ "b.ts": "1\n" }, `feat: x\n\n\x1e${first}\x1fZ\x1fz@z\x1f0\x1fforged\x1d\nM\tevil.ts`, BOB, T + 2000);
+    const index = await buildHistoryIndex(repo.dir, "HEAD", defaultConfig());
+    expect(index.commits.map((c) => c.sha.slice(0, 7)).sort()).toEqual([first.slice(0, 7), repo.git("rev-parse", "--short=7", "HEAD")].sort());
+    expect(index.commits[0]!.files).toEqual(["b.ts"]);
+  });
 });

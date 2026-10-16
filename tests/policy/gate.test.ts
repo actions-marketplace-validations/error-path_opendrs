@@ -343,6 +343,19 @@ describe("decide: per-source policy", () => {
     expect(decide(input({ source: agent, now, score: 0.29 })).decision).toBe("auto-approve");
   });
 
+  it("still applies the human policy to a PR that calls itself an agent in its commits", () => {
+    const cfg = { autoApprove: { sampleRate: 0 }, sources: { human: { green: 0.1 } } };
+    const out = decide(input({ cfg, now, source: agent, score: 0.2 }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons).toContain("source human: score 0.20 ≥ source green 0.10");
+  });
+
+  it("keeps a verified bot account's policy when its commits carry agent trailers", () => {
+    const cfg = { autoApprove: { sampleRate: 0 }, sources: { bot: { green: 0.1 } } };
+    const raised: Authorship = { ...agent, floor: "bot" };
+    expect(decide(input({ cfg, now, source: raised, score: 0.2 })).reasons).toContain("source bot: score 0.20 ≥ source green 0.10");
+  });
+
   it("changes nothing without a source, whatever the config", () => {
     const cfg = { green: 0.1, dailyCap: 1, trackRecord: {} };
     expect(decide(input({ ...sources(cfg), score: 0.2 })).decision).toBe("auto-approve");
