@@ -25,6 +25,11 @@ const execFileAsync = promisify(execFile);
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /** The dataset ends in 2019: each project is replayed from its last commit before this date. */
 const HEAD_BEFORE = "2020-01-01";
+/**
+ * The hdfs and mapreduce mirrors stop when those subprojects moved into apache/hadoop (2011), so
+ * most of their labelled commits live in the hadoop repository.
+ */
+const ALSO_IN: Record<string, string> = { "hadoop-hdfs": "hadoop", "hadoop-mapreduce": "hadoop" };
 
 interface Options {
   workDir: string;
@@ -173,20 +178,20 @@ async function writeCache(path: string, key: string, rows: ReplayRow[], warnings
 }
 
 /** Replayed rows for the labels: from the row cache when it matches, else a fresh replay that refills it. */
-async function replayRows(o: Options, project: Project, repoDir: string, head: string, labels: Map<string, 0 | 1>) {
+async function replayRows(o: Options, cacheName: string, repoDir: string, head: string, labels: Map<string, 0 | 1>) {
   // A capped run gets its own file so a smoke run never overwrites the full run's cache.
   const cap = o.maxPerProject === undefined ? "" : `.max${o.maxPerProject}`;
-  const path = join(o.workDir, "rows", `${project.name}.${VERSION}${cap}.jsonl`);
+  const path = join(o.workDir, "rows", `${cacheName}.${VERSION}${cap}.jsonl`);
   const key = cacheKey(head, labels);
   const cached = await readCache(path, key);
   if (cached) {
-    console.error(`${project.name}: ${cached.rows.length} rows from cache`);
+    console.error(`${cacheName}: ${cached.rows.length} rows from cache`);
     return cached;
   }
   const config = defaultConfig();
   config.history.maxCommits = 1_000_000;
   const onProgress = (done: number, total: number) => {
-    if (done % 250 === 0 || done === total) console.error(`${project.name}: ${done}/${total}`);
+    if (done % 250 === 0 || done === total) console.error(`${cacheName}: ${done}/${total}`);
   };
   const { rows, warnings } = await replayHistory({ repoDir, config, head, labels, onProgress });
   await writeCache(path, key, rows, warnings);
@@ -247,7 +252,20 @@ async function runProject(o: Options, jit: Record<Split, JitRow[]>, project: Pro
     return { result: { project: project.project, coverage: coverage({ train, test, rows: [] }), models: {}, skipped: clone.skipped, warnings: [] } };
   }
   const labels = new Map<string, 0 | 1>([...train, ...test].map((r) => [r.sha, r.buggy]));
-  const { rows, warnings } = await replayRows(o, project, clone.repoDir, clone.head, labels);
+  const { rows, warnings } = await replayRows(o, project.name, clone.repoDir, clone.head, labels);
+  const fallback = PROJECTS.find((p) => p.name === ALSO_IN[project.name]);
+  if (fallback) {
+    warnings.forEach((w, i) => w.includes("not found") && (warnings[i] = `${w} (looked up in ${fallback.project} next)`));
+    const replayed = new Set(rows.map((r) => r.sha));
+    const rest = new Map([...labels].filter(([sha]) => !replayed.has(sha)));
+    const other = await ensureClone(o.workDir, fallback);
+    if ("skipped" in other) warnings.push(`${fallback.name}: ${other.skipped}`);
+    else {
+      const more = await replayRows(o, `${project.name}-in-${fallback.name}`, other.repoDir, other.head, rest);
+      rows.push(...more.rows);
+      warnings.push(...more.warnings.map((w) => `in ${fallback.project}: ${w}`));
+    }
+  }
   const group = { train, test, rows };
   const evaluated = evaluateGroup(group, project.name);
   const result = { project: project.project, head: clone.head, coverage: coverage(group), ...evaluated };
