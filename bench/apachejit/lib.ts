@@ -320,11 +320,12 @@ function drsOssRow(): string {
   return `| DRS-OSS (published) | — | — | ${fmtNum(DRS_OSS.auc)} | ${fmtPct(DRS_OSS.recallAt["5"])} | ${fmtPct(DRS_OSS.recallAt["10"])} | ${fmtPct(DRS_OSS.recallAt["30"])} | — | — | — | ${fmtNum(DRS_OSS.f1)} |`;
 }
 
+const MODELS_HEADER = "| Model | Rows | Positives | AUC | Recall@5% | Recall@10% | Recall@30% | Recall@50% | Precision | Recall | F1 |";
+const MODELS_SEP = "|---|---|---|---|---|---|---|---|---|---|---|";
+
 function renderModelsTable(models: Partial<Record<ModelName, ModelMetrics | null>>): string[] {
-  const header = "| Model | Rows | Positives | AUC | Recall@5% | Recall@10% | Recall@30% | Recall@50% | Precision | Recall | F1 |";
-  const sep = "|---|---|---|---|---|---|---|---|---|---|---|";
   const rows = MODEL_ORDER.filter((name) => name in models).map((name) => modelRow(MODEL_LABELS[name], models[name]));
-  return [header, sep, ...rows];
+  return [MODELS_HEADER, MODELS_SEP, ...rows];
 }
 
 function renderPooledResult(result: ProjectResult): string[] {
@@ -380,5 +381,103 @@ export function renderReport(report: Report): string {
     lines.push("");
   }
 
+  return lines.join("\n");
+}
+
+// ---- LLM judge benchmark (llm.ts) ----
+
+/** The first `n` of a seeded Fisher-Yates shuffle of `items`; `items` is left as is. */
+export function sample<T>(items: T[], n: number, rand: () => number): T[] {
+  const a = items.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a.slice(0, n);
+}
+
+/** What the gate and category tables read from a judged commit; `judgement` is absent when the judge failed. */
+export interface JudgedCommit {
+  buggy: 0 | 1;
+  judgement?: {
+    hunks: { category: string; safe: boolean; confidence: number }[];
+    unclassified: unknown[];
+    truncated: boolean;
+  };
+}
+
+/** Whether `llm.requireSafe` at `minConfidence` lets the commit through: every shown hunk safe and confident enough, nothing unclassified or cut. */
+export function passesGate(j: NonNullable<JudgedCommit["judgement"]>, minConfidence: number): boolean {
+  return !j.truncated && j.unclassified.length === 0 && j.hunks.every((h) => h.safe && h.confidence >= minConfidence);
+}
+
+export interface GateStats {
+  minConfidence: number;
+  passed: number;
+  buggy: number;
+}
+
+/** How many commits the gate would pass at `minConfidence`, and how many of those are buggy. A failed judge never passes. */
+export function gateStats(commits: JudgedCommit[], minConfidence: number): GateStats {
+  const passed = commits.filter((c) => c.judgement !== undefined && passesGate(c.judgement, minConfidence));
+  return { minConfidence, passed: passed.length, buggy: passed.filter((c) => c.buggy === 1).length };
+}
+
+export interface CategoryStats {
+  category: string;
+  flagged: number;
+  buggy: number;
+}
+
+/** Per category, the commits with at least one hunk in it, and how many of those are buggy. */
+export function categoryStats(commits: JudgedCommit[], categories: readonly string[]): CategoryStats[] {
+  return categories.map((category) => {
+    const flagged = commits.filter((c) => c.judgement?.hunks.some((h) => h.category === category));
+    return { category, flagged: flagged.length, buggy: flagged.filter((c) => c.buggy === 1).length };
+  });
+}
+
+export interface SampleStats {
+  rows: number;
+  positives: number;
+  /** Commits whose judgement failed (they score with an unknown `llm.semantic`). */
+  judgeFailures: number;
+}
+
+export interface LlmReport {
+  meta: { version: string; commit: string; date: string; model: string; promptHash: string; maxDiffChars: number };
+  sample: { train: SampleStats; test: SampleStats };
+  models: { label: string; metrics: ModelMetrics | null }[];
+  gates: GateStats[];
+  categories: CategoryStats[];
+  notes: string[];
+}
+
+const rate = (part: number, whole: number) => (whole === 0 ? null : part / whole);
+
+/** Renders an `LlmReport` as Markdown: metadata, the sample, the models table, the gate and category tables, notes. */
+export function renderLlmReport(report: LlmReport): string {
+  const { meta, sample: s } = report;
+  const sampleLine = (name: string, x: SampleStats) => `- ${name}: ${x.rows} rows, ${x.positives} positives, ${x.judgeFailures} judge failures`;
+  const lines: string[] = ["# opendrs LLM judge on ApacheJIT (sampled)", ""];
+  lines.push(`- version: ${meta.version}`, `- commit: ${meta.commit}`, `- date: ${meta.date}`, `- model: ${meta.model}`, `- prompt hash: ${meta.promptHash}`);
+  lines.push(sampleLine("train sample", s.train), sampleLine("test sample", s.test));
+  lines.push(`- tokens: the provider reports no usage; each diff is cut to \`llm.maxDiffChars\` = ${meta.maxDiffChars} characters before it is sent`, "");
+
+  lines.push("## Models", "", "Thresholds fit on the train sample, metrics on the test sample.", "");
+  lines.push(MODELS_HEADER, MODELS_SEP, ...report.models.map((m) => modelRow(m.label, m.metrics)), "");
+
+  lines.push("## Gate (`llm.requireSafe`)", "", `Base rate of the test sample: ${fmtPct(rate(s.test.positives, s.test.rows))}.`, "");
+  lines.push("| Min confidence | Passed | Share of test sample | Buggy among passed | Buggy rate |", "|---|---|---|---|---|");
+  for (const g of report.gates) lines.push(`| ${g.minConfidence} | ${g.passed} | ${fmtPct(rate(g.passed, s.test.rows))} | ${g.buggy} | ${fmtPct(rate(g.buggy, g.passed))} |`);
+  lines.push("");
+
+  lines.push("## Risk categories", "", "| Category | Flagged test commits | Buggy | Buggy rate |", "|---|---|---|---|");
+  for (const c of report.categories) lines.push(`| ${c.category} | ${c.flagged} | ${c.buggy} | ${fmtPct(rate(c.buggy, c.flagged))} |`);
+  lines.push("");
+
+  lines.push("## Notes", "");
+  for (const n of report.notes) lines.push(`- ${n}`);
+  lines.push("");
   return lines.join("\n");
 }
