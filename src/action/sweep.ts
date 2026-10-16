@@ -1,5 +1,6 @@
 import { OpendrsError } from "../domain/types.js";
 import { git } from "../git/exec.js";
+import { HOLD_LABEL } from "./approval.js";
 import type { GitHubClient } from "./github.js";
 import { LANDING_LABEL, runPullRequest, type ActionDeps, type PullRequest } from "./run.js";
 
@@ -69,8 +70,9 @@ export async function listLabelledPulls(client: Pick<GitHubClient, "graphql">, o
 }
 
 /**
- * Re-run the per-PR flow for every open PR labelled opendrs:landing, fetching each PR's head into the
- * checkout first. One PR's error is logged and the sweep goes on; the job fails if any PR failed.
+ * Re-run the per-PR flow for every open PR labelled opendrs:landing, fetching each PR's head and base
+ * into the checkout first. A PR on hold is skipped: the `unlabeled` event resumes it. One PR's error
+ * is logged and the sweep goes on; the job fails if any PR failed.
  */
 export async function runSweep(d: SweepDeps): Promise<void> {
   const { io } = d;
@@ -78,9 +80,14 @@ export async function runSweep(d: SweepDeps): Promise<void> {
   io.info(pulls.length ? `Sweeping ${pulls.length} open PR(s) labelled ${LANDING_LABEL}: ${pulls.map((p) => `#${p.number}`).join(", ")}.` : `No open PRs labelled ${LANDING_LABEL}.`);
   const failed: number[] = [];
   for (const pr of pulls) {
+    if (pr.labels.some((l) => l.name === HOLD_LABEL)) {
+      io.info(`PR #${pr.number}: on hold (${HOLD_LABEL}); skipped until the label is removed.`);
+      continue;
+    }
     await io.group(`PR #${pr.number}: ${pr.title}`, async () => {
       try {
-        await git(d.repoDir, ["fetch", "-q", "origin", `refs/pull/${pr.number}/head`]);
+        // The base too: a push to it during the sweep would otherwise leave the base commit missing.
+        await git(d.repoDir, ["fetch", "-q", "origin", `refs/heads/${pr.base.ref}`, `refs/pull/${pr.number}/head`]);
         await runPullRequest(d, pr);
       } catch (e) {
         failed.push(pr.number);
