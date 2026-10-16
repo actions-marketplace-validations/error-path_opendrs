@@ -2,6 +2,15 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Results on the ApacheJIT benchmark (15 Apache Java projects, official 2017–2019 test years):
+  calibrated opendrs reaches AUC 0.819, on par with a regression on the classic JIT metrics. See
+  [docs/calibration.md](docs/calibration.md#results-on-apachejit). `bench/apachejit/` reproduces
+  it; it is not part of the published package.
+- `replayHistory` (library) takes an optional `head` ref and an optional `labels` map, which
+  replays exactly those commits with those labels instead of labelling history itself.
+
 ## 0.1.5 - 2026-10-16
 
 - Metadata for the official MCP registry entry `io.github.error-path/opendrs`: the npm package

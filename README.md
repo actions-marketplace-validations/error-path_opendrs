@@ -219,6 +219,11 @@ not numbers your repository should be expected to match.
 
 ## Results on public repositories
 
+On the public [ApacheJIT](docs/calibration.md#results-on-apachejit) benchmark (Apache Java
+projects, official 2017–2019 test years, `apache/hadoop` left out because it has no positive
+labels), calibrated opendrs reaches AUC 0.819 and catches 66 % of buggy commits in its riskiest
+30 %, on par with a regression on the classic JIT metrics.
+
 We ran `opendrs calibrate` and then `opendrs backtest --max-commits 4000` on nine open-source
 repositories with opendrs v0.1.0, without changing any configuration. Labels come from reverts and
 SZZ blame on fix commits only, since none of these repos publish an incident list. Read them as
