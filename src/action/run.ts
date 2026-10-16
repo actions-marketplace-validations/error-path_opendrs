@@ -7,8 +7,8 @@ import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
 import { suggestReviewers } from "../policy/reviewers.js";
 import { cell, renderMarkdown } from "../report/markdown.js";
-import { changesRequested, eligibleMarker, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
-import { isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
+import { HOLD_LABEL, changesRequested, eligibleMarker, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
+import { type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
 
 export { APPROVAL_MARKER } from "./approval.js";
@@ -139,6 +139,19 @@ export async function runAction(d: ActionDeps): Promise<ActionOutcome> {
   return runPullRequest(d, readPullRequest(d.event));
 }
 
+/**
+ * The eligibility time from opendrs's own comment, unless it predates the comment by more than the
+ * length of a run: a comment cannot vouch for a time before it existed, so another bot's comment
+ * that copies the marker cannot backdate the clock by more than that.
+ */
+const MAX_RUN_MS = 15 * 60_000;
+function trustedSince(comment: IssueComment | undefined, head: string): Date | undefined {
+  const since = readEligibleSince(comment?.body ?? undefined, head);
+  const created = comment?.created_at ? Date.parse(comment.created_at) : NaN;
+  if (since === undefined || Number.isNaN(created)) return since;
+  return since.getTime() >= created - MAX_RUN_MS ? since : undefined;
+}
+
 /** Score, comment, label and reconcile the approval of one PR; the sweep calls this for each labelled PR. */
 export async function runPullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionOutcome> {
   try {
@@ -229,10 +242,14 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
 
   // opendrs's own comment carries the time this head became eligible, so a landing delay survives across runs.
   const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : undefined;
-  const mine = comments?.find((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER));
+  // The newest one: GitHub lists comments oldest first.
+  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
   const labels = pr.labels.map((l) => l.name);
+  if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
+    io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
+  }
   const approval = await io.group("Approval", () =>
-    reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: readEligibleSince(mine?.body ?? undefined, pr.head.sha), labels }),
+    reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels }),
   );
 
   const report = renderMarkdown(result);
@@ -250,8 +267,9 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     );
   }
 
-  // The sweep finds PRs waiting out their delay by this label, so it is kept whatever the labels input says.
-  const landing = approval.pendingUntil !== undefined;
+  // The sweep finds PRs waiting out their delay by this label, so it is kept whatever the labels input
+  // says, and also while on hold, so the sweep resumes the PR once the hold label is removed.
+  const landing = approval.pendingUntil !== undefined || (labels.includes(HOLD_LABEL) && approval.eligibleSince !== undefined);
   if (landing !== labels.includes(LANDING_LABEL)) {
     await unlessForbidden(
       () => (landing ? client.addLabels(pr.number, [LANDING_LABEL]) : client.removeLabel(pr.number, LANDING_LABEL)),

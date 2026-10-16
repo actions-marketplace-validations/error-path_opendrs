@@ -60,7 +60,7 @@ To score every pull request, add `.github/workflows/opendrs.yml` (or run `npx @e
 name: opendrs
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 permissions:
   contents: read
   pull-requests: write

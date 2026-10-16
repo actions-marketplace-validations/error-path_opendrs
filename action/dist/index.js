@@ -30615,6 +30615,7 @@ async function reconcileApproval(a) {
     };
   }
   const deferred = result.policy.decision === "deferred-review";
+  let note = deferred ? " (deferred review)" : "";
   if (own2.some((r) => r.commit_id === pr.head.sha)) {
     io.info("This head commit is already approved by opendrs.");
   } else {
@@ -30627,8 +30628,8 @@ Approved by opendrs: risk score ${result.score.toFixed(2)} (${result.tier}) for 
     );
     if (!done) return { approved: false, status: "not approved: GitHub refused the approval (see the job log)." };
     io.notice(`Approved${deferred ? " for deferred review" : ""}: risk ${result.score.toFixed(2)} (${result.tier}).`);
+    if (deferred) note = ` (deferred review: ${await requestDeferredReview(a)})`;
   }
-  const note = deferred ? ` (deferred review: ${await requestDeferredReview(a)})` : "";
   return { approved: true, status: `approved by opendrs${note}${await enableMerge(a)}.`, eligibleSince: since };
 }
 async function requestDeferredReview({ client, io, pr, result }) {
@@ -30729,6 +30730,13 @@ async function changedFiles(repoDir, base, head) {
 async function runAction(d) {
   return runPullRequest(d, readPullRequest(d.event));
 }
+var MAX_RUN_MS = 15 * 6e4;
+function trustedSince(comment, head) {
+  const since = readEligibleSince(comment?.body ?? void 0, head);
+  const created = comment?.created_at ? Date.parse(comment.created_at) : NaN;
+  if (since === void 0 || Number.isNaN(created)) return since;
+  return since.getTime() >= created - MAX_RUN_MS ? since : void 0;
+}
 async function runPullRequest(d, pr) {
   try {
     return await scorePullRequest(d, pr);
@@ -30799,11 +30807,14 @@ async function scorePullRequest(d, pr) {
   const paths = files.filter((f) => !matchAny(config2.paths.ignore, f));
   result.policy.suggestedReviewers = suggestReviewers(history, paths, void 0, 3 + author.emails.size).filter((email3) => !author.emails.has(email3)).slice(0, 3);
   const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : void 0;
-  const mine = comments?.find((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER));
+  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
   const labels = pr.labels.map((l) => l.name);
+  if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
+    io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
+  }
   const approval = await io.group(
     "Approval",
-    () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer, now: /* @__PURE__ */ new Date(), eligibleSince: readEligibleSince(mine?.body ?? void 0, pr.head.sha), labels })
+    () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer, now: /* @__PURE__ */ new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels })
   );
   const report = renderMarkdown(result);
   const warning = predictable ? `
@@ -30824,7 +30835,7 @@ ${report}`}${warning}
       () => io.warning(COMMENT_FORBIDDEN)
     );
   }
-  const landing = approval.pendingUntil !== void 0;
+  const landing = approval.pendingUntil !== void 0 || labels.includes(HOLD_LABEL) && approval.eligibleSince !== void 0;
   if (landing !== labels.includes(LANDING_LABEL)) {
     await unlessForbidden(
       () => landing ? client.addLabels(pr.number, [LANDING_LABEL]) : client.removeLabel(pr.number, LANDING_LABEL),

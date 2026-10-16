@@ -49,6 +49,8 @@ interface Options {
   before?: (repo: TestRepo) => void;
   /** The rest of opendrs's own earlier comment (after the marker), given the head sha. */
   ownComment?: (head: string) => string;
+  /** When the own comment was created (ISO); absent = unknown. */
+  ownCommentCreated?: string;
 }
 
 /** The PR's author, and the email GitHub has verified for that account. */
@@ -94,7 +96,9 @@ async function run(o: Options = {}) {
   let log = "";
   const io = createWorkflowIO(ioEnv, (s) => void (log += s));
 
-  const comments = o.ownComment ? [{ id: 2, body: `${COMMENT_MARKER}\nold report\n${o.ownComment(headSha)}`, user: BOT }] : [];
+  const comments = o.ownComment
+    ? [{ id: 2, body: `${COMMENT_MARKER}\nold report\n${o.ownComment(headSha)}`, user: BOT, ...(o.ownCommentCreated ? { created_at: o.ownCommentCreated } : {}) }]
+    : [];
   const gh = installFakeGitHub({ labels: [...(o.labels ?? [])], headSha, commits: [prCommit(headSha)], comments, ...o.gh });
   vi.mocked(scoreDiff).mockResolvedValue(o.result ?? result(0.12, "green", "auto-approve"));
   const env: NodeJS.ProcessEnv = { ...o.env };
@@ -928,11 +932,17 @@ describe("landing delay", () => {
     expect(t.gh.comments[0]!.body).not.toContain("opendrs-eligible");
   });
 
-  it("passes the PR's labels to the approval: opendrs:hold stops the delay and clears opendrs:landing", async () => {
+  it("passes the PR's labels to the approval: opendrs:hold stops the delay but keeps opendrs:landing, so the sweep resumes it", async () => {
     const t = await run({ baseConfig: DELAYED, result: delayed(), labels: ["opendrs:hold", LANDING_LABEL], ownComment: (head) => markerFor(head, 31) });
     await expect(t.promise).resolves.toMatchObject({ approved: false });
     expect(t.gh.comments[0]!.body).toContain("on hold");
-    expect(removed(t)).toContain(LANDING_LABEL);
+    expect(removed(t)).not.toContain(LANDING_LABEL);
+  });
+
+  it("ignores a marker older than the comment that carries it (a copied marker cannot backdate the clock)", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), ownComment: (head) => markerFor(head, 120), ownCommentCreated: new Date().toISOString() });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.comments[0]!.body).toContain("approves at");
   });
 
   it("sets opendrs:landing even when the labels input is false", async () => {

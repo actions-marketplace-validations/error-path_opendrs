@@ -16,7 +16,7 @@ them to the merge queue.
 name: opendrs
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 concurrency:
   group: opendrs-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -231,7 +231,7 @@ check run is named after the job:
 name: review
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 concurrency:
   group: opendrs-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -325,7 +325,7 @@ the default branch with `fetch-depth: 0`, so the base commit and the history are
 ```yaml
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:

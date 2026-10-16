@@ -33,6 +33,7 @@ export interface GitHubUser {
 export interface IssueComment {
   id: number;
   body?: string | null;
+  created_at?: string;
   user: GitHubUser | null;
 }
 

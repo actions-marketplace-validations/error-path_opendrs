@@ -202,7 +202,7 @@ name: opendrs
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 
 # A newer push cancels the run for the older head, so it cannot approve or merge a stale commit.
 concurrency:

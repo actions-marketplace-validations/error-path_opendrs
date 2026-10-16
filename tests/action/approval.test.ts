@@ -107,6 +107,14 @@ describe("reconcileApproval", () => {
     expect(out.status).toContain("review requested from alice, bob");
   });
 
+  it("does not re-request reviews when this head is already approved (a rerun or sweep)", async () => {
+    const reviewers = ["123+alice@users.noreply.github.com"];
+    const { gh, run } = setup(result("deferred-review", { reviewers }), { gh: { reviews: [ownApproval()] } });
+    const out = await run();
+    expect(out.approved).toBe(true);
+    expect(gh.ops("requestReviewers")).toHaveLength(0);
+  });
+
   it("says so when no suggested reviewer maps to a GitHub login", async () => {
     const { gh, run } = setup(result("deferred-review", { reviewers: ["carol@example.com"] }));
     const out = await run();

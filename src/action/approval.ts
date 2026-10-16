@@ -7,7 +7,7 @@ import type { WorkflowIO } from "./workflow.js";
 
 export const APPROVAL_MARKER = "<!-- opendrs-approval -->";
 export const ELIGIBLE_MARKER = "opendrs-eligible";
-const HOLD_LABEL = "opendrs:hold";
+export const HOLD_LABEL = "opendrs:hold";
 const REVIEW_AFTER_MERGE_LABEL = "opendrs:review-after-merge";
 
 /** Records in opendrs's comment when `head` first became eligible to land, so the landing delay survives reruns. */
@@ -209,6 +209,7 @@ export async function reconcileApproval(a: ApprovalInput): Promise<ApprovalOutco
   }
 
   const deferred = result.policy.decision === "deferred-review";
+  let note = deferred ? " (deferred review)" : "";
   if (own.some((r) => r.commit_id === pr.head.sha)) {
     io.info("This head commit is already approved by opendrs.");
   } else {
@@ -223,8 +224,9 @@ export async function reconcileApproval(a: ApprovalInput): Promise<ApprovalOutco
     );
     if (!done) return { approved: false, status: "not approved: GitHub refused the approval (see the job log)." };
     io.notice(`Approved${deferred ? " for deferred review" : ""}: risk ${result.score.toFixed(2)} (${result.tier}).`);
+    // Only with the first approval of this head: re-requesting would reset a finished review.
+    if (deferred) note = ` (deferred review: ${await requestDeferredReview(a)})`;
   }
-  const note = deferred ? ` (deferred review: ${await requestDeferredReview(a)})` : "";
   return { approved: true, status: `approved by opendrs${note}${await enableMerge(a)}.`, eligibleSince: since };
 }
 
