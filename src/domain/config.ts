@@ -150,6 +150,8 @@ const sourcePolicySchema = z.object({
   green: z.number().optional(),
   /** Like llm.requireSafe, for this source only. Needs llm.enabled. */
   requireSafe: z.boolean().default(false),
+  /** A longer landing delay for this source; the larger of this and autoApprove.landingDelayMinutes applies. */
+  landingDelayMinutes: z.number().int().min(0).optional(),
   /** At most this many commits of this source landed on the base branch in the last 24 hours. */
   dailyCap: z.number().int().positive().optional(),
   /** RADAR's track record: enough recent landed commits of this source, and few of them reverted. */
@@ -209,6 +211,20 @@ export const configSchema = z.object({
       mergeMethod: z.enum(["queue", "auto-merge", "none"]).default("queue"),
       sampleRate: z.number().min(0).max(1).default(0.1),
       maxChangedLines: z.number().int().positive().default(400),
+      /** Minutes an eligible PR waits, on the same head commit, before opendrs approves it (a veto window). */
+      landingDelayMinutes: z.number().int().min(0).default(0),
+      /**
+       * RADAR's deferred review: a PR whose score is at or above green but below `below` (thresholds.mode
+       * units), and that passes every other rule, is approved and lands now, with a human review assigned
+       * after merge. Only for the listed sources; the trusted floor must be listed too.
+       */
+      deferredReview: z
+        .object({
+          enabled: z.boolean().default(false),
+          below: z.number().optional(),
+          sources: z.array(z.enum(["human", "bot", "agent"])).default(["human"]),
+        })
+        .prefault({}),
     })
     .prefault({}),
   paths: z
@@ -306,7 +322,15 @@ export const configSchema = z.object({
     })
     .prefault({}),
 })
-  .superRefine(({ thresholds, freezes, llm, sources }, ctx) => {
+  .superRefine(({ thresholds, freezes, llm, sources, autoApprove }, ctx) => {
+    const deferred = autoApprove.deferredReview;
+    if (deferred.enabled && (deferred.below === undefined || deferred.below <= thresholds.green || deferred.below > thresholds.yellow)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `autoApprove.deferredReview.below must be set above thresholds.green (${thresholds.green}) and at most thresholds.yellow (${thresholds.yellow}), in ${thresholds.mode} units`,
+        path: ["autoApprove", "deferredReview", "below"],
+      });
+    }
     for (const kind of ["human", "bot", "agent"] as const) {
       const policy = sources[kind];
       if (policy.green !== undefined && policy.green >= thresholds.green) {
