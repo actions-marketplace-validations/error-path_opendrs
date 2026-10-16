@@ -27417,6 +27417,20 @@ function compiles(pattern, ctx) {
   }
 }
 var localDate = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD date");
+var sourcePolicySchema = external_exports.object({
+  /** Stricter green threshold for this source (thresholds.mode units); must be below thresholds.green. */
+  green: external_exports.number().optional(),
+  /** Like llm.requireSafe, for this source only. Needs llm.enabled. */
+  requireSafe: external_exports.boolean().default(false),
+  /** At most this many commits of this source landed on the base branch in the last 24 hours. */
+  dailyCap: external_exports.number().int().positive().optional(),
+  /** RADAR's track record: enough recent landed commits of this source, and few of them reverted. */
+  trackRecord: external_exports.object({
+    days: external_exports.number().int().positive().default(60),
+    minCommits: external_exports.number().int().min(0).default(10),
+    maxRevertRate: external_exports.number().min(0).max(1).default(0.05)
+  }).optional()
+});
 var freezeSchema = external_exports.object({
   name: external_exports.string().min(1),
   timezone: external_exports.string().default("UTC").superRefine((timeZone, ctx) => {
@@ -27510,8 +27524,37 @@ var configSchema = external_exports.object({
   }).prefault({}),
   /** Path to calibrated model JSON, relative to repo root. Used when it exists. */
   model: external_exports.string().default(".opendrs/model.json"),
-  freezes: external_exports.array(freezeSchema).default([])
-}).superRefine(({ thresholds, freezes, llm }, ctx) => {
+  freezes: external_exports.array(freezeSchema).default([]),
+  sources: external_exports.object({
+    human: sourcePolicySchema.prefault({}),
+    bot: sourcePolicySchema.prefault({}),
+    agent: sourcePolicySchema.extend({
+      /** Extra regexes (case-insensitive) over commit messages and author emails that mark agent authorship. */
+      patterns: external_exports.array(
+        external_exports.string().superRefine((pattern, ctx) => {
+          try {
+            new RegExp(pattern, "i");
+          } catch (e) {
+            ctx.addIssue({ code: "custom", message: `invalid regex: ${e.message}` });
+          }
+        })
+      ).default([])
+    }).prefault({})
+  }).prefault({})
+}).superRefine(({ thresholds, freezes, llm, sources }, ctx) => {
+  for (const kind of ["human", "bot", "agent"]) {
+    const policy = sources[kind];
+    if (policy.green !== void 0 && policy.green >= thresholds.green) {
+      ctx.addIssue({
+        code: "custom",
+        message: `sources.${kind}.green ${policy.green} must be less than thresholds.green (${thresholds.green}): a source can only tighten the gate`,
+        path: ["sources", kind, "green"]
+      });
+    }
+    if (policy.requireSafe && !llm.enabled) {
+      ctx.addIssue({ code: "custom", message: `sources.${kind}.requireSafe needs llm.enabled: true`, path: ["sources", kind, "requireSafe"] });
+    }
+  }
   if (llm.requireSafe && !llm.enabled) {
     ctx.addIssue({ code: "custom", message: "llm.requireSafe needs llm.enabled: true", path: ["llm", "requireSafe"] });
   }
@@ -27935,14 +27978,92 @@ async function mergeBase(repoDir, a, b) {
   }
 }
 
+// src/policy/source.ts
+var AGENTS = [
+  { name: "Claude Code", trailer: /^claude\b.*@anthropic\.com/i, line: /generated with \[?claude code\]?/i },
+  {
+    name: "GitHub Copilot",
+    logins: ["copilot-swe-agent[bot]"],
+    author: /^copilot <|\+copilot@users\.noreply\.github\.com>$/i,
+    trailer: /\+copilot@users\.noreply\.github\.com/i
+  },
+  { name: "Cursor", author: /<cursoragent@cursor\.com>$/i, trailer: /^cursor agent\b/i },
+  { name: "OpenAI Codex", logins: ["chatgpt-codex-connector[bot]"], trailer: /^codex\b/i },
+  { name: "Devin", logins: ["devin-ai-integration[bot]"] },
+  { name: "Google Jules", logins: ["google-labs-jules[bot]"] },
+  { name: "Aider", trailer: /^aider\b/i, subject: /^aider: /i }
+];
+var TRAILER = /^co-authored-by:\s*(.*)$/i;
+var BOT_EMAIL = /^(?:\d+\+)?([^@]*\[bot\])@users\.noreply\.github\.com$/i;
+var BOT_NAME = /\[bot\]$/i;
+var MAX_EVIDENCE = 3;
+function agentPatterns(config2) {
+  return config2.sources.agent.patterns.map((p) => new RegExp(p, "i"));
+}
+function botLogin(c) {
+  if (BOT_NAME.test(c.authorName)) return c.authorName;
+  return BOT_EMAIL.exec(c.authorEmail)?.[1];
+}
+var clip = (text) => text.length > 120 ? `${text.slice(0, 119)}\u2026` : text;
+function classifyCommit(c, patterns = []) {
+  const author = `${c.authorName} <${c.authorEmail}>`;
+  const login = botLogin(c)?.toLowerCase();
+  const lines = c.message.split("\n").map((l) => l.trim());
+  const subject = lines[0] ?? "";
+  const trailers = lines.flatMap((line2) => {
+    const value = TRAILER.exec(line2)?.[1];
+    return value === void 0 ? [] : [{ line: line2, value }];
+  });
+  for (const agent of AGENTS) {
+    const found = (evidence) => ({ kind: "agent", name: agent.name, evidence: clip(evidence) });
+    if (login !== void 0 && agent.logins?.includes(login) || agent.author?.test(author)) return found(`author "${author}"`);
+    const trailer = agent.trailer && trailers.find((t) => agent.trailer.test(t.value));
+    if (trailer) return found(`trailer "${trailer.line}"`);
+    const line2 = agent.line && lines.find((l) => agent.line.test(l));
+    if (line2 !== void 0) return found(`line "${line2}"`);
+    if (agent.subject?.test(subject)) return found(`subject "${subject}"`);
+  }
+  for (const re of patterns) {
+    const match = re.exec(c.message) ?? re.exec(c.authorEmail);
+    if (match) return { kind: "agent", name: `pattern ${re.source}`, evidence: clip(`pattern /${re.source}/ matched "${match[0]}"`) };
+  }
+  if (login !== void 0) return { kind: "bot", name: botLogin(c), evidence: clip(`author "${author}"`) };
+  return { kind: "human", name: "human" };
+}
+function accountSource({ login, type }) {
+  const evidence = [`PR opened by ${login}${type === "Bot" ? " (GitHub App)" : ""}`];
+  const agent = AGENTS.find((a) => a.logins?.includes(login.toLowerCase()));
+  if (agent) return { kind: "agent", name: agent.name, evidence, verified: true, floor: "agent" };
+  if (type === "Bot" || BOT_NAME.test(login)) return { kind: "bot", name: login, evidence, verified: true, floor: "bot" };
+  return void 0;
+}
+function classifyPr(commits, account, patterns = []) {
+  const opener = account && accountSource(account);
+  if (opener?.kind === "agent") return opener;
+  const sources = commits.map((c) => ({ sha: c.sha, ...classifyCommit(c, patterns) }));
+  const cite = (kind) => sources.filter((s) => s.kind === kind).map((s) => `commit ${s.sha.slice(0, 7)}: ${s.evidence}`);
+  const agent = sources.find((s) => s.kind === "agent");
+  if (agent) {
+    const floor = opener?.floor ?? "human";
+    return { kind: "agent", name: agent.name, evidence: [...opener?.evidence ?? [], ...cite("agent")].slice(0, MAX_EVIDENCE), verified: false, floor };
+  }
+  if (opener) return opener;
+  const bot = sources.find((s) => s.kind === "bot");
+  if (bot && sources.every((s) => s.kind === "bot")) {
+    return { kind: "bot", name: bot.name, evidence: cite("bot").slice(0, MAX_EVIDENCE), verified: false, floor: "human" };
+  }
+  return { kind: "human", name: "human", evidence: [], verified: false, floor: "human" };
+}
+
 // src/git/history.ts
-var RECORD = "";
+var RECORD = "\0";
 var FIELD = "";
 var END = "";
-var FORMAT = "%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
+var FORMAT = "%x00%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1d";
 var REVERTS = /This reverts commit ([0-9a-f]{7,40})/i;
 async function buildHistoryIndex(repoDir, ref, config2) {
   const fixRe = compileFixPattern(config2.history.fixPattern);
+  const patterns = agentPatterns(config2);
   const out = await git(repoDir, [
     "log",
     `-n${config2.history.maxCommits}`,
@@ -27956,7 +28077,7 @@ async function buildHistoryIndex(repoDir, ref, config2) {
   const commits = [];
   const changes = [];
   for (const record2 of out.split(RECORD)) {
-    const end = record2.indexOf(END);
+    const end = record2.lastIndexOf(END);
     if (end < 0) continue;
     const [sha = "", parents = "", authorName = "", authorEmail = "", time3 = "0", subject = "", ...body] = record2.slice(0, end).split(FIELD);
     const revertsSha = REVERTS.exec(body.join(FIELD))?.[1];
@@ -27971,7 +28092,10 @@ async function buildHistoryIndex(repoDir, ref, config2) {
       files: fileChanges.map((c) => c.path),
       isFix: fixRe.test(subject),
       isRevert: subject.startsWith('Revert "') || revertsSha !== void 0,
-      ...revertsSha !== void 0 && { revertsSha }
+      ...revertsSha !== void 0 && { revertsSha },
+      source: classifyCommit({ authorName, authorEmail, message: `${subject}
+
+${body.join(FIELD)}` }, patterns).kind
     });
     changes.push(fileChanges);
   }
@@ -29217,6 +29341,7 @@ function suggestReviewers(history, paths, exclude, n = 3) {
 }
 
 // src/policy/gate.ts
+var DAY_MS = 864e5;
 var PLAUSIBLE_RANGE = {
   "size.churn": [0, Math.log1p(1e3)],
   "size.relative": [0, Math.log1p(1)],
@@ -29299,11 +29424,52 @@ function decide(input2) {
       fired.push({ decision: "human-review", reason: `freeze "${f.name}": score ${input2.score.toFixed(2)} \u2265 freeze green ${green.toFixed(2)}` });
     }
   }
-  if (input2.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
-  if (config2.llm.requireSafe && !input2.llm && !input2.llmFailed) {
-    fired.push({ decision: "human-review", reason: "LLM judge did not run; llm.requireSafe needs its verdict" });
+  const kinds = input2.source ? [.../* @__PURE__ */ new Set([input2.source.floor ?? "human", input2.source.kind])] : [];
+  const inPr = new Set(input2.prCommits ?? []);
+  for (const kind of kinds) {
+    const source = config2.sources[kind];
+    if (source.green !== void 0) {
+      const green = config2.thresholds.mode === "absolute" ? source.green : percentileScore(model.percentiles, source.green);
+      if (green === void 0) {
+        fired.push({
+          decision: "human-review",
+          reason: `source ${kind}: percentile green ${source.green} needs a calibrated model; auto-approval suspended`
+        });
+      } else if (input2.score >= green) {
+        fired.push({ decision: "human-review", reason: `source ${kind}: score ${input2.score.toFixed(2)} \u2265 source green ${green.toFixed(2)}` });
+      }
+    }
+    const landed = (ms) => input2.history.commits.filter((c) => c.source === kind && !inPr.has(c.sha) && c.time * 1e3 > now - ms && c.time * 1e3 <= now);
+    if (source.dailyCap !== void 0) {
+      const n = landed(DAY_MS).length;
+      if (n >= source.dailyCap) fired.push({ decision: "human-review", reason: `source ${kind}: daily cap reached (${n} landed in 24h)` });
+    }
+    if (source.trackRecord) {
+      const { days, minCommits, maxRevertRate } = source.trackRecord;
+      const recent = landed(days * DAY_MS);
+      if (recent.length < minCommits) {
+        fired.push({ decision: "human-review", reason: `source ${kind}: track record too short (${recent.length} of ${minCommits} landed commits in ${days} days)` });
+      } else if (recent.length > 0) {
+        const reverted = input2.history.commits.map((c) => c.revertsSha).filter((s) => s !== void 0 && s.length >= 7);
+        const n = recent.filter((c) => reverted.some((s) => c.sha.startsWith(s))).length;
+        const rate = n / recent.length;
+        if (rate > maxRevertRate) {
+          const pct = (x) => `${Math.round(x * 100)}%`;
+          fired.push({
+            decision: "human-review",
+            reason: `source ${kind}: ${n} of ${recent.length} landed commits in ${days} days reverted (${pct(rate)}) > ${pct(maxRevertRate)}`
+          });
+        }
+      }
+    }
   }
-  if (config2.llm.requireSafe && input2.llm) {
+  if (input2.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
+  const safeKind = kinds.find((k) => config2.sources[k].requireSafe);
+  const requireSafe = config2.llm.requireSafe ? "llm.requireSafe" : safeKind ? `sources.${safeKind}.requireSafe` : void 0;
+  if (requireSafe && !input2.llm && !input2.llmFailed) {
+    fired.push({ decision: "human-review", reason: `LLM judge did not run; ${requireSafe} needs its verdict` });
+  }
+  if (requireSafe && input2.llm) {
     const { truncated, unclassified, hunks } = input2.llm;
     if (truncated) fired.push({ decision: "human-review", reason: "LLM judge saw a truncated diff" });
     if (unclassified.length > 0) {
@@ -29446,7 +29612,7 @@ function isPublicDeclaration(path, line2) {
 
 // src/signals/blast.ts
 var OTHER_CODE = new Set("c h cc cpp cxx hpp hh cs fs swift m mm php scala sc dart ex exs erl hs lua pl pm jl clj groovy".split(" "));
-var MAX_EVIDENCE = 10;
+var MAX_EVIDENCE2 = 10;
 var basePath = (f) => f.oldPath ?? f.path;
 function isUnsupportedCode(graph, path) {
   if (graph.supports(path)) return false;
@@ -29516,13 +29682,13 @@ var blastSignals = async (ctx) => {
       value: surface.length > 0 ? 1 : 0,
       status: "derived",
       summary: (surface.length > 0 ? `Exported/public declarations changed in ${surfaceFiles} file(s) that have dependents` : "No exported/public declaration changed in a file with dependents") + suffix,
-      evidence: surface.slice(0, MAX_EVIDENCE)
+      evidence: surface.slice(0, MAX_EVIDENCE2)
     }
   ];
 };
 
 // src/signals/util.ts
-var MAX_EVIDENCE2 = 5;
+var MAX_EVIDENCE3 = 5;
 var countedFiles = (ctx) => ctx.diff.files.filter((f) => !f.ignored);
 var historyPath = (f) => f.oldPath ?? f.path;
 var asOfOrNow = (ctx) => ctx.asOf ?? Math.floor(Date.now() / 1e3);
@@ -29533,7 +29699,7 @@ function historyAvailable(ctx) {
 var unknown3 = (id, reason) => ({ id, value: 0, status: "unknown", summary: reason, evidence: [] });
 var shallowAware = (ctx, s) => ctx.trust.historyComplete ? s : { ...s, status: "unknown", summary: `shallow clone: history incomplete; saw at least: ${s.summary}` };
 var plural2 = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
-var topEvidence = (items) => items.slice(0, MAX_EVIDENCE2);
+var topEvidence = (items) => items.slice(0, MAX_EVIDENCE3);
 
 // src/signals/language.ts
 var EXTENSIONS2 = {
@@ -30101,6 +30267,16 @@ async function loadModel(repoDir, config2) {
   }
   return { model: DEFAULT_WEIGHTS, kind: "default" };
 }
+var FIELD2 = "";
+var SHA = /^[0-9a-f]{40}$/;
+async function prCommits(repoDir, base, head) {
+  const range = base === EMPTY_TREE ? head : `${base}..${head}`;
+  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%x00%H${FIELD2}%an${FIELD2}%ae${FIELD2}%B`, "--end-of-options", range]);
+  return out.split("\0").flatMap((record2) => {
+    const [sha = "", authorName = "", authorEmail = "", ...message] = record2.trim().split(FIELD2);
+    return SHA.test(sha) ? [{ sha, authorName, authorEmail, message: message.join(FIELD2) }] : [];
+  });
+}
 async function computeSignals(ctx) {
   const batches = await Promise.all(SIGNAL_PROVIDERS.map((p) => p(ctx)));
   return batches.flat();
@@ -30151,6 +30327,8 @@ async function scoreDiff(opts) {
     ctx.llm = { error: e instanceof OpendrsError ? e.message : `LLM judge failed: ${e.message}` };
   }
   const signals = await computeSignals(ctx);
+  const commits = await prCommits(repoDir, diff.base, diff.head);
+  const source = classifyPr(commits, opts.account, agentPatterns(config2));
   const { model, kind } = opts.model ? { model: opts.model, kind: "calibrated" } : await loadModel(repoDir, config2);
   const { score, logit: logit2, contributions } = scoreSignals(signals, model);
   const policy = decide({
@@ -30165,7 +30343,9 @@ async function scoreDiff(opts) {
     pr: opts.pr,
     llmFailed: Boolean(ctx.llm?.error),
     llm: ctx.llm?.judgement,
-    now: opts.now
+    now: opts.now,
+    source,
+    prCommits: commits.map((c) => c.sha)
   });
   const counted = diff.files.filter((f) => !f.ignored);
   return {
@@ -30176,6 +30356,7 @@ async function scoreDiff(opts) {
     unknowns: signals.filter((s) => s.status === "unknown").map((s) => s.id),
     policy,
     llm: ctx.llm?.judgement,
+    source,
     diff: {
       base: diff.base,
       head: diff.head,
@@ -30207,7 +30388,8 @@ var untrusted = (text) => cell(text).replace(/@(?=\w)/g, "@\u200B");
 var signed = (n, minus) => `${n < 0 ? minus : "+"}${Math.abs(n).toFixed(2)}`;
 var top = (contributions) => contributions.filter((c) => c.contribution !== 0).slice(0, TOP_CONTRIBUTIONS);
 var short = (sha) => sha.slice(0, 7);
-var clip = (text) => text.length > MAX_RATIONALE2 ? `${text.slice(0, MAX_RATIONALE2)}\u2026` : text;
+var clip2 = (text) => text.length > MAX_RATIONALE2 ? `${text.slice(0, MAX_RATIONALE2)}\u2026` : text;
+var sourceName = ({ kind, name }) => name === kind ? kind : `${kind} (${name})`;
 function hunkCounts(llm) {
   const safe = llm.hunks.filter((h) => h.safe);
   const byCategory = /* @__PURE__ */ new Map();
@@ -30222,6 +30404,8 @@ function renderMarkdown(result) {
     MARKER,
     `### ${TIER_EMOJI[result.tier]} Diff risk ${result.score.toFixed(2)} \xB7 ${result.tier} \xB7 ${DECISION_TEXT[policy.decision]}`,
     `<sub>${diff.files} files \xB7 +${diff.added} \u2212${diff.deleted} \xB7 \`${short(diff.base)}\u2026${short(diff.head)}\`</sub>`,
+    // Name and evidence come from commit messages and author fields the PR author controls.
+    `<sub>${[`Source: ${untrusted(sourceName(result.source))}`, ...result.source.evidence.map(untrusted)].join(" \xB7 ")}</sub>`,
     ""
   ];
   const rows = top(result.contributions);
@@ -30241,7 +30425,7 @@ function renderMarkdown(result) {
     lines.push(`**Suggested reviewers:** ${policy.suggestedReviewers.map(code).join(", ")}`, "");
   }
   if (result.llm) {
-    lines.push(`<details><summary>LLM review (p=${result.llm.risk.toFixed(2)})</summary>`, "", `> ${untrusted(clip(result.llm.rationale))}`, "");
+    lines.push(`<details><summary>LLM review (p=${result.llm.risk.toFixed(2)})</summary>`, "", `> ${untrusted(clip2(result.llm.rationale))}`, "");
     for (const s of result.llm.riskySnippets.slice(0, MAX_SNIPPETS2)) {
       lines.push(`- ${code(`${s.file}${s.line !== void 0 ? `:${s.line}` : ""}`)} ${untrusted(s.reason)}`);
     }
@@ -30498,6 +30682,7 @@ async function scorePullRequest(d, pr) {
       model,
       history,
       authorVerified: author.verified,
+      account: pr.user ? { login: pr.user.login, type: pr.user.type } : void 0,
       title: pr.title,
       description: pr.body ?? void 0,
       // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.

@@ -13,7 +13,7 @@ const { buildDependencyGraph } = await import("../src/graph/graph.js");
 const { explainFile } = await import("../src/explain.js");
 
 function commit(sha: string, email: string, subject: string, files: string[], isFix = false, isRevert = false): CommitInfo {
-  return { sha, parents: [], authorName: email.split("@")[0]!, authorEmail: email, time: 0, subject, files, isFix, isRevert };
+  return { sha, parents: [], authorName: email.split("@")[0]!, authorEmail: email, time: 0, subject, files, isFix, isRevert, source: "human" };
 }
 
 function fakeHistory(commits: CommitInfo[]): HistoryIndex {

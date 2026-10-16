@@ -59,6 +59,16 @@ describe("buildHistoryIndex", () => {
     expect(h.commits.map((c) => c.isFix)).toEqual([false, true]);
   });
 
+  it("classifies each commit's source from its author and message, with sources.agent.patterns", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "init", ALICE);
+    repo.commit({ "a.ts": "2\n" }, "feat: x\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>", BOB);
+    repo.commit({ "a.ts": "3\n" }, "chore: bump", { name: "dependabot[bot]", email: "49699333+dependabot[bot]@users.noreply.github.com" });
+    repo.commit({ "a.ts": "4\n" }, "fix: y\n\nMade by sweep-bot", CAROL);
+    const h = await buildHistoryIndex(repo.dir, "HEAD", parseConfig({ sources: { agent: { patterns: ["\\bsweep-bot\\b"] } } }));
+    expect(h.commits.map((c) => c.source)).toEqual(["agent", "bot", "agent", "human"]);
+  });
+
   it("answers file and author queries point-in-time", async () => {
     repo = makeRepo();
     const c1 = repo.commit({ "src/a.ts": "1\n" }, "add a", ALICE, T + 1000);
@@ -155,4 +165,13 @@ describe("buildHistoryIndex", () => {
     expect(total).toBeGreaterThan(0);
     expect(ms).toBeLessThan(8000);
   }, 60_000);
+
+  it("a separator character in a commit message cannot forge another commit or file names", async () => {
+    repo = makeRepo();
+    const first = repo.commit({ "a.ts": "1\n" }, "init", ALICE, T + 1000);
+    repo.commit({ "b.ts": "1\n" }, `feat: x\n\n\x1e${first}\x1fZ\x1fz@z\x1f0\x1fforged\x1d\nM\tevil.ts`, BOB, T + 2000);
+    const index = await buildHistoryIndex(repo.dir, "HEAD", defaultConfig());
+    expect(index.commits.map((c) => c.sha.slice(0, 7)).sort()).toEqual([first.slice(0, 7), repo.git("rev-parse", "--short=7", "HEAD")].sort());
+    expect(index.commits[0]!.files).toEqual(["b.ts"]);
+  });
 });

@@ -4,6 +4,13 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+- Authorship and per-source policy, after Meta's RADAR: every PR is classified as human, bot or AI
+  agent (Claude Code, Copilot coding agent, Cursor, Codex, Devin, Jules, Aider, or
+  `sources.agent.patterns`) from commit trailers, author emails and, in CI, the GitHub account
+  type. `sources.<kind>` can set a stricter `green`, `requireSafe`, a `dailyCap` on landed commits
+  and a `trackRecord` (landed commits and revert rate over N days). These only tighten the gate.
+  The source appears in the comment, the terminal output and `--json`.
+
 - Structured LLM judge, after Meta's RADAR: the judge classifies every hunk into a named safe or
   risk category with a 0-10 confidence. Each risk category is a new ranking signal
   (`llm.risk.*`, weights never negative). With `llm.requireSafe: true`, auto-approval also requires

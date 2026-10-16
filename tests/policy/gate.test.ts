@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../../src/domain/config.js";
-import type { ChangedFile, LlmHunkVerdict, LlmJudgement, ModelWeights, Signal } from "../../src/domain/types.js";
+import type { Authorship, ChangedFile, CommitInfo, LlmHunkVerdict, LlmJudgement, ModelWeights, Signal, SourceKind } from "../../src/domain/types.js";
 import { DEFAULT_WEIGHTS } from "../../src/model/defaults.js";
 import { decide, sampleValue, type GateInput } from "../../src/policy/gate.js";
-import { fakeCommit, fakeHistory } from "./fakes.js";
+import { NOW, fakeCommit, fakeHistory } from "./fakes.js";
 
 const logit = (p: number) => Math.log(p / (1 - p));
 
@@ -317,6 +317,133 @@ describe("decide: freezes", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("decide: per-source policy", () => {
+  const now = NOW * 1000;
+  const HOUR = 3600;
+  const agent: Authorship = { kind: "agent", name: "Claude Code", evidence: ["commit 3f2a9c1: trailer Co-Authored-By: Claude"], verified: false };
+  const human: Authorship = { kind: "human", name: "human", evidence: [], verified: false };
+  /** A landed commit of `source`, `hoursAgo` before `now`; sha and revert fields overridable. */
+  const landed = (source: SourceKind, hoursAgo: number, over: Partial<CommitInfo> = {}): CommitInfo => ({
+    ...fakeCommit(`${source}@x.com`, ["src/a.ts"], 0),
+    sha: `${String(hoursAgo).padStart(6, "0")}-${source}`,
+    time: NOW - hoursAgo * HOUR,
+    source,
+    ...over,
+  });
+  const sources = (agent: Record<string, unknown>, cfg: Record<string, unknown> = {}) => ({
+    cfg: { autoApprove: { sampleRate: 0 }, ...cfg, sources: { agent } },
+    now,
+  });
+
+  it("changes nothing without a sources config, whatever the source", () => {
+    expect(decide(input({ source: agent, now })).decision).toBe("auto-approve");
+    expect(decide(input({ source: agent, now, score: 0.29 })).decision).toBe("auto-approve");
+  });
+
+  it("still applies the human policy to a PR that calls itself an agent in its commits", () => {
+    const cfg = { autoApprove: { sampleRate: 0 }, sources: { human: { green: 0.1 } } };
+    const out = decide(input({ cfg, now, source: agent, score: 0.2 }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons).toContain("source human: score 0.20 ≥ source green 0.10");
+  });
+
+  it("keeps a verified bot account's policy when its commits carry agent trailers", () => {
+    const cfg = { autoApprove: { sampleRate: 0 }, sources: { bot: { green: 0.1 } } };
+    const raised: Authorship = { ...agent, floor: "bot" };
+    expect(decide(input({ cfg, now, source: raised, score: 0.2 })).reasons).toContain("source bot: score 0.20 ≥ source green 0.10");
+  });
+
+  it("changes nothing without a source, whatever the config", () => {
+    const cfg = { green: 0.1, dailyCap: 1, trackRecord: {} };
+    expect(decide(input({ ...sources(cfg), score: 0.2 })).decision).toBe("auto-approve");
+  });
+
+  it("holds a source's score to its stricter green; the tier stays", () => {
+    const out = decide(input({ ...sources({ green: 0.2 }), source: agent, score: 0.24 }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review" });
+    expect(out.reasons[0]).toBe("source agent: score 0.24 ≥ source green 0.20");
+    expect(decide(input({ ...sources({ green: 0.2 }), source: agent, score: 0.19 })).decision).toBe("auto-approve");
+  });
+
+  it("never fires for another kind", () => {
+    expect(decide(input({ ...sources({ green: 0.2, dailyCap: 1, trackRecord: {} }), source: human, score: 0.24 })).decision).toBe("auto-approve");
+  });
+
+  it("maps a percentile source green through the model's percentiles", () => {
+    const model: ModelWeights = { ...DEFAULT_WEIGHTS, percentiles: { "50": 0.1, "75": 0.2, "90": 0.4, "95": 0.5, "99": 0.7 } };
+    const cfg = { thresholds: { mode: "percentile", green: 60, yellow: 90, red: 95 } };
+    const out = decide(input({ ...sources({ green: 50 }, cfg), model, source: agent, score: 0.12 }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review" });
+    expect(out.reasons[0]).toBe("source agent: score 0.12 ≥ source green 0.10");
+    expect(decide(input({ ...sources({ green: 50 }, cfg), model, source: agent, score: 0.08 })).decision).toBe("auto-approve");
+  });
+
+  it("suspends auto-approval when a percentile source green cannot be mapped", () => {
+    const cfg = { thresholds: { mode: "percentile", green: 50, yellow: 90, red: 95 } };
+    const out = decide(input({ ...sources({ green: 25 }, cfg), source: agent, score: 0.01 }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toBe("source agent: percentile green 25 needs a calibrated model; auto-approval suspended");
+  });
+
+  it("applies requireSafe for the source as if llm.requireSafe were on", () => {
+    const cfg = { llm: { enabled: true } };
+    const out = decide(input({ ...sources({ requireSafe: true }, cfg), source: agent }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toBe("LLM judge did not run; sources.agent.requireSafe needs its verdict");
+    expect(decide(input({ ...sources({ requireSafe: true }, cfg), source: human })).decision).toBe("auto-approve");
+  });
+
+  describe("dailyCap", () => {
+    const history = fakeHistory([
+      landed("agent", 1),
+      landed("agent", 2),
+      landed("agent", 23),
+      landed("agent", 25), // outside 24h
+      landed("human", 3),
+      landed("agent", 4, { sha: "inpr0000001" }),
+    ]);
+
+    it("counts only landed commits of that kind inside 24h, excluding the PR's own", () => {
+      const out = decide(input({ ...sources({ dailyCap: 3 }), source: agent, history, prCommits: ["inpr0000001"] }));
+      expect(out).toMatchObject({ tier: "green", decision: "human-review" });
+      expect(out.reasons[0]).toBe("source agent: daily cap reached (3 landed in 24h)");
+      expect(decide(input({ ...sources({ dailyCap: 4 }), source: agent, history, prCommits: ["inpr0000001"] })).decision).toBe("auto-approve");
+      expect(decide(input({ ...sources({ dailyCap: 4 }), source: agent, history })).decision).toBe("human-review");
+    });
+
+    it("ignores commits after now", () => {
+      const future = fakeHistory([landed("agent", -1), landed("agent", 1)]);
+      expect(decide(input({ ...sources({ dailyCap: 2 }), source: agent, history: future })).decision).toBe("auto-approve");
+    });
+  });
+
+  describe("trackRecord", () => {
+    const days = (n: number) => n * 24;
+
+    it("blocks a source with too few landed commits in the window, not counting the PR's own", () => {
+      const history = fakeHistory([landed("agent", days(1)), landed("agent", days(30)), landed("agent", days(61)), landed("agent", 1, { sha: "inpr0000001" })]);
+      const out = decide(input({ ...sources({ trackRecord: { minCommits: 3 } }), source: agent, history, prCommits: ["inpr0000001"] }));
+      expect(out.decision).toBe("human-review");
+      expect(out.reasons[0]).toBe("source agent: track record too short (2 of 3 landed commits in 60 days)");
+      expect(decide(input({ ...sources({ trackRecord: { minCommits: 2 } }), source: agent, history })).decision).toBe("auto-approve");
+    });
+
+    it("blocks a revert rate above maxRevertRate, matching revertsSha as a ≥7-char prefix", () => {
+      const commits = Array.from({ length: 15 }, (_, i) => landed("agent", days(i + 1)));
+      const reverts = [
+        landed("human", 2, { isRevert: true, revertsSha: commits[0]!.sha.slice(0, 7) }),
+        landed("human", 3, { isRevert: true, revertsSha: commits[1]!.sha }),
+        landed("human", 4, { isRevert: true, revertsSha: commits[2]!.sha.slice(0, 6) }), // too short to count
+      ];
+      const history = fakeHistory([...commits, ...reverts]);
+      const out = decide(input({ ...sources({ trackRecord: { days: 60, minCommits: 10, maxRevertRate: 0.05 } }), source: agent, history }));
+      expect(out.decision).toBe("human-review");
+      expect(out.reasons[0]).toBe("source agent: 2 of 15 landed commits in 60 days reverted (13%) > 5%");
+      expect(decide(input({ ...sources({ trackRecord: { maxRevertRate: 0.2 } }), source: agent, history })).decision).toBe("auto-approve");
+    });
   });
 });
 

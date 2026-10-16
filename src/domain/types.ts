@@ -57,6 +57,25 @@ export interface DiffInfo {
   description?: string; // PR body (untrusted; only used when llm.includeDescription)
 }
 
+/** Who wrote a change: a person, a bot account (Dependabot, Renovate), or an AI coding agent. */
+export type SourceKind = "human" | "bot" | "agent";
+
+/** How a pull request's source was recognised. */
+export interface Authorship {
+  kind: SourceKind;
+  /** What it was recognised as, e.g. "dependabot[bot]" or "Claude Code"; "human" for a person. */
+  name: string;
+  /** What gave it away, e.g. "commit trailer: Co-Authored-By: Claude <noreply@anthropic.com>". */
+  evidence: string[];
+  /** True when the kind came from the GitHub account type (CI), which the PR itself cannot change. */
+  verified: boolean;
+  /**
+   * The kind the PR is at least, from data its commits cannot change (the account type in CI);
+   * "human" when absent. The gate applies this kind's policy too, so commit text cannot escape it.
+   */
+  floor?: SourceKind;
+}
+
 /** One commit as seen by the history index. */
 export interface CommitInfo {
   sha: string;
@@ -72,6 +91,8 @@ export interface CommitInfo {
   isRevert: boolean;
   /** sha named in "This reverts commit <sha>", when present. */
   revertsSha?: string;
+  /** From the author email and the message's trailers (see policy/source.ts). */
+  source: SourceKind;
 }
 
 /**
@@ -230,6 +251,7 @@ export interface ScoreResult {
   unknowns: string[]; // ids of signals with status "unknown"
   policy: PolicyOutcome;
   llm?: LlmJudgement;
+  source: Authorship;
   diff: { base: string; head: string; files: number; added: number; deleted: number };
   model: "default" | "calibrated";
   version: string;

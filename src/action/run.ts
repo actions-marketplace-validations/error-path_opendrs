@@ -37,8 +37,8 @@ export interface PullRequest {
   body: string | null;
   labels: Array<{ name: string }>;
   draft?: boolean;
-  /** The account that opened the PR. */
-  user?: { login: string } | null;
+  /** The account that opened the PR; `type` is "Bot" for a GitHub App, "User" otherwise. */
+  user?: { login: string; type?: string } | null;
   base: { sha: string; ref: string; repo: { full_name: string } };
   head: { sha: string; ref: string; repo: { full_name: string } | null };
 }
@@ -192,6 +192,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
       model,
       history,
       authorVerified: author.verified,
+      account: pr.user ? { login: pr.user.login, type: pr.user.type } : undefined,
       title: pr.title,
       description: pr.body ?? undefined,
       // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.
