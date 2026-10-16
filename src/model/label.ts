@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { CommitInfo, HistoryIndex, Hunk, Incident, LabelledCommit } from "../domain/types.js";
 import { OpendrsError } from "../domain/types.js";
 import type { OpendrsConfig } from "../domain/config.js";
-import { parseUnifiedDiff } from "../git/diff.js";
+import { changedLines, parseUnifiedDiff } from "../git/diff.js";
 import { gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 
@@ -143,16 +143,11 @@ async function blameFix(repoDir: string, sha: string, ignore: string[]): Promise
 function deletedRanges(hunks: Hunk[]): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   for (const hunk of hunks) {
-    let line = hunk.oldStart;
-    for (const raw of hunk.lines) {
-      if (raw[0] === "-") {
-        if (isMeaningful(raw.slice(1))) {
-          const last = ranges.at(-1);
-          if (last && last[1] === line - 1) last[1] = line;
-          else ranges.push([line, line]);
-        }
-        line++;
-      } else if (raw[0] === " ") line++;
+    for (const { kind, line, text } of changedLines(hunk)) {
+      if (kind !== "-" || !isMeaningful(text)) continue;
+      const last = ranges.at(-1);
+      if (last && last[1] === line - 1) last[1] = line;
+      else ranges.push([line, line]);
     }
   }
   return ranges;
