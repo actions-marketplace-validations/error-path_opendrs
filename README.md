@@ -579,6 +579,17 @@ The full comparison, with how each tool scores and where it runs, is at
   (Engineering at Meta, 2025) and Abreu et al., [Moving Faster and Reducing Risk: Using LLMs in
   Release Deployment](https://arxiv.org/abs/2410.06351) (2024). The feature set, the tiered gates and
   the capture-at-X %-gated metric come from this work. opendrs is not affiliated with Meta.
+- **Meta's RADAR.** Adams et al., [Automating Low-Risk Code Review at Meta](https://arxiv.org/abs/2605.30208)
+  (2026): the structured LLM reviewer with safe and risk categories, per-source policy (daily caps,
+  track record), deferred review, the landing delay and the content blocklist follow this paper.
+  Related Meta work behind `hotspots` and reviewer assignment: Mockus et al., "Metrics Driven
+  Reengineering and Continuous Code Improvement at Meta" (ASE 2025); Paraspatki et al., "Code
+  Reviewer Recommendation for High Risk Diffs at Scale" (FSE Companion 2026); Rigby et al.,
+  [Improving Code Reviewer Recommendation](https://arxiv.org/abs/2312.17169) (TOSEM 2025).
+- **Benchmarks and peers.** Keshavarz and Nagappan, [ApacheJIT](https://arxiv.org/abs/2203.00101)
+  (MSR 2022), the dataset `bench/apachejit/` scores; Sayedsalehi, Rigby and Mockus,
+  [DRS-OSS](https://arxiv.org/abs/2511.21964) (2025), the open-source LLM counterpart whose numbers
+  the benchmark quotes.
 - **Just-in-time defect prediction and SZZ.** Mockus and Weiss, "Predicting risk of software
   changes" (2000); Śliwerski, Zimmermann and Zeller, "When do changes induce fixes?" (2005); Kamei
   et al., "A large-scale empirical study of just-in-time quality assurance" (2013). The
