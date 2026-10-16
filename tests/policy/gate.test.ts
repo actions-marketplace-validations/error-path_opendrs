@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../../src/domain/config.js";
 import type { ChangedFile, ModelWeights, Signal } from "../../src/domain/types.js";
 import { DEFAULT_WEIGHTS } from "../../src/model/defaults.js";
@@ -157,6 +157,65 @@ describe("decide: ignored or binary files", () => {
   });
 });
 
+describe("decide: content.block", () => {
+  const hunk = (newStart: number, lines: string[]) => ({ oldStart: newStart, oldLines: 0, newStart, newLines: 0, lines });
+  const withHunks = (path: string, ...hunks: ReturnType<typeof hunk>[]): ChangedFile => ({ ...file(path), hunks });
+  const blockCfg = (...block: string[]) => ({ cfg: { autoApprove: { sampleRate: 0 }, content: { block } } });
+
+  it("routes an added line matching a pattern to human review, naming the new-side line", () => {
+    const f = withHunks("src/a.ts", hunk(10, [" a", "-eval(old)", "+b", " c"]), hunk(40, [" d", "+e", "+x = eval(y)", " f"]));
+    const out = decide(input({ files: [f], ...blockCfg("\\beval\\(") }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", hardBlocked: false, mergeMethod: "none" });
+    expect(out.reasons[0]).toBe("content.block /\\beval\\(/ matched src/a.ts:42");
+  });
+
+  it("never matches deleted or context lines", () => {
+    const f = withHunks("src/a.ts", hunk(1, [" eval(a)", "-eval(b)", "+ok"]));
+    expect(decide(input({ files: [f], ...blockCfg("eval") })).decision).toBe("auto-approve");
+  });
+
+  it("does not count a \\ No newline marker as a line", () => {
+    const f = withHunks("src/a.ts", hunk(5, ["-old", "\\ No newline at end of file", "+new", "+eval(z)"]));
+    expect(decide(input({ files: [f], ...blockCfg("eval") })).reasons[0]).toBe("content.block /eval/ matched src/a.ts:6");
+  });
+
+  it("counts an empty row as a context line, as the diff parser does", () => {
+    const f = withHunks("src/a.ts", hunk(1, [" a", "", "+eval(z)"]));
+    expect(decide(input({ files: [f], ...blockCfg("eval") })).reasons[0]).toBe("content.block /eval/ matched src/a.ts:3");
+  });
+
+  it("names at most 3 locations", () => {
+    const f = withHunks("src/a.ts", hunk(1, ["+eval", "+eval", " x", "+eval", "+eval", "+eval"]));
+    expect(decide(input({ files: [f], ...blockCfg("eval") })).reasons[0]).toBe(
+      "content.block /eval/ matched src/a.ts:1, src/a.ts:2, src/a.ts:4 (+2 more)",
+    );
+  });
+
+  it("gives one reason per matching pattern, in config order", () => {
+    const f = withHunks("src/a.ts", hunk(1, ["+eval(x)", "+el.innerHTML = y"]));
+    const out = decide(input({ files: [f], ...blockCfg("innerHTML", "nope", "eval") }));
+    expect(out.reasons.slice(0, 2)).toEqual(["content.block /innerHTML/ matched src/a.ts:2", "content.block /eval/ matched src/a.ts:1"]);
+    expect(out.reasons.join("\n")).not.toContain("nope");
+  });
+
+  it("has no effect without patterns", () => {
+    const f = withHunks("src/a.ts", hunk(1, ["+eval(x)"]));
+    expect(decide(input({ files: [f] })).decision).toBe("auto-approve");
+  });
+
+  it("skips binary files", () => {
+    const f: ChangedFile = { ...withHunks("img.png", hunk(1, ["+eval"])), binary: true };
+    expect(decide(input({ files: [f], ...blockCfg("eval") })).reasons.join("\n")).not.toContain("content.block");
+  });
+
+  it("scans ignored files too, after the other never-auto-approve rules", () => {
+    const f: ChangedFile = { ...withHunks("vendor/x.go", hunk(1, ["+eval"])), ignored: true };
+    const out = decide(input({ files: [f], ...blockCfg("eval") }));
+    expect(out.reasons[0]).toMatch(/ignored or binary/);
+    expect(out.reasons[1]).toBe("content.block /eval/ matched vendor/x.go:1");
+  });
+});
+
 describe("decide: rule 2 (size cap)", () => {
   it("routes more than maxChangedLines to human review, not counting ignored files", () => {
     expect(decide(input({ files: [file("src/a.ts", 300, 101)] })).decision).toBe("human-review");
@@ -200,6 +259,67 @@ describe("decide: rule 3 (tier)", () => {
   });
 });
 
+describe("decide: freezes", () => {
+  // Friday 20:00 in UTC, already Saturday 05:00 in Tokyo.
+  const now = Date.UTC(2026, 9, 16, 20);
+  const freeze = (window: Record<string, unknown>, cfg: Record<string, unknown> = {}) => ({
+    cfg: { autoApprove: { sampleRate: 0 }, ...cfg, freezes: [{ name: "x", ...window }] },
+    now,
+  });
+
+  it("matches the weekday in the window's own timezone", () => {
+    expect(decide(input(freeze({ days: ["sat", "sun"] }))).decision).toBe("auto-approve");
+    const out = decide(input(freeze({ name: "weekend", timezone: "Asia/Tokyo", days: ["sat", "sun"] })));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review", mergeMethod: "none" });
+    expect(out.reasons[0]).toBe('freeze "weekend": auto-approval suspended');
+  });
+
+  it("treats from and to as inclusive local dates", () => {
+    expect(decide(input(freeze({ from: "2026-10-16", to: "2026-10-16" }))).decision).toBe("human-review");
+    expect(decide(input(freeze({ to: "2026-10-15" }))).decision).toBe("auto-approve");
+    expect(decide(input(freeze({ from: "2026-10-17" }))).decision).toBe("auto-approve");
+    expect(decide(input(freeze({ timezone: "Asia/Tokyo", from: "2026-10-17" }))).decision).toBe("human-review");
+  });
+
+  it("needs every condition it sets", () => {
+    expect(decide(input(freeze({ days: ["fri"], from: "2026-10-17" }))).decision).toBe("auto-approve");
+    expect(decide(input(freeze({ days: ["fri"], from: "2026-10-16" }))).decision).toBe("human-review");
+  });
+
+  it("with a green of its own, holds the score to that stricter threshold; the tier stays", () => {
+    const window = { name: "black-friday", days: ["fri"], green: 0.15 };
+    const out = decide(input({ ...freeze(window), score: 0.2 }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review" });
+    expect(out.reasons[0]).toBe('freeze "black-friday": score 0.20 ≥ freeze green 0.15');
+    expect(decide(input({ ...freeze(window), score: 0.1 })).decision).toBe("auto-approve");
+  });
+
+  it("maps a percentile freeze green through the model's percentiles", () => {
+    const model: ModelWeights = { ...DEFAULT_WEIGHTS, percentiles: { "50": 0.1, "75": 0.2, "90": 0.4, "95": 0.5, "99": 0.7 } };
+    const cfg = { thresholds: { mode: "percentile", green: 60, yellow: 90, red: 95 } };
+    const out = decide(input({ ...freeze({ days: ["fri"], green: 50 }, cfg), model, score: 0.12 }));
+    expect(out).toMatchObject({ tier: "green", decision: "human-review" });
+    expect(out.reasons[0]).toBe('freeze "x": score 0.12 ≥ freeze green 0.10');
+    expect(decide(input({ ...freeze({ days: ["fri"], green: 50 }, cfg), model, score: 0.08 })).decision).toBe("auto-approve");
+  });
+
+  it("suspends auto-approval when a percentile freeze green cannot be mapped", () => {
+    const cfg = { thresholds: { mode: "percentile", green: 50, yellow: 90, red: 95 } };
+    const out = decide(input({ ...freeze({ days: ["fri"], green: 25 }, cfg), score: 0.01 }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toBe('freeze "x": percentile green 25 needs a calibrated model; auto-approval suspended');
+  });
+
+  it("uses the current time when none is given", () => {
+    vi.useFakeTimers({ now });
+    try {
+      expect(decide(input({ cfg: { autoApprove: { sampleRate: 0 }, freezes: [{ name: "x", days: ["fri"] }] } })).decision).toBe("human-review");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("decide: rule 4 (unknowns and LLM failure)", () => {
   it("routes an LLM failure to human review", () => {
     expect(decide(input({ llmFailed: true })).decision).toBe("human-review");
@@ -239,6 +359,31 @@ describe("decide: rule 4 (unknowns and LLM failure)", () => {
     expect(decide(input({ signals: [unknown("lang.js", 0)] })).decision).toBe("auto-approve");
     const model: ModelWeights = { ...DEFAULT_WEIGHTS, weights: { ...DEFAULT_WEIGHTS.weights, "custom.feature": 0.1 } };
     expect(decide(input({ model, signals: [unknown("custom.feature", 0)] })).decision).toBe("human-review");
+  });
+});
+
+describe("decide: PR state (draft, changes requested)", () => {
+  it("never auto-approves a draft PR", () => {
+    const out = decide(input({ pr: { successfulChecks: [], draft: true } }));
+    expect(out).toMatchObject({ decision: "human-review", mergeMethod: "none" });
+    expect(out.reasons[0]).toBe("draft PR: never auto-approved while in draft");
+  });
+
+  it("never auto-approves while changes are requested, naming every reviewer", () => {
+    const out = decide(input({ pr: { successfulChecks: [], changesRequestedBy: ["alice", "bob"] } }));
+    expect(out.decision).toBe("human-review");
+    expect(out.reasons[0]).toBe("changes requested by @alice, @bob: never auto-approved until resolved");
+  });
+
+  it("has no effect when the PR is ready, nobody requests changes, or the state is unknown (local run)", () => {
+    expect(decide(input({ pr: { successfulChecks: [], draft: false, changesRequestedBy: [] } })).decision).toBe("auto-approve");
+    expect(decide(input({ pr: { successfulChecks: [] } })).decision).toBe("auto-approve");
+    expect(decide(input()).decision).toBe("auto-approve");
+  });
+
+  it("takes precedence over waiting for the AI review", () => {
+    const cfg = { autoApprove: { sampleRate: 0, requireAiReview: { checks: ["claude-review"] } } };
+    expect(decide(input({ cfg, pr: { successfulChecks: [], draft: true } })).decision).toBe("human-review");
   });
 });
 

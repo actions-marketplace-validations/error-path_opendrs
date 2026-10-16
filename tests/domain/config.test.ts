@@ -245,3 +245,50 @@ describe("history.labelHorizonDays", () => {
     expect(configError({ history: { labelHorizonDays: -1 } })).toMatch(/labelHorizonDays/);
   });
 });
+
+describe("content.block", () => {
+  it("defaults to no patterns and accepts valid regular expressions", () => {
+    expect(defaultConfig().content.block).toEqual([]);
+    const block = ["\\beval\\(", "dangerouslySetInnerHTML", "[Dd][Rr][Oo][Pp] [Tt][Aa][Bb][Ll][Ee]"];
+    expect(parseConfig({ content: { block } }).content.block).toEqual(block);
+  });
+
+  it("rejects an entry that is not a valid regular expression, naming it", () => {
+    const message = configError({ content: { block: ["ok", "(?i)drop table"] } });
+    expect(message).toContain("content.block entry");
+    expect(message).toContain("(?i)drop table");
+  });
+});
+
+describe("freezes", () => {
+  it("defaults to none, and a window's timezone to UTC", () => {
+    expect(defaultConfig().freezes).toEqual([]);
+    expect(parseConfig({ freezes: [{ name: "weekend", days: ["sat", "sun"] }] }).freezes[0]!.timezone).toBe("UTC");
+  });
+
+  it("accepts a dated window with a stricter green", () => {
+    const window = { name: "black-friday", timezone: "America/New_York", from: "2026-11-26", to: "2026-11-30", green: 0.15 };
+    expect(parseConfig({ freezes: [window] }).freezes).toEqual([window]);
+  });
+
+  it("rejects a window that sets none of days, from or to", () => {
+    expect(configError({ freezes: [{ name: "always" }] })).toContain("days, from or to");
+  });
+
+  it("rejects an unknown timezone, weekday or date format", () => {
+    expect(configError({ freezes: [{ name: "x", timezone: "Mars/Olympus", days: ["sat"] }] })).toContain("IANA timezone");
+    expect(configError({ freezes: [{ name: "x", days: ["saturday"] }] })).toMatch(/days/);
+    expect(configError({ freezes: [{ name: "x", from: "11/26/2026" }] })).toContain("YYYY-MM-DD");
+  });
+
+  it("rejects from after to", () => {
+    expect(configError({ freezes: [{ name: "x", from: "2026-12-01", to: "2026-11-30" }] })).toMatch(/from .* after to/);
+  });
+
+  it("requires a freeze green stricter than thresholds.green, in the same units", () => {
+    expect(configError({ freezes: [{ name: "x", days: ["sat"], green: 0.3 }] })).toContain("less than thresholds.green (0.3)");
+    const percentile = { thresholds: { mode: "percentile", green: 50, yellow: 90, red: 95 } };
+    expect(configError({ ...percentile, freezes: [{ name: "x", days: ["sat"], green: 60 }] })).toContain("less than thresholds.green (50)");
+    expect(() => parseConfig({ ...percentile, freezes: [{ name: "x", days: ["sat"], green: 25 }] })).not.toThrow();
+  });
+});

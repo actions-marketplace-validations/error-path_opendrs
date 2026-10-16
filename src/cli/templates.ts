@@ -134,6 +134,13 @@ paths:
     - "**/*_test.*"
     - "**/test_*.py"
 
+# JS regular expressions matched against each added line; a match is never auto-approved.
+# No inline flags such as (?i): write [Dd]rop instead.
+content:
+  block: []
+  #   - "\\\\beval\\\\("
+  #   - "dangerouslySetInnerHTML"
+
 # Optional LLM judge, one extra signal. The diff and PR text are treated as untrusted.
 llm:
   enabled: false
@@ -158,6 +165,17 @@ graph:
 
 # Calibrated model written by \`opendrs calibrate\`; the default priors are used until it exists.
 model: .opendrs/model.json
+
+# Freeze windows (Meta's weekend gate and "code chill"): while one is active, auto-approval is
+# suspended, or held to a stricter green (same units as thresholds). Tiers do not change.
+freezes: []
+#  - name: weekend
+#    timezone: America/New_York   # IANA name; default UTC
+#    days: [sat, sun]
+#  - name: black-friday
+#    from: "2026-11-26"           # inclusive local dates
+#    to: "2026-11-30"
+#    green: 0.15
 `;
 
 export const WORKFLOW_TEMPLATE = `# opendrs: comment a risk score on every pull request.

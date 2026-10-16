@@ -27407,6 +27407,32 @@ function unblockable(glob, ctx) {
   });
 }
 var union2 = (a, b) => [.../* @__PURE__ */ new Set([...a, ...b])];
+function compiles(pattern, ctx) {
+  try {
+    new RegExp(pattern);
+  } catch (e) {
+    ctx.addIssue({ code: "custom", message: `content.block entry "${pattern}" is not a valid JS regular expression: ${e.message}` });
+  }
+}
+var localDate = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD date");
+var freezeSchema = external_exports.object({
+  name: external_exports.string().min(1),
+  timezone: external_exports.string().default("UTC").superRefine((timeZone, ctx) => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone });
+    } catch {
+      ctx.addIssue({ code: "custom", message: `"${timeZone}" is not an IANA timezone (e.g. America/New_York)` });
+    }
+  }),
+  days: external_exports.array(external_exports.enum(["sun", "mon", "tue", "wed", "thu", "fri", "sat"])).min(1).optional(),
+  from: localDate.optional(),
+  to: localDate.optional(),
+  // Stricter green threshold while active; without one, auto-approval is suspended.
+  green: external_exports.number().min(0).max(100).optional()
+}).superRefine(({ days, from, to }, ctx) => {
+  if (!days && !from && !to) ctx.addIssue({ code: "custom", message: "a freeze window must set days, from or to" });
+  if (from && to && from > to) ctx.addIssue({ code: "custom", message: `freeze from ${from} is after to ${to}`, path: ["from"] });
+});
 var configSchema = external_exports.object({
   thresholds: thresholdsSchema.prefault({}),
   autoApprove: external_exports.object({
@@ -27452,6 +27478,10 @@ var configSchema = external_exports.object({
     block: union2(DEFAULT_BLOCK, p.block).filter((g) => !p.unblock.includes(g)),
     critical: union2(DEFAULT_CRITICAL, p.critical)
   })).prefault({}),
+  content: external_exports.object({
+    // JS regular expressions matched against each added line; a match is never auto-approved.
+    block: external_exports.array(external_exports.string().superRefine(compiles)).default([])
+  }).prefault({}),
   llm: external_exports.object({
     enabled: external_exports.boolean().default(false),
     provider: external_exports.enum(["anthropic", "openai"]).default("anthropic"),
@@ -27474,7 +27504,17 @@ var configSchema = external_exports.object({
     maxFiles: external_exports.number().int().positive().default(5e4)
   }).prefault({}),
   /** Path to calibrated model JSON, relative to repo root. Used when it exists. */
-  model: external_exports.string().default(".opendrs/model.json")
+  model: external_exports.string().default(".opendrs/model.json"),
+  freezes: external_exports.array(freezeSchema).default([])
+}).superRefine(({ thresholds, freezes }, ctx) => {
+  freezes.forEach((f, i) => {
+    if (f.green === void 0 || f.green < thresholds.green) return;
+    ctx.addIssue({
+      code: "custom",
+      message: `freeze "${f.name}" green ${f.green} must be less than thresholds.green (${thresholds.green}), in ${thresholds.mode} units`,
+      path: ["freezes", i, "green"]
+    });
+  });
 });
 function parseConfig(raw2) {
   const result = configSchema.safeParse(raw2 ?? {});
@@ -28993,6 +29033,7 @@ var DEFAULT_WEIGHTS = {
     "size.churn": 0.25,
     "size.relative": 0.3,
     "size.new_files_only": -0.5,
+    "size.comment_only": -2,
     "diffusion.files": 0.2,
     "diffusion.dirs": 0.1,
     "diffusion.authors": 0.15,
@@ -29077,6 +29118,7 @@ var PLAUSIBLE_RANGE = {
   "size.churn": [0, Math.log1p(1e3)],
   "size.relative": [0, Math.log1p(1)],
   "size.new_files_only": [0, 1],
+  "size.comment_only": [0, 1],
   "diffusion.files": [Math.log1p(1), Math.log1p(20)],
   "diffusion.dirs": [Math.log1p(1), Math.log1p(8)],
   "diffusion.authors": [0, Math.log1p(20)],
@@ -29125,6 +29167,9 @@ function decide(input2) {
   }
   const testsDeleted = input2.signals.find((s) => s.id === "tests.deleted" && s.value >= 1);
   if (testsDeleted) fired.push({ decision: "human-review", reason: `test deletion: ${testsDeleted.summary}` });
+  for (const [pattern, hits] of contentHits(diff, config2.content.block)) {
+    fired.push({ decision: "human-review", reason: `content.block /${pattern}/ matched ${list(hits)}` });
+  }
   const changedLines2 = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
   if (changedLines2 > auto.maxChangedLines) {
     fired.push({ decision: "human-review", reason: `${changedLines2} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
@@ -29134,6 +29179,22 @@ function decide(input2) {
       decision: "human-review",
       reason: `tier ${tier}: score ${input2.score.toFixed(2)} \u2265 green threshold ${thresholds.green.toFixed(2)}`
     });
+  }
+  const now = input2.now ?? Date.now();
+  for (const f of config2.freezes.filter((w) => freezeActive(w, now))) {
+    if (f.green === void 0) {
+      fired.push({ decision: "human-review", reason: `freeze "${f.name}": auto-approval suspended` });
+      continue;
+    }
+    const green = config2.thresholds.mode === "absolute" ? f.green : percentileScore(model.percentiles, f.green);
+    if (green === void 0) {
+      fired.push({
+        decision: "human-review",
+        reason: `freeze "${f.name}": percentile green ${f.green} needs a calibrated model; auto-approval suspended`
+      });
+    } else if (input2.score >= green) {
+      fired.push({ decision: "human-review", reason: `freeze "${f.name}": score ${input2.score.toFixed(2)} \u2265 freeze green ${green.toFixed(2)}` });
+    }
   }
   if (input2.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
   const used = featureValues(input2.signals, model.priors);
@@ -29156,6 +29217,11 @@ function decide(input2) {
     const alone = lifts.sort((a, b) => b.lift - a.lift).map((l) => `${l.id} \u2192 ${sigmoid(input2.logit + l.lift).toFixed(2)}`).join(", ");
     const reason = lifts.length === 1 ? `unknown ${lifts[0].id} could raise the score to ${worst.toFixed(2)} (${worstTier})` : `unknown signals could together raise the score to ${worst.toFixed(2)} (${worstTier}); alone: ${alone}`;
     fired.push({ decision: "human-review", reason });
+  }
+  if (input2.pr?.draft) fired.push({ decision: "human-review", reason: "draft PR: never auto-approved while in draft" });
+  const objectors = input2.pr?.changesRequestedBy ?? [];
+  if (objectors.length > 0) {
+    fired.push({ decision: "human-review", reason: `changes requested by ${objectors.map((l) => `@${l}`).join(", ")}: never auto-approved until resolved` });
   }
   const checks = auto.requireAiReview.checks.map((c) => typeof c === "string" ? c : c.name);
   if (checks.length > 0) {
@@ -29190,6 +29256,23 @@ function decide(input2) {
     )
   };
 }
+function contentHits(diff, patterns) {
+  const rules = patterns.map((p) => ({ p, re: new RegExp(p), hits: [] }));
+  if (rules.length === 0) return [];
+  for (const f of diff.files) {
+    if (f.binary) continue;
+    for (const h of f.hunks) {
+      let line2 = h.newStart;
+      for (const raw2 of h.lines) {
+        if (raw2.startsWith("+")) {
+          for (const r of rules) if (r.re.test(raw2.slice(1))) r.hits.push(`${f.path}:${line2}`);
+        }
+        if (raw2[0] !== "-" && raw2[0] !== "\\") line2++;
+      }
+    }
+  }
+  return rules.filter((r) => r.hits.length > 0).map((r) => [r.p, r.hits]);
+}
 function tierOf(score, t) {
   if (score < t.green) return "green";
   return score >= t.red ? "red" : "yellow";
@@ -29204,6 +29287,13 @@ function resolveThresholds(config2, model, notes) {
     `percentile thresholds need a calibrated model with history percentiles covering ${t.green}/${t.yellow}/${t.red}; using absolute defaults ${d.green}/${d.yellow}/${d.red}`
   );
   return d;
+}
+function freezeActive(f, now) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: f.timezone, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const part = (type) => parts.find((p) => p.type === type).value;
+  const day = part("weekday").toLowerCase();
+  const date5 = `${part("year")}-${part("month")}-${part("day")}`;
+  return (!f.days || f.days.some((d) => d === day)) && (!f.from || date5 >= f.from) && (!f.to || date5 <= f.to);
 }
 function percentileScore(table, p) {
   if (!table) return void 0;
@@ -29748,8 +29838,32 @@ var sizeSignals = async (ctx) => {
     summary: newOnly ? `all ${plural2(files.length, "changed file")} are new` : `${added} of ${plural2(files.length, "changed file")} are new`,
     evidence: []
   };
-  return [churn, await relativeSize(ctx, files), newFilesOnly];
+  const changed = files.flatMap((f) => f.hunks.flatMap((h) => h.lines.filter((l) => l[0] === "+" || l[0] === "-").map((l) => ({ f, text: l.slice(1) }))));
+  const commentOnly = changed.length > 0 && files.every((f) => !f.binary && f.status !== "renamed") && changed.every(({ f, text }) => inert(text, languageFamily(f.path)));
+  const commentOnlySignal = {
+    id: "size.comment_only",
+    value: commentOnly ? 1 : 0,
+    status: "observed",
+    summary: commentOnly ? "only comments or blank lines changed" : "code lines changed",
+    evidence: []
+  };
+  return [churn, await relativeSize(ctx, files), newFilesOnly, commentOnlySignal];
 };
+var C_LIKE = /* @__PURE__ */ new Set(["ts", "js", "go", "java", "kotlin", "rust", "c_cpp", "csharp", "php", "swift"]);
+var HASH = /* @__PURE__ */ new Set(["py", "ruby", "shell", "config", "php"]);
+var DIRECTIVE = /^(!|#|-\*-|go:|\+build|@ts-|@flow|@jsx|@formatter|eslint|tslint|jshint|prettier-ignore|biome-ignore|deno-|istanbul|c8 |webpack|@vite-|nolint|noinspection|noqa|type:|pyright:|mypy:|pylint:|fmt:|isort:|pragma|rubocop:|frozen_string_literal|swiftlint:|clang-format|sourceMappingURL)/i;
+function inert(line2, family) {
+  const t = line2.trim();
+  if (t === "") return true;
+  let body;
+  if (C_LIKE.has(family) || family === "sql") {
+    body = /^\/\*(.*)\*\/$/.exec(t)?.[1] ?? (/^\*(\s|$)/.test(t) ? t.slice(1) : void 0);
+  }
+  if (body === void 0 && C_LIKE.has(family) && t.startsWith("//")) body = t.slice(2);
+  if (body === void 0 && HASH.has(family) && t.startsWith("#")) body = t.slice(1);
+  if (body === void 0 && family === "sql" && t.startsWith("--")) body = t.slice(2);
+  return body !== void 0 && !body.includes("/*") && !body.includes("*/") && !DIRECTIVE.test(body.trim());
+}
 async function relativeSize(ctx, files) {
   const id = "size.relative";
   const modified = files.filter((f) => !f.binary && (f.status === "modified" || f.status === "renamed"));
@@ -29925,7 +30039,8 @@ async function scoreDiff(opts) {
     model,
     history,
     pr: opts.pr,
-    llmFailed: Boolean(ctx.llm?.error)
+    llmFailed: Boolean(ctx.llm?.error),
+    now: opts.now
   });
   const counted = diff.files.filter((f) => !f.ignored);
   return {
@@ -30053,6 +30168,15 @@ async function ownApprovals(client, pr, viewer) {
     (r) => r.state === "APPROVED" && isSelf(r.user, viewer) && (r.body ?? "").includes(APPROVAL_MARKER)
   );
 }
+async function changesRequested(client, pr, viewer) {
+  const latest = /* @__PURE__ */ new Map();
+  for (const r of await client.listReviews(pr)) {
+    if (!["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(r.state)) continue;
+    if (isSelf(r.user, viewer) && (r.body ?? "").includes(APPROVAL_MARKER)) continue;
+    latest.set(r.user?.login ?? "ghost", r.state);
+  }
+  return [...latest].filter(([, state]) => state === "CHANGES_REQUESTED").map(([login]) => login);
+}
 async function withdraw(client, io, pr, own2, message) {
   for (const r of own2) {
     await unlessForbidden(
@@ -30090,7 +30214,7 @@ async function reconcileApproval(a) {
   }
   if (reasons.length) {
     io.info(`Not approving: ${reasons.join("; ")}.`);
-    const message = result.policy.decision !== "auto-approve" ? `Risk increased: ${result.tier} ${result.score.toFixed(2)}` : `opendrs approval withdrawn: ${reasons.join("; ")}`;
+    const message = result.policy.decision !== "auto-approve" ? result.tier === "green" ? `opendrs approval withdrawn: ${result.policy.reasons[0]}` : `Risk increased: ${result.tier} ${result.score.toFixed(2)}` : `opendrs approval withdrawn: ${reasons.join("; ")}`;
     await withdraw(client, io, pr, own2, message);
     return { approved: false, status: `not approved: ${reasons.join("; ")}.` };
   }
@@ -30226,6 +30350,9 @@ async function scorePullRequest(d, pr) {
   const author = await prAuthor(d, pr);
   const mergeBase2 = (await git(d.repoDir, ["merge-base", pr.base.sha, pr.head.sha])).trim();
   const history = await buildHistoryIndex(d.repoDir, mergeBase2, config2);
+  const viewer = await client.viewerLogin();
+  if (viewer === void 0) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
+  const changesRequestedBy = await changesRequested(client, pr.number, viewer);
   const result = await io.group("Score", async () => {
     const r = await scoreDiff({
       repoDir: d.repoDir,
@@ -30238,7 +30365,13 @@ async function scorePullRequest(d, pr) {
       title: pr.title,
       description: pr.body ?? void 0,
       // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.
-      pr: { successfulChecks, number: pr.number, samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}` }
+      pr: {
+        successfulChecks,
+        number: pr.number,
+        samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}`,
+        draft: pr.draft,
+        changesRequestedBy
+      }
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -30250,8 +30383,6 @@ async function scorePullRequest(d, pr) {
   const files = await changedFiles(d.repoDir, pr.base.sha, pr.head.sha);
   const paths = files.filter((f) => !matchAny(config2.paths.ignore, f));
   result.policy.suggestedReviewers = suggestReviewers(history, paths, void 0, 3 + author.emails.size).filter((email3) => !author.emails.has(email3)).slice(0, 3);
-  const viewer = await client.viewerLogin();
-  if (viewer === void 0) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
   const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer }));
   const report = renderMarkdown(result);
   const warning = predictable ? `

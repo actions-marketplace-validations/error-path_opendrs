@@ -68,6 +68,21 @@ export async function ownApprovals(client: GitHubClient, pr: number, viewer: str
 }
 
 /**
+ * Reviewers whose latest approval, change request or dismissal is a change request. opendrs's own
+ * approvals are left out, so they never clear a change request made by the same account.
+ */
+export async function changesRequested(client: GitHubClient, pr: number, viewer: string | undefined): Promise<string[]> {
+  const latest = new Map<string, string>();
+  // GitHub lists reviews oldest first.
+  for (const r of await client.listReviews(pr)) {
+    if (!["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(r.state)) continue;
+    if (isSelf(r.user, viewer) && (r.body ?? "").includes(APPROVAL_MARKER)) continue;
+    latest.set(r.user?.login ?? "ghost", r.state);
+  }
+  return [...latest].filter(([, state]) => state === "CHANGES_REQUESTED").map(([login]) => login);
+}
+
+/**
  * Dismiss `own` approvals and, when there were any, stop the auto-merge or queue entry they led
  * to. With no approval of ours, auto-merge is left alone: a human may have turned it on.
  */
@@ -119,9 +134,12 @@ export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: b
   }
   if (reasons.length) {
     io.info(`Not approving: ${reasons.join("; ")}.`);
+    // A green PR held back (a freeze, a sample) has not risen in risk: say what held it.
     const message =
       result.policy.decision !== "auto-approve"
-        ? `Risk increased: ${result.tier} ${result.score.toFixed(2)}`
+        ? result.tier === "green"
+          ? `opendrs approval withdrawn: ${result.policy.reasons[0]}`
+          : `Risk increased: ${result.tier} ${result.score.toFixed(2)}`
         : `opendrs approval withdrawn: ${reasons.join("; ")}`;
     await withdraw(client, io, pr, own, message);
     return { approved: false, status: `not approved: ${reasons.join("; ")}.` };

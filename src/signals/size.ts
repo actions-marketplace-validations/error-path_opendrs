@@ -1,4 +1,5 @@
 import type { ChangedFile, Evidence, ScoringContext, Signal, SignalProvider } from "../domain/types.js";
+import { languageFamily, type LanguageFamily } from "./language.js";
 import { countedFiles, historyPath, plural, topEvidence, unknown } from "./util.js";
 
 /** Spec §4 "size.*" signals. */
@@ -27,8 +28,46 @@ export const sizeSignals: SignalProvider = async (ctx) => {
     evidence: [],
   };
 
-  return [churn, await relativeSize(ctx, files), newFilesOnly];
+  // Meta: "a comment only change to a file on a risky path has no risk". A rename is never
+  // comment-only (it can break importers), nor is a diff with no changed text lines.
+  const changed = files.flatMap((f) => f.hunks.flatMap((h) => h.lines.filter((l) => l[0] === "+" || l[0] === "-").map((l) => ({ f, text: l.slice(1) }))));
+  const commentOnly =
+    changed.length > 0 && files.every((f) => !f.binary && f.status !== "renamed") && changed.every(({ f, text }) => inert(text, languageFamily(f.path)));
+  const commentOnlySignal: Signal = {
+    id: "size.comment_only",
+    value: commentOnly ? 1 : 0,
+    status: "observed",
+    summary: commentOnly ? "only comments or blank lines changed" : "code lines changed",
+    evidence: [],
+  };
+
+  return [churn, await relativeSize(ctx, files), newFilesOnly, commentOnlySignal];
 };
+
+const C_LIKE = new Set<LanguageFamily>(["ts", "js", "go", "java", "kotlin", "rust", "c_cpp", "csharp", "php", "swift"]);
+const HASH = new Set<LanguageFamily>(["py", "ruby", "shell", "config", "php"]);
+// Comments that change how code builds, type-checks or lints (cgo preambles start with #).
+const DIRECTIVE =
+  /^(!|#|-\*-|go:|\+build|@ts-|@flow|@jsx|@formatter|eslint|tslint|jshint|prettier-ignore|biome-ignore|deno-|istanbul|c8 |webpack|@vite-|nolint|noinspection|noqa|type:|pyright:|mypy:|pylint:|fmt:|isort:|pragma|rubocop:|frozen_string_literal|swiftlint:|clang-format|sourceMappingURL)/i;
+
+/**
+ * True for a blank line, or a plain comment in the file's own comment syntax. Stricter than SZZ's
+ * comment test, because here a wrong "comment" discounts risk: a lone block delimiter can switch
+ * code on or off, directives change the build, and `#` is code in CSS or C#. Unknown languages
+ * (`other`, docs) have no trusted comment syntax.
+ */
+function inert(line: string, family: LanguageFamily): boolean {
+  const t = line.trim();
+  if (t === "") return true;
+  let body: string | undefined;
+  if (C_LIKE.has(family) || family === "sql") {
+    body = /^\/\*(.*)\*\/$/.exec(t)?.[1] ?? (/^\*(\s|$)/.test(t) ? t.slice(1) : undefined);
+  }
+  if (body === undefined && C_LIKE.has(family) && t.startsWith("//")) body = t.slice(2);
+  if (body === undefined && HASH.has(family) && t.startsWith("#")) body = t.slice(1);
+  if (body === undefined && family === "sql" && t.startsWith("--")) body = t.slice(2);
+  return body !== undefined && !body.includes("/*") && !body.includes("*/") && !DIRECTIVE.test(body.trim());
+}
 
 async function relativeSize(ctx: ScoringContext, files: ChangedFile[]): Promise<Signal> {
   const id = "size.relative";

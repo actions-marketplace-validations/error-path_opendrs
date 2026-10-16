@@ -131,6 +131,41 @@ function unblockable(glob: string, ctx: z.RefinementCtx): void {
 
 const union = (a: readonly string[], b: readonly string[]): string[] => [...new Set([...a, ...b])];
 
+function compiles(pattern: string, ctx: z.RefinementCtx): void {
+  try {
+    new RegExp(pattern);
+  } catch (e) {
+    ctx.addIssue({ code: "custom", message: `content.block entry "${pattern}" is not a valid JS regular expression: ${(e as Error).message}` });
+  }
+}
+
+const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD date");
+
+/** A freeze window: active when the local date in `timezone` meets every condition it sets. */
+const freezeSchema = z
+  .object({
+    name: z.string().min(1),
+    timezone: z
+      .string()
+      .default("UTC")
+      .superRefine((timeZone, ctx) => {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone });
+        } catch {
+          ctx.addIssue({ code: "custom", message: `"${timeZone}" is not an IANA timezone (e.g. America/New_York)` });
+        }
+      }),
+    days: z.array(z.enum(["sun", "mon", "tue", "wed", "thu", "fri", "sat"])).min(1).optional(),
+    from: localDate.optional(),
+    to: localDate.optional(),
+    // Stricter green threshold while active; without one, auto-approval is suspended.
+    green: z.number().min(0).max(100).optional(),
+  })
+  .superRefine(({ days, from, to }, ctx) => {
+    if (!days && !from && !to) ctx.addIssue({ code: "custom", message: "a freeze window must set days, from or to" });
+    if (from && to && from > to) ctx.addIssue({ code: "custom", message: `freeze from ${from} is after to ${to}`, path: ["from"] });
+  });
+
 export const configSchema = z.object({
   thresholds: thresholdsSchema.prefault({}),
   autoApprove: z
@@ -188,6 +223,12 @@ export const configSchema = z.object({
       critical: union(DEFAULT_CRITICAL, p.critical),
     }))
     .prefault({}),
+  content: z
+    .object({
+      // JS regular expressions matched against each added line; a match is never auto-approved.
+      block: z.array(z.string().superRefine(compiles)).default([]),
+    })
+    .prefault({}),
   llm: z
     .object({
       enabled: z.boolean().default(false),
@@ -217,7 +258,18 @@ export const configSchema = z.object({
     .prefault({}),
   /** Path to calibrated model JSON, relative to repo root. Used when it exists. */
   model: z.string().default(".opendrs/model.json"),
-});
+  freezes: z.array(freezeSchema).default([]),
+})
+  .superRefine(({ thresholds, freezes }, ctx) => {
+    freezes.forEach((f, i) => {
+      if (f.green === undefined || f.green < thresholds.green) return;
+      ctx.addIssue({
+        code: "custom",
+        message: `freeze "${f.name}" green ${f.green} must be less than thresholds.green (${thresholds.green}), in ${thresholds.mode} units`,
+        path: ["freezes", i, "green"],
+      });
+    });
+  });
 
 export type OpendrsConfig = z.infer<typeof configSchema>;
 

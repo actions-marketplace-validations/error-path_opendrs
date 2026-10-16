@@ -11,6 +11,7 @@ function vector(values: Record<string, number>): Signal[] {
     "size.churn": 0,
     "size.relative": 0,
     "size.new_files_only": 0,
+    "size.comment_only": 0,
     "diffusion.files": 0,
     "diffusion.dirs": 0,
     "diffusion.authors": 0,
@@ -121,6 +122,25 @@ const deletedCheck = vector({
   "lang.ts": 1,
 });
 
+// (g) Meta's example: a 6-line comment-only edit to a hub file in a critical path with a past
+// incident and prior fixes. tests.missing = 1 (no test lines were added).
+const commentEdit = {
+  "size.churn": l(6),
+  "size.relative": l(6 / 200),
+  "diffusion.files": l(1),
+  "diffusion.dirs": l(1),
+  "diffusion.authors": l(5),
+  "history.prior_fixes": l(3),
+  "history.incident": 1,
+  "history.churn": l(30),
+  "expertise.author_commits": l(50),
+  "complexity.touched": l(40),
+  "blast.dependents": l(10),
+  "paths.critical": 1,
+  "tests.missing": 1,
+  "lang.ts": 1,
+};
+
 const score = (s: Signal[]) => scoreSignals(s, DEFAULT_WEIGHTS).score;
 
 describe("DEFAULT_WEIGHTS fixtures (spec §5 targets)", () => {
@@ -150,6 +170,11 @@ describe("DEFAULT_WEIGHTS fixtures (spec §5 targets)", () => {
   it("(f) deleting a security check together with its tests lands at yellow or above", () => {
     expect(score(deletedCheck)).toBeGreaterThanOrEqual(0.3);
   });
+
+  it("(g) a comment-only edit on a risky path is green; the same lines as code are not", () => {
+    expect(score(vector({ ...commentEdit, "size.comment_only": 1 }))).toBeLessThan(0.3);
+    expect(score(vector(commentEdit))).toBeGreaterThanOrEqual(0.6);
+  });
 });
 
 describe("DEFAULT_WEIGHTS shape", () => {
@@ -157,6 +182,7 @@ describe("DEFAULT_WEIGHTS shape", () => {
     "size.churn",
     "size.relative",
     "size.new_files_only",
+    "size.comment_only",
     "diffusion.files",
     "diffusion.dirs",
     "diffusion.authors",

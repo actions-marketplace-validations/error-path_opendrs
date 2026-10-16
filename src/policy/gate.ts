@@ -15,8 +15,17 @@ export interface GateInput {
   model: ModelWeights;
   history: HistoryIndex;
   /** Present in CI: what the PR currently has. Absent locally (AI-review rule then reports "unknown"). */
-  pr?: { successfulChecks: string[]; number?: number; samplingKey?: string };
+  pr?: {
+    successfulChecks: string[];
+    number?: number;
+    samplingKey?: string;
+    draft?: boolean;
+    /** Reviewers whose latest approve/request-changes/dismissal requests changes. */
+    changesRequestedBy?: string[];
+  };
   llmFailed: boolean;
+  /** Epoch ms the freeze windows are checked against. Default: Date.now(). */
+  now?: number;
 }
 
 /**
@@ -27,6 +36,7 @@ const PLAUSIBLE_RANGE: Record<string, [number, number]> = {
   "size.churn": [0, Math.log1p(1000)],
   "size.relative": [0, Math.log1p(1)],
   "size.new_files_only": [0, 1],
+  "size.comment_only": [0, 1],
   "diffusion.files": [Math.log1p(1), Math.log1p(20)],
   "diffusion.dirs": [Math.log1p(1), Math.log1p(8)],
   "diffusion.authors": [0, Math.log1p(20)],
@@ -57,7 +67,7 @@ export function sampleValue(head: string): number {
   return createHash("sha256").update(head).digest().readUIntBE(0, 6) / 2 ** 48;
 }
 
-/** Spec §6 decision order. Pure and deterministic (sampling is hashed from diff.head). */
+/** Spec §6 decision order. Pure and deterministic given `now` (sampling is hashed from diff.head). */
 export function decide(input: GateInput): PolicyOutcome {
   const { config, diff, model } = input;
   const auto = config.autoApprove;
@@ -95,6 +105,10 @@ export function decide(input: GateInput): PolicyOutcome {
   // Removing tests removes the evidence a change is safe, and a calibrated model may not weigh it.
   const testsDeleted = input.signals.find((s) => s.id === "tests.deleted" && s.value >= 1);
   if (testsDeleted) fired.push({ decision: "human-review", reason: `test deletion: ${testsDeleted.summary}` });
+  // Blocklisted code phrases on added lines (Meta's RADAR never auto-lands these).
+  for (const [pattern, hits] of contentHits(diff, config.content.block)) {
+    fired.push({ decision: "human-review", reason: `content.block /${pattern}/ matched ${list(hits)}` });
+  }
 
   // 2. size cap (a binary file counts as one line)
   const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
@@ -108,6 +122,24 @@ export function decide(input: GateInput): PolicyOutcome {
       decision: "human-review",
       reason: `tier ${tier}: score ${input.score.toFixed(2)} ≥ green threshold ${thresholds.green.toFixed(2)}`,
     });
+  }
+
+  // 3b. freeze windows: suspend auto-approval, or hold it to a stricter green; the tier stays
+  const now = input.now ?? Date.now();
+  for (const f of config.freezes.filter((w) => freezeActive(w, now))) {
+    if (f.green === undefined) {
+      fired.push({ decision: "human-review", reason: `freeze "${f.name}": auto-approval suspended` });
+      continue;
+    }
+    const green = config.thresholds.mode === "absolute" ? f.green : percentileScore(model.percentiles, f.green);
+    if (green === undefined) {
+      fired.push({
+        decision: "human-review",
+        reason: `freeze "${f.name}": percentile green ${f.green} needs a calibrated model; auto-approval suspended`,
+      });
+    } else if (input.score >= green) {
+      fired.push({ decision: "human-review", reason: `freeze "${f.name}": score ${input.score.toFixed(2)} ≥ freeze green ${green.toFixed(2)}` });
+    }
   }
 
   // 4. LLM failure, or an unknown whose plausible worst case changes the tier
@@ -139,6 +171,13 @@ export function decide(input: GateInput): PolicyOutcome {
         ? `unknown ${lifts[0]!.id} could raise the score to ${worst.toFixed(2)} (${worstTier})`
         : `unknown signals could together raise the score to ${worst.toFixed(2)} (${worstTier}); alone: ${alone}`;
     fired.push({ decision: "human-review", reason });
+  }
+
+  // 4b. PR state: a draft is work in progress, and a change request is an open objection
+  if (input.pr?.draft) fired.push({ decision: "human-review", reason: "draft PR: never auto-approved while in draft" });
+  const objectors = input.pr?.changesRequestedBy ?? [];
+  if (objectors.length > 0) {
+    fired.push({ decision: "human-review", reason: `changes requested by ${objectors.map((l) => `@${l}`).join(", ")}: never auto-approved until resolved` });
   }
 
   // 5. AI review: check runs on the head commit only (labels are not tied to a commit)
@@ -181,6 +220,24 @@ export function decide(input: GateInput): PolicyOutcome {
   };
 }
 
+/** For each pattern that matches an added line of a non-binary file, its "path:line" locations (new side). */
+function contentHits(diff: DiffInfo, patterns: string[]): Array<[string, string[]]> {
+  const rules = patterns.map((p) => ({ p, re: new RegExp(p), hits: [] as string[] }));
+  if (rules.length === 0) return [];
+  for (const f of diff.files) {
+    if (f.binary) continue;
+    for (const h of f.hunks) {
+      let line = h.newStart;
+      for (const raw of h.lines) {
+        if (raw.startsWith("+")) for (const r of rules) if (r.re.test(raw.slice(1))) r.hits.push(`${f.path}:${line}`);
+        // "-" lines and "\ No newline" markers have no new-side line number ("" is context, as in readHunk).
+        if (raw[0] !== "-" && raw[0] !== "\\") line++;
+      }
+    }
+  }
+  return rules.filter((r) => r.hits.length > 0).map((r) => [r.p, r.hits]);
+}
+
 /**
  * Three tiers from three numbers: below `green` is green, at or above `red` is red, the rest is
  * yellow. `yellow` has no boundary of its own in a three-tier scheme (see report).
@@ -201,6 +258,16 @@ function resolveThresholds(config: OpendrsConfig, model: ModelWeights, notes: st
       `using absolute defaults ${d.green}/${d.yellow}/${d.red}`,
   );
   return d;
+}
+
+/** Whether the local date at `now` in the window's timezone meets every condition the window sets. */
+function freezeActive(f: OpendrsConfig["freezes"][number], now: number): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: f.timezone, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)!.value;
+  const day = part("weekday").toLowerCase();
+  const date = `${part("year")}-${part("month")}-${part("day")}`;
+  return (!f.days || f.days.some((d) => d === day)) && (!f.from || date >= f.from) && (!f.to || date <= f.to);
 }
 
 /** Score at percentile p, interpolating linearly between the model's recorded percentiles. */
