@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   KAMEI_IDS,
+  PROJECTS,
   aucOf,
   bestF1Threshold,
   evaluateModel,
@@ -83,4 +84,12 @@ it("renderReport shows — for an undefined AUC and includes the caveats", () =>
   expect(md).toContain("—");
   for (const c of CAVEATS) expect(md).toContain(c);
   expect(md).not.toContain("NaN");
+});
+
+it("PROJECTS pins a full head sha for each of the 15 project values", () => {
+  expect(PROJECTS).toHaveLength(15);
+  for (const p of PROJECTS) {
+    expect(p.head).toMatch(/^[0-9a-f]{40}$/);
+    expect(p.url).toBe(`https://github.com/${p.project}.git`);
+  }
 });

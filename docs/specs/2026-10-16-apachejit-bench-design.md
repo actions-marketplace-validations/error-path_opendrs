@@ -153,8 +153,11 @@ Steps:
 2. **Clones.** For each project, `git clone --no-checkout <url>` into `<work-dir>/repos/<name>` if
    absent. It is a full clone: a partial (`--filter=blob:none`) clone would fetch blobs lazily
    while opendrs reads file contents, one network round trip per file.
-3. **Head.** `git rev-list -1 --before=2020-01-01 <default branch>`, the last commit before the
-   dataset ends. The import graph is built there, not at today's tip.
+3. **Head.** A pinned sha per project (`PROJECTS[].head`): the default branch at the dataset's end.
+   A date cutoff is not reproducible (`git rev-list --before=<date>` fills in the current time of
+   day), so the shas are fixed. Most are the last 2019 commit; camel, groovy, hadoop and kafka are
+   commits of 1 January 2020 (UTC), which only moves the import-graph approximation by hours. The
+   import graph is built there, not at today's tip.
 4. **Replay.** The config is `defaultConfig()` with `history.maxCommits` raised to 1,000,000 and
    `labelHorizonDays` irrelevant (labels are external). `replayHistory({ repoDir, config, head, labels })`
    runs with `labels` covering the project's `train` and `test_large` rows. The rows go to
@@ -225,7 +228,7 @@ points of interpretation, and a link to `bench/apachejit/results.md`. README lin
 ## 6. Error handling
 
 - A failed download or hash mismatch stops the run with the file name and expected hash.
-- A failed clone, or no commit before 2020 on the default branch, skips that project, records it
+- A failed clone, or a pinned head missing from the clone, skips that project, records it
   in the report, and the run continues. The exit code is 1 if any project was skipped.
 - Replay errors on single commits are already counted as skipped by `replayHistory`.
 - A cache file that fails to parse is deleted and rebuilt.

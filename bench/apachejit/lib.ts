@@ -51,26 +51,35 @@ export interface Project {
   project: string;
   name: string;
   url: string;
+  /** Pinned replay head: the default branch at the dataset's end (late 2019, or 1 Jan 2020 UTC). */
+  head: string;
 }
 
+const HEADS: Record<string, string> = {
+  activemq: "d41658715bba77aaa56f46b4b2a0c0adc1107961",
+  camel: "a2847950c77a9d97adf59e627bad5b2391347adc",
+  cassandra: "39866333322ec702a2a28485c3bbb84560597f40",
+  flink: "e1340a006e3f76b71323dc87f61063fedfdc7f3b",
+  groovy: "060cbc80b6a798ae2fb5853ce3f1d38289950acb",
+  hadoop: "074050ca595a81927c867951e48cef132a0284be",
+  "hadoop-hdfs": "b2d2a3262c587638db04c2991d48656b3d06275c",
+  "hadoop-mapreduce": "307cb5b316e10defdbbc228d8cdcdb627191ea15",
+  hbase: "06eff551c367d2b939d0b345bc8ce65af71cc1b1",
+  hive: "01faca2f9d7dcb0f5feabfcb07fa5ea12b79c5b9",
+  ignite: "66593af03aeac37d0e76b6c010e8386f6f0c36c7",
+  kafka: "3453e9e2eee1400901ef8e1965d657b825d5d64a",
+  spark: "ce7a49f7fa30b4f252af09f9428cffc1055ef7c7",
+  zeppelin: "7a472fe0fd63493e933d0549a808e21db38d68d8",
+  zookeeper: "d784e4dc8e042bd622500f861163bb315fa856fe",
+};
+
 /** All 15 ApacheJIT project values, sorted by name. `hadoop-hdfs` and `hadoop-mapreduce` are separate archived mirrors. */
-export const PROJECTS: Project[] = [
-  "activemq",
-  "camel",
-  "cassandra",
-  "flink",
-  "groovy",
-  "hadoop",
-  "hadoop-hdfs",
-  "hadoop-mapreduce",
-  "hbase",
-  "hive",
-  "ignite",
-  "kafka",
-  "spark",
-  "zeppelin",
-  "zookeeper",
-].map((name) => ({ project: `apache/${name}`, name, url: `https://github.com/apache/${name}.git` }));
+export const PROJECTS: Project[] = Object.keys(HEADS).map((name) => ({
+  project: `apache/${name}`,
+  name,
+  url: `https://github.com/apache/${name}.git`,
+  head: HEADS[name]!,
+}));
 
 const HEADER = "commit_id,project,buggy,fix,year,author_date,la,ld,nf,nd,ns,ent,ndev,age,nuc,aexp,arexp,asexp";
 const SHA_RE = /^[0-9a-f]{40}$/;

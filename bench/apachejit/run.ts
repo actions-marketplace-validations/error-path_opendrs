@@ -23,8 +23,6 @@ import type { JitRow, Project, ProjectResult, Split } from "./lib.ts";
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-/** The dataset ends in 2019: each project is replayed from its last commit before this date. */
-const HEAD_BEFORE = "2020-01-01";
 /**
  * The hdfs and mapreduce mirrors stop when those subprojects moved into apache/hadoop (2011), so
  * most of their labelled commits live in the hadoop repository.
@@ -151,8 +149,11 @@ async function cloneOnce(workDir: string, project: Project): Promise<{ repoDir: 
     }
     await rename(partial, repoDir);
   }
-  const head = await git(repoDir, ["rev-list", "-1", `--before=${HEAD_BEFORE}`, "HEAD"]);
-  return head ? { repoDir, head } : { skipped: `no commit before ${HEAD_BEFORE} on the default branch` };
+  try {
+    return { repoDir, head: await git(repoDir, ["rev-parse", "--verify", `${project.head}^{commit}`]) };
+  } catch {
+    return { skipped: `pinned head ${project.head} not in the clone` };
+  }
 }
 
 /** A project's rows of one split, keeping only the newest `max` when set. */

@@ -35,7 +35,7 @@ node bench/apachejit/run.ts --projects zookeeper,groovy --max-per-project 300  #
 | `--out <file>` | `bench/apachejit/results.md` | the report |
 
 The pooled table is also printed to stdout; progress goes to stderr. The exit code is 1 when a
-project was skipped (failed clone, or no commit before 2020), 2 on a bad flag.
+project was skipped (failed clone, or its pinned head is missing from the clone), 2 on a bad flag.
 
 ## What it writes
 
