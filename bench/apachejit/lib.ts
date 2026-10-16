@@ -155,7 +155,7 @@ export interface Prf {
   f1: number;
 }
 
-function prfAt(scores: number[], labels: number[], threshold: number): Prf {
+function prfAt(scores: number[], labels: number[], threshold: number, negativeWeight = 1): Prf {
   let tp = 0;
   let fp = 0;
   let fn = 0;
@@ -163,7 +163,7 @@ function prfAt(scores: number[], labels: number[], threshold: number): Prf {
     const predicted = scores[i]! >= threshold;
     const actual = labels[i] === 1;
     if (predicted && actual) tp++;
-    else if (predicted) fp++;
+    else if (predicted) fp += negativeWeight;
     else if (actual) fn++;
   }
   const precision = tp + fp === 0 ? 0 : tp / (tp + fp);
@@ -179,14 +179,16 @@ export function f1At(scores: number[], labels: number[], threshold: number): Prf
 
 /**
  * The distinct score maximizing F1; ties favor the higher threshold. `Infinity` with no positives.
+ * `negativeWeight` counts each negative that many times, so a threshold chosen on a resampled set
+ * can be chosen as if at the real base rate.
  */
-export function bestF1Threshold(scores: number[], labels: number[]): number {
+export function bestF1Threshold(scores: number[], labels: number[], negativeWeight = 1): number {
   if (positivesOf(labels) === 0) return Infinity;
   const candidates = Array.from(new Set(scores)).sort((a, b) => b - a);
   let best = Infinity;
   let bestF1 = -1;
   for (const t of candidates) {
-    const { f1 } = prfAt(scores, labels, t);
+    const { f1 } = prfAt(scores, labels, t, negativeWeight);
     if (f1 > bestF1) {
       bestF1 = f1;
       best = t;
@@ -206,24 +208,30 @@ export interface ModelMetrics {
   rows: number;
   positives: number;
   auc: number | null;
-  recallAt: Record<(typeof RECALL_KS)[number], number>;
-  prf: Prf;
+  /** null when the test rows have no positives: recall is undefined, not 0. */
+  recallAt: Record<(typeof RECALL_KS)[number], number | null>;
+  prf: Prf | null;
 }
 
-/** F1 threshold fit on `train`, then AUC, recall@k and precision/recall/F1 scored on `test`. */
+/**
+ * F1 threshold fit on `train` (negatives weighted by `negativeWeight`), then AUC, recall@k and
+ * precision/recall/F1 scored on `test`.
+ */
 export function evaluateModel(
   train: { scores: number[]; labels: number[] },
   test: { scores: number[]; labels: number[] },
+  negativeWeight = 1,
 ): ModelMetrics {
-  const threshold = bestF1Threshold(train.scores, train.labels);
-  const recallAtK = {} as Record<(typeof RECALL_KS)[number], number>;
-  for (const k of RECALL_KS) recallAtK[k] = recallAt(test.scores, test.labels, Number(k));
+  const positives = positivesOf(test.labels);
+  const threshold = bestF1Threshold(train.scores, train.labels, negativeWeight);
+  const recallAtK = {} as Record<(typeof RECALL_KS)[number], number | null>;
+  for (const k of RECALL_KS) recallAtK[k] = positives === 0 ? null : recallAt(test.scores, test.labels, Number(k));
   return {
     rows: test.scores.length,
-    positives: positivesOf(test.labels),
+    positives,
     auc: aucOf(test.scores, test.labels),
     recallAt: recallAtK,
-    prf: f1At(test.scores, test.labels, threshold),
+    prf: positives === 0 ? null : f1At(test.scores, test.labels, threshold),
   };
 }
 
@@ -271,7 +279,7 @@ export const CAVEATS: string[] = [
   "**Labels are SZZ with JIRA links.** They are noisy in the ways SZZ is noisy (reformatting, wide fixes), and they differ from opendrs's own labels.",
   "**Java-only.** ApacheJIT exercises the language-agnostic signals and the Java import extractor, not the other languages' extractors.",
   "**`apache/hadoop` has no positives**, hence the pooled table with and without it.",
-  "**Balanced training file.** `train` is undersampled to 50/50, so `fitModel`'s 5:1 resample keeps every row, and its prior correction centres scores on a 50 % base rate. AUC and recall@k do not depend on that, but F1 does, which is why the F1 threshold is chosen on training scores.",
+  "**Balanced training file.** `train` is undersampled to about 50/50 overall (from 5 % to 85 % positive per project), so `fitModel`'s 5:1 resample keeps every row and its prior correction centres scores on the training file's rate, not the real one. AUC and recall@k do not depend on that, but F1 does. The F1 threshold is therefore chosen on training scores with each negative weighted so the training set has the real pre-2017 positive rate of the same projects (from `apachejit_total.csv`); test rows never choose it.",
 ];
 
 function fmtNum(x: number | null | undefined): string {
@@ -293,9 +301,9 @@ function modelRow(label: string, m: ModelMetrics | null | undefined): string {
     fmtPct(m.recallAt["10"]),
     fmtPct(m.recallAt["30"]),
     fmtPct(m.recallAt["50"]),
-    fmtNum(m.prf.precision),
-    fmtNum(m.prf.recall),
-    `${fmtNum(m.prf.f1)} |`,
+    fmtNum(m.prf?.precision),
+    fmtNum(m.prf?.recall),
+    `${fmtNum(m.prf?.f1)} |`,
   ].join(" | ");
 }
 
@@ -311,8 +319,14 @@ function renderModelsTable(models: Partial<Record<ModelName, ModelMetrics | null
 }
 
 function renderPooledResult(result: ProjectResult): string[] {
-  const lines = [`### ${result.project}`, "", ...renderModelsTable(result.models), drsOssRow(), ""];
-  return lines;
+  return [`### ${result.project}`, "", `Calibration: ${calibrationText(result)}.`, "", ...renderModelsTable(result.models), drsOssRow(), ""];
+}
+
+/** Whether `fitModel` kept its fit or fell back to the priors (then the two opendrs rows match). */
+function calibrationText(r: ProjectResult): string {
+  if (r.calibration === "priors") return "kept the default priors (the fit did not beat them on validation)";
+  if (r.calibration === "fitted") return "fitted";
+  return "—";
 }
 
 function perProjectRow(r: ProjectResult): string {
@@ -321,13 +335,14 @@ function perProjectRow(r: ProjectResult): string {
   const test = `${r.coverage.test.replayed}/${r.coverage.test.labelled}`;
   const project = r.skipped ? `${r.project} (skipped: ${r.skipped})` : r.project;
   const modelCells = MODEL_ORDER.map((name) => `${fmtNum(r.models[name]?.auc)} | ${fmtPct(r.models[name]?.recallAt["10"])}`).join(" | ");
-  return `| ${project} | ${head} | ${train} | ${test} | ${modelCells} |`;
+  const calibration = r.calibration ?? "—";
+  return `| ${project} | ${head} | ${train} | ${test} | ${calibration} | ${modelCells} |`;
 }
 
 function renderPerProjectTable(projects: ProjectResult[]): string[] {
   const modelHeaders = MODEL_ORDER.map((name) => `${MODEL_LABELS[name]} AUC | ${MODEL_LABELS[name]} Recall@10%`).join(" | ");
-  const header = `| Project | Head | Train replayed/labelled | Test replayed/labelled | ${modelHeaders} |`;
-  const sep = `|${"---|".repeat(4 + MODEL_ORDER.length * 2)}`;
+  const header = `| Project | Head | Train replayed/labelled | Test replayed/labelled | Calibration | ${modelHeaders} |`;
+  const sep = `|${"---|".repeat(5 + MODEL_ORDER.length * 2)}`;
   return [header, sep, ...projects.map(perProjectRow)];
 }
 
@@ -348,7 +363,7 @@ export function renderReport(report: Report): string {
   lines.push("");
 
   lines.push("## Warnings", "");
-  for (const p of report.projects) {
+  for (const p of [...report.pooled, ...report.projects]) {
     if (!p.skipped && p.warnings.length === 0) continue;
     lines.push(`### ${p.project}`);
     if (p.skipped) lines.push(`- skipped: ${p.skipped}`);

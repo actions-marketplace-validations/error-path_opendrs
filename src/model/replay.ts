@@ -35,7 +35,7 @@ const CONCURRENCY = 8;
  */
 export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayResult> {
   const { repoDir, config } = opts;
-  const head = (await git(repoDir, ["rev-parse", "--verify", "--end-of-options", `${opts.head ?? "HEAD"}^{commit}`])).trim();
+  const head = (await git(repoDir, ["rev-parse", "--verify", `${opts.head ?? "HEAD"}^{commit}`])).trim();
   const history = await buildHistoryIndex(repoDir, head, config);
   // Built once at head and shared by every commit: rebuilding the graph per commit is too slow.
   // See GRAPH_APPROXIMATION_NOTE; backtest reports carry it.

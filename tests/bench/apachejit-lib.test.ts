@@ -51,10 +51,17 @@ describe("metrics", () => {
     expect(f1At(scores, labels, t)).toEqual({ precision: 1, recall: 1, f1: 1 });
     expect(f1At(scores, [0, 0, 0, 0], 0.5)).toEqual({ precision: 0, recall: 0, f1: 0 });
   });
-  it("evaluateModel on a test set without positives has null AUC and zero recall", () => {
+  it("bestF1Threshold weighs negatives: a heavier negative weight raises the threshold", () => {
+    const scores = [0.9, 0.6, 0.5, 0.4, 0.2];
+    const labels = [1, 0, 1, 0, 0];
+    expect(bestF1Threshold(scores, labels)).toBe(0.5);
+    expect(bestF1Threshold(scores, labels, 10)).toBe(0.9);
+  });
+  it("evaluateModel on a test set without positives has null AUC, recall and F1", () => {
     const m = evaluateModel({ scores: [0.9, 0.1], labels: [1, 0] }, { scores: [0.5, 0.4], labels: [0, 0] });
     expect(m.auc).toBeNull();
-    expect(m.recallAt["10"]).toBe(0);
+    expect(m.recallAt["10"]).toBeNull();
+    expect(m.prf).toBeNull();
     expect(m.positives).toBe(0);
   });
 });

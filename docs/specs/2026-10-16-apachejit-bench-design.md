@@ -172,8 +172,9 @@ Steps:
      also reported restricted to the replayed rows so the comparison is like for like.
 
    For each model: AUC, recall at 5 / 10 / 30 / 50 % gated, and precision, recall and F1 at the
-   threshold `bestF1Threshold` picks on that model's **training** scores. The test set never chooses
-   a threshold.
+   threshold `bestF1Threshold` picks on that model's **training** scores, with negatives weighted to
+   the projects' real pre-2017 positive rate. The test set never chooses a threshold. Recall and F1
+   are "—" when the test rows have no positives.
 6. **Report.** Write `--out` (§4.4) and print the pooled table.
 
 Determinism: the pinned dataset, a fixed head per project, opendrs's deterministic fit and
@@ -214,9 +215,12 @@ points of interpretation, and a link to `bench/apachejit/results.md`. README lin
 - **Java-only.** ApacheJIT exercises the language-agnostic signals and the Java import extractor,
   not the other languages' extractors.
 - **`apache/hadoop` has no positives**, hence the pooled table with and without it.
-- **Balanced training file.** `train` is undersampled to 50/50, so `fitModel`'s 5:1 resample keeps
-  every row, and its prior correction centres scores on a 50 % base rate. AUC and recall@k do not
-  depend on that, but F1 does, which is why the F1 threshold is chosen on training scores.
+- **Balanced training file.** `train` is undersampled to about 50/50 overall (from 5 % to 85 %
+  positive per project), so `fitModel`'s 5:1 resample keeps every row and its prior correction
+  centres scores on the training file's rate, not the real one. AUC and recall@k do not depend on
+  that, but F1 does. The F1 threshold is therefore chosen on training scores with each negative
+  weighted so the training set has the real pre-2017 positive rate of the same projects (from
+  `apachejit_total.csv`); test rows never choose it.
 
 ## 6. Error handling
 

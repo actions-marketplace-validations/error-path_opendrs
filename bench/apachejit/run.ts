@@ -5,7 +5,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +30,8 @@ const HEAD_BEFORE = "2020-01-01";
  * most of their labelled commits live in the hadoop repository.
  */
 const ALSO_IN: Record<string, string> = { "hadoop-hdfs": "hadoop", "hadoop-mapreduce": "hadoop" };
+/** Start of the test years: rows before it give each project's real training-period positive rate. */
+const TEST_FROM = Date.UTC(2017, 0, 1) / 1000;
 
 interface Options {
   workDir: string;
@@ -37,6 +39,8 @@ interface Options {
   maxPerProject?: number;
   concurrency: number;
   out: string;
+  /** Hash of the built dist/: cached rows are only reused by the code that produced them. */
+  build: string;
 }
 
 /** Labelled CSV rows of one project (or several, pooled) and the rows replayed for them. */
@@ -44,6 +48,8 @@ interface Group {
   train: JitRow[];
   test: JitRow[];
   rows: ReplayRow[];
+  /** All dataset rows of the same projects from before the test years, at their real positive rate. */
+  pre: JitRow[];
 }
 
 type CachedRow = Omit<ReplayRow, "signals"> & { signals: Pick<Signal, "id" | "value" | "status">[] };
@@ -60,7 +66,15 @@ function usageError(message: string): never {
   process.exit(2);
 }
 
-function parseOptions(args: string[]): Options {
+async function buildHash(): Promise<string> {
+  const dist = join(REPO_ROOT, "dist");
+  const files = (await readdir(dist, { recursive: true })).filter((f) => f.endsWith(".js")).sort();
+  const hash = createHash("sha256");
+  for (const f of files) hash.update(f).update(await readFile(join(dist, f)));
+  return hash.digest("hex").slice(0, 12);
+}
+
+function parseOptions(args: string[], build: string): Options {
   const { values } = parseArgs({
     args,
     options: {
@@ -85,6 +99,7 @@ function parseOptions(args: string[]): Options {
     maxPerProject: values["max-per-project"] === undefined ? undefined : positiveInt("max-per-project", values["max-per-project"]),
     concurrency: positiveInt("concurrency", values.concurrency),
     out: values.out,
+    build,
   };
 }
 
@@ -113,7 +128,15 @@ async function ensureDataset(workDir: string): Promise<{ jit: Record<Split, JitR
 }
 
 /** Full clone into <work-dir>/repos/<name> unless that directory exists; returns the replay head or why the project is skipped. */
-async function ensureClone(workDir: string, project: Project): Promise<{ repoDir: string; head: string } | { skipped: string }> {
+function ensureClone(workDir: string, project: Project): Promise<{ repoDir: string; head: string } | { skipped: string }> {
+  // apache/hadoop is also needed by hadoop-hdfs and hadoop-mapreduce: share one clone, never race two.
+  let clone = clones.get(project.name);
+  if (!clone) clones.set(project.name, (clone = cloneOnce(workDir, project)));
+  return clone;
+}
+const clones = new Map<string, ReturnType<typeof cloneOnce>>();
+
+async function cloneOnce(workDir: string, project: Project): Promise<{ repoDir: string; head: string } | { skipped: string }> {
   const repoDir = join(workDir, "repos", project.name);
   if (!existsSync(repoDir)) {
     // Clone beside the target and rename, so an interrupted clone is never taken for a complete one.
@@ -181,7 +204,7 @@ async function writeCache(path: string, key: string, rows: ReplayRow[], warnings
 async function replayRows(o: Options, cacheName: string, repoDir: string, head: string, labels: Map<string, 0 | 1>) {
   // A capped run gets its own file so a smoke run never overwrites the full run's cache.
   const cap = o.maxPerProject === undefined ? "" : `.max${o.maxPerProject}`;
-  const path = join(o.workDir, "rows", `${cacheName}.${VERSION}${cap}.jsonl`);
+  const path = join(o.workDir, "rows", `${cacheName}.${VERSION}-${o.build}${cap}.jsonl`);
   const key = cacheKey(head, labels);
   const cached = await readCache(path, key);
   if (cached) {
@@ -196,6 +219,20 @@ async function replayRows(o: Options, cacheName: string, repoDir: string, head: 
   const { rows, warnings } = await replayHistory({ repoDir, config, head, labels, onProgress });
   await writeCache(path, key, rows, warnings);
   return { rows, warnings };
+}
+
+/**
+ * Weight per training negative that brings the training rows to the real pre-2017 positive rate,
+ * so the F1 threshold is chosen as if on unresampled data. 1 when either rate is undefined.
+ */
+function negativeWeight(trainLabels: number[], pre: JitRow[]): number {
+  const odds = (labels: number[]) => {
+    const pos = labels.filter((y) => y === 1).length;
+    return pos === 0 || pos === labels.length ? undefined : (labels.length - pos) / pos;
+  };
+  const real = odds(pre.map((r) => r.buggy));
+  const train = odds(trainLabels);
+  return real === undefined || train === undefined ? 1 : real / train;
 }
 
 function coverage(g: Group): ProjectResult["coverage"] {
@@ -216,7 +253,7 @@ function evaluateGroup(g: Group, repo: string): Pick<ProjectResult, "models" | "
   const test = replayedIn(g.test);
   const opendrs = (score: (r: ReplayRow) => number) => {
     const scored = (rows: ReplayRow[]) => ({ scores: rows.map(score), labels: rows.map((r) => r.label) });
-    return evaluateModel(scored(train), scored(test));
+    return evaluateModel(scored(train), scored(test), negativeWeight(train.map((r) => r.label), g.pre));
   };
 
   models.default = opendrs((r) => scoreSignals(r.signals, DEFAULT_WEIGHTS).score);
@@ -237,8 +274,10 @@ function evaluateGroup(g: Group, repo: string): Pick<ProjectResult, "models" | "
   });
   const replayed = new Set(g.rows.map((r) => r.sha));
   const wasReplayed = (r: JitRow) => replayed.has(r.sha);
-  models.kamei = evaluateModel(kamei(g.train), kamei(g.test));
-  models.kameiReplayed = evaluateModel(kamei(g.train.filter(wasReplayed)), kamei(g.test.filter(wasReplayed)));
+  const evaluateKamei = (trainRows: JitRow[], testRows: JitRow[]) =>
+    evaluateModel(kamei(trainRows), kamei(testRows), negativeWeight(trainRows.map((r) => r.buggy), g.pre));
+  models.kamei = evaluateKamei(g.train, g.test);
+  models.kameiReplayed = evaluateKamei(g.train.filter(wasReplayed), g.test.filter(wasReplayed));
   return { models, calibration, warnings };
 }
 
@@ -246,10 +285,11 @@ function evaluateGroup(g: Group, repo: string): Pick<ProjectResult, "models" | "
 async function runProject(o: Options, jit: Record<Split, JitRow[]>, project: Project): Promise<{ result: ProjectResult; group?: Group }> {
   const train = projectRows(jit.train, project.project, o.maxPerProject);
   const test = projectRows(jit.test_large, project.project, o.maxPerProject);
+  const pre = jit.total.filter((r) => r.project === project.project && r.time < TEST_FROM);
   const clone = await ensureClone(o.workDir, project);
   if ("skipped" in clone) {
     console.error(`${project.name}: skipped, ${clone.skipped}`);
-    return { result: { project: project.project, coverage: coverage({ train, test, rows: [] }), models: {}, skipped: clone.skipped, warnings: [] } };
+    return { result: { project: project.project, coverage: coverage({ train, test, rows: [], pre }), models: {}, skipped: clone.skipped, warnings: [] } };
   }
   const labels = new Map<string, 0 | 1>([...train, ...test].map((r) => [r.sha, r.buggy]));
   const { rows, warnings } = await replayRows(o, project.name, clone.repoDir, clone.head, labels);
@@ -263,22 +303,28 @@ async function runProject(o: Options, jit: Record<Split, JitRow[]>, project: Pro
     else {
       const more = await replayRows(o, `${project.name}-in-${fallback.name}`, other.repoDir, other.head, rest);
       rows.push(...more.rows);
+      warnings.push(`${more.rows.length} rows replayed in ${fallback.project} at ${other.head.slice(0, 12)}`);
       warnings.push(...more.warnings.map((w) => `in ${fallback.project}: ${w}`));
     }
   }
-  const group = { train, test, rows };
+  const group = { train, test, rows, pre };
   const evaluated = evaluateGroup(group, project.name);
   const result = { project: project.project, head: clone.head, coverage: coverage(group), ...evaluated };
   return { result: { ...result, warnings: [...warnings, ...evaluated.warnings] }, group };
 }
 
 function pooledResult(name: string, groups: Group[]): ProjectResult {
-  const g = { train: groups.flatMap((x) => x.train), test: groups.flatMap((x) => x.test), rows: groups.flatMap((x) => x.rows) };
+  const g = {
+    train: groups.flatMap((x) => x.train),
+    test: groups.flatMap((x) => x.test),
+    rows: groups.flatMap((x) => x.rows),
+    pre: groups.flatMap((x) => x.pre),
+  };
   return { project: name, coverage: coverage(g), ...evaluateGroup(g, name) };
 }
 
 async function main(): Promise<number> {
-  const o = parseOptions(process.argv.slice(2));
+  const o = parseOptions(process.argv.slice(2), await buildHash());
   const { jit, hashes } = await ensureDataset(o.workDir);
   const done = await mapLimit(o.projects, o.concurrency, (p) => runProject(o, jit, p));
   const ran = done.flatMap((d) => (d.group ? [{ project: d.result.project, group: d.group }] : []));
@@ -287,7 +333,7 @@ async function main(): Promise<number> {
     ["pooled (excluding apache/hadoop)", ran.filter((r) => r.project !== "apache/hadoop").map((r) => r.group)],
   ];
   const report = renderReport({
-    meta: { version: VERSION, commit: await git(REPO_ROOT, ["rev-parse", "--short", "HEAD"]), date: new Date().toISOString().slice(0, 10), hashes },
+    meta: { version: `${VERSION} (build ${o.build})`, commit: await git(REPO_ROOT, ["rev-parse", "--short", "HEAD"]), date: new Date().toISOString().slice(0, 10), hashes },
     pooled: pools.filter(([, groups]) => groups.length > 0).map(([name, groups]) => pooledResult(name, groups)),
     projects: done.map((d) => d.result),
   });
