@@ -238,6 +238,9 @@ export const configSchema = z.object({
       apiKeyEnv: z.string().optional(),
       includeDescription: z.boolean().default(false),
       maxDiffChars: z.number().int().positive().default(60_000),
+      /** Auto-approve only when the judge calls every hunk it saw safe, with at least minConfidence. */
+      requireSafe: z.boolean().default(false),
+      minConfidence: z.number().int().min(0).max(10).default(8),
     })
     .prefault({}),
   history: z
@@ -260,7 +263,10 @@ export const configSchema = z.object({
   model: z.string().default(".opendrs/model.json"),
   freezes: z.array(freezeSchema).default([]),
 })
-  .superRefine(({ thresholds, freezes }, ctx) => {
+  .superRefine(({ thresholds, freezes, llm }, ctx) => {
+    if (llm.requireSafe && !llm.enabled) {
+      ctx.addIssue({ code: "custom", message: "llm.requireSafe needs llm.enabled: true", path: ["llm", "requireSafe"] });
+    }
     freezes.forEach((f, i) => {
       if (f.green === undefined || f.green < thresholds.green) return;
       ctx.addIssue({

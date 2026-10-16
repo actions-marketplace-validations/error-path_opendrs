@@ -104,16 +104,57 @@ export interface DependencyGraph {
   fileCount: number;
 }
 
+/** Change kinds the judge may call safe (RADAR's auto-accept categories). */
+export const LLM_SAFE_CATEGORIES = ["refactor", "dead_code", "defensive", "logging", "formatting", "docs", "imports", "tests", "static_resources"] as const;
+/** Change kinds the judge calls risky; each is also a ranking signal `llm.risk.<category>`. */
+export const LLM_RISK_CATEGORIES = ["logic_bug", "security", "performance", "structural", "complex"] as const;
+export type LlmCategory = (typeof LLM_SAFE_CATEGORIES)[number] | (typeof LLM_RISK_CATEGORIES)[number];
+
+/** One hunk as shown to the judge. `id` is its `[hunk N]` marker; `line` is its first new-side line (old side for a deletion). */
+export interface LlmHunkRef {
+  id: number;
+  file: string;
+  line: number;
+}
+
+export interface LlmHunkVerdict {
+  file: string;
+  line: number;
+  category: LlmCategory;
+  safe: boolean;
+  /** 0-10. */
+  confidence: number;
+  reason: string;
+}
+
 export interface LlmJudgement {
   /** Probability in [0,1] that the change causes an incident. */
   risk: number;
   rationale: string;
   riskySnippets: Array<{ file: string; line?: number; reason: string }>;
+  /** 0-10: the judge's confidence in its classification as a whole. */
+  confidence: number;
+  /** One verdict per shown hunk the judge classified (the riskiest when it answered twice). */
+  hunks: LlmHunkVerdict[];
+  /** Shown hunks the judge did not classify. */
+  unclassified: Array<{ file: string; line: number }>;
+  /** Part of the diff was cut to fit llm.maxDiffChars, so the judge did not see all of it. */
+  truncated: boolean;
+}
+
+export interface LlmJudgeInput {
+  title?: string;
+  description?: string;
+  diff: string;
+  files: string[];
+  /** The hunks shown in `diff`, by marker id. */
+  hunks: LlmHunkRef[];
+  truncated: boolean;
 }
 
 export interface LlmProvider {
   name: string;
-  judge(input: { title?: string; description?: string; diff: string; files: string[] }): Promise<LlmJudgement>;
+  judge(input: LlmJudgeInput): Promise<LlmJudgement>;
 }
 
 export interface ScoringContext {
