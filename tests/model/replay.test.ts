@@ -22,16 +22,53 @@ describe("replayHistory", () => {
     mkdirSync(join(repo.dir, ".opendrs"));
     writeFileSync(join(repo.dir, ".opendrs/incidents.jsonl"), '{"inducing":"deadbeef00"}\n');
 
-    const { rows, skipped, warnings } = await replayHistory({ repoDir: repo.dir, config: defaultConfig() });
+    const config = horizon(0);
+    const { rows, skipped, warnings } = await replayHistory({ repoDir: repo.dir, config });
     expect(skipped).toBe(2);
     expect(rows.map((r) => r.sha)).toEqual([repo.git("rev-parse", "HEAD")]);
     expect(warnings).toEqual([
       expect.stringMatching(/inducing commit deadbeef00 .*not counted/),
       "2 commits skipped (unreadable)",
     ]);
-    expect((await backtest({ repoDir: repo.dir, config: defaultConfig() })).notes).toContain("2 commits skipped (unreadable)");
+    expect((await backtest({ repoDir: repo.dir, config })).notes).toContain("2 commits skipped (unreadable)");
   }, 60_000);
+
+  describe("label horizon", () => {
+    const DAY = 86_400;
+    // Root at day 0 (no parent, never replayed), then one commit every 30 days up to day 180.
+    const spreadRepo = () => {
+      repo = makeRepo();
+      return [0, 30, 60, 90, 120, 150, 180].map((d) => repo.commit({ "a.ts": `day ${d}\n` }, `day ${d}`, undefined, 1_600_000_000 + d * DAY));
+    };
+
+    it("leaves out commits newer than newest commit time minus the horizon, and says how many", async () => {
+      const shas = spreadRepo();
+      const { rows, warnings } = await replayHistory({ repoDir: repo.dir, config: horizon(60) });
+      // Cutoff is day 120: day 120 is old enough, days 150 and 180 are not.
+      expect(rows.map((r) => r.sha).sort()).toEqual(shas.slice(1, 5).sort());
+      expect(warnings).toEqual(["2 commits newer than 60 days excluded from evaluation (their bugs may not be found yet)"]);
+    }, 60_000);
+
+    it("keeps every commit when the horizon is 0", async () => {
+      const shas = spreadRepo();
+      const { rows, warnings } = await replayHistory({ repoDir: repo.dir, config: horizon(0) });
+      expect(rows.map((r) => r.sha).sort()).toEqual(shas.slice(1).sort());
+      expect(warnings).toEqual([]);
+    }, 60_000);
+
+    it("reports the excluded count in the backtest notes", async () => {
+      spreadRepo();
+      const { notes } = await backtest({ repoDir: repo.dir, config: horizon(60) });
+      expect(notes).toContain("2 commits newer than 60 days excluded from evaluation (their bugs may not be found yet)");
+    }, 60_000);
+  });
 });
+
+function horizon(days: number) {
+  const config = defaultConfig();
+  config.history.labelHorizonDays = days;
+  return config;
+}
 
 describe("mapLimit", () => {
   it("preserves input order, bounds concurrency and reports progress", async () => {

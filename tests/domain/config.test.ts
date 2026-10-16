@@ -234,3 +234,14 @@ describe("threshold validation", () => {
     expect(() => parseConfig({ thresholds: { mode: "percentile", green: 50, yellow: 90, red: 90 } })).not.toThrow();
   });
 });
+
+describe("history.labelHorizonDays", () => {
+  it("defaults to 60 days and accepts 0 (off)", () => {
+    expect(defaultConfig().history.labelHorizonDays).toBe(60);
+    expect(parseConfig({ history: { labelHorizonDays: 0 } }).history.labelHorizonDays).toBe(0);
+  });
+
+  it("rejects a negative horizon", () => {
+    expect(configError({ history: { labelHorizonDays: -1 } })).toMatch(/labelHorizonDays/);
+  });
+});

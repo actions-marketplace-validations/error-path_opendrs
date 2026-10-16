@@ -27464,7 +27464,9 @@ var configSchema = external_exports.object({
   history: external_exports.object({
     lookbackDays: external_exports.number().int().positive().default(365),
     fixPattern: external_exports.string().default("\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"),
-    maxCommits: external_exports.number().int().positive().default(2e4)
+    maxCommits: external_exports.number().int().positive().default(2e4),
+    /** calibrate/backtest leave out commits this many days younger than the newest: their bugs may not be found yet. 0 = off. */
+    labelHorizonDays: external_exports.number().int().min(0).default(60)
   }).prefault({}),
   graph: external_exports.object({
     enabled: external_exports.boolean().default(true),

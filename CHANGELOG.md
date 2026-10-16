@@ -2,6 +2,19 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- `opendrs calibrate` keeps the default priors when the fitted weights do not beat them on a
+  validation slice inside the training window, and says so. On small or noisy histories, such as
+  sinatra in our benchmark, a fitted model ranked held-out commits worse than the defaults. The
+  model file records the choice and both validation AUCs under `calibration`.
+- `opendrs calibrate` and `opendrs backtest` leave out commits newer than
+  `history.labelHorizonDays` (default 60) before the newest replayed commit, from fitting and
+  from evaluation. Their bugs are mostly not found yet, so their negative labels are unreliable:
+  in our benchmarks the newest 20 % of commits ranked near random (AUC 0.45 to 0.50 on tokio,
+  terraform and eslint). Both commands report how many commits were left out.
+  `--label-horizon-days <n>` overrides the setting for one run; `0` restores the old behaviour.
+
 ## 0.1.2 - 2026-10-16
 
 - The Action's display name is now "opendrs Diff Risk Score", so it can be listed on the GitHub

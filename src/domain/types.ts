@@ -151,6 +151,11 @@ export interface ModelWeights {
   percentiles?: Record<string, number>;
   trainedOn?: { repo?: string; commits: number; positives: number; from: string; to: string };
   metrics?: BacktestMetrics;
+  /**
+   * Set by calibrate: whether the fitted weights beat the priors on a validation slice inside the
+   * training window. When they don't, the priors are kept and `chosen` is "priors".
+   */
+  calibration?: { chosen: "fitted" | "priors"; validationAuc: { fitted: number; priors: number } };
 }
 
 export interface Contribution {

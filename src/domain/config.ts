@@ -204,6 +204,8 @@ export const configSchema = z.object({
       lookbackDays: z.number().int().positive().default(365),
       fixPattern: z.string().default("\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"),
       maxCommits: z.number().int().positive().default(20_000),
+      /** calibrate/backtest leave out commits this many days younger than the newest: their bugs may not be found yet. 0 = off. */
+      labelHorizonDays: z.number().int().min(0).default(60),
     })
     .prefault({}),
   graph: z

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "../../domain/config.js";
-import type { BacktestMetrics } from "../../domain/types.js";
+import { OpendrsError, type BacktestMetrics } from "../../domain/types.js";
 import { loadModel } from "../../engine.js";
 import { backtest } from "../../model/backtest.js";
 import { calibrate, type HistoryRunOptions } from "../../model/calibrate.js";
@@ -11,7 +11,10 @@ import { repoRoot } from "../repo.js";
 import type { CliIo, Command } from "../types.js";
 
 const HISTORY_OPTIONS = `  --since <date>       Only use commits after this date (e.g. 2026-01-01)
-  --max-commits <n>    Use at most n commits (default: history.maxCommits)`;
+  --max-commits <n>    Use at most n commits (default: history.maxCommits)
+  --label-horizon-days <n>
+                       Leave out commits newer than n days before the newest one: their
+                       bugs may not be found yet (default: history.labelHorizonDays; 0 = off)`;
 
 /** Meta's published LR baseline (arXiv 2410.06351): SEVs captured at 5/10/50 % gated. */
 const META_LR = { "5": 0.187, "10": 0.279, "50": 0.846 };
@@ -19,13 +22,19 @@ const META_LR = { "5": 0.187, "10": 0.279, "50": 0.846 };
 async function historyRun(args: string[], io: CliIo, label: string) {
   const { values } = parseArgs({
     args,
-    options: { since: { type: "string" }, "max-commits": { type: "string" }, json: { type: "boolean" } },
+    options: { since: { type: "string" }, "max-commits": { type: "string" }, "label-horizon-days": { type: "string" }, json: { type: "boolean" } },
   });
   const maxCommits = parsePositiveInt("--max-commits", values["max-commits"]);
+  const horizon = values["label-horizon-days"];
+  if (horizon !== undefined && !/^\d+$/.test(horizon)) {
+    throw new OpendrsError(`--label-horizon-days must be a non-negative integer, got '${horizon}'`, "usage");
+  }
   const repoDir = await repoRoot(io.cwd);
+  const config = await loadConfig(repoDir);
+  if (horizon !== undefined) config.history.labelHorizonDays = Number(horizon);
   const opts: HistoryRunOptions = {
     repoDir,
-    config: await loadConfig(repoDir),
+    config,
     since: values.since,
     maxCommits,
     onProgress: (done, total) => io.progress(`${label}: ${done}/${total} commits`),
@@ -57,6 +66,12 @@ ${HISTORY_OPTIONS}`,
     io.out(`Wrote calibrated model to ${opts.config.model}`);
     const t = model.trainedOn;
     if (t) io.out(`Trained on ${t.commits} commits (${t.positives} positive), ${t.from} to ${t.to}`);
+    const c = model.calibration;
+    if (c?.chosen === "priors") {
+      io.out(
+        `Kept the default priors: the fitted weights did not beat them on validation commits (AUC ${c.validationAuc.fitted.toFixed(2)} vs ${c.validationAuc.priors.toFixed(2)}).`,
+      );
+    }
     const m = model.metrics;
     if (m) {
       io.out(

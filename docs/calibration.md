@@ -32,6 +32,21 @@ a line, which is sometimes a reformat or a rename. A fix pattern that matches "f
 positives, and incidents fixed by config or infrastructure changes are invisible. Recorded
 incidents are the best way to reduce the noise.
 
+### Label horizon: the newest commits are left out
+
+A commit's bug is usually found and fixed weeks or months after it lands, so most of the newest
+commits are labelled negative only because nobody has fixed them yet. In our benchmarks the
+newest 20 % of commits ranked near random (AUC 0.45 to 0.50 on tokio, terraform and eslint) while
+the same model scored 0.68 to 0.75 over all commits. `calibrate` and `backtest` therefore leave out
+every commit newer than the newest replayed commit's time minus `history.labelHorizonDays`
+(default 60). Those commits are neither fitted on nor evaluated, but they stay in the history, so
+their fixes still label older commits. Both commands report how many were left out, for example
+"120 commits newer than 60 days excluded from evaluation (their bugs may not be found yet)". The
+80 / 20 time split then applies to the remaining commits.
+
+Override it for one run with `--label-horizon-days <n>`. Set it to `0` to use every commit, as
+earlier versions did. Raise it when your bugs typically surface slowly (for example infrequent releases).
+
 ## `.opendrs/incidents.jsonl`
 
 One JSON object per line. Each object names the change that caused an incident, the change that
