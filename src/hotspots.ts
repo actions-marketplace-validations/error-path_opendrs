@@ -32,14 +32,27 @@ export function hotspotScore(h: Pick<Hotspot, "fixCommits" | "commits" | "transi
   );
 }
 
+export interface HotspotsResult {
+  hotspots: Hotspot[];
+  /** Non-fatal problems, e.g. the import graph could not be built. */
+  warnings: string[];
+}
+
 /** Rank the files tracked at HEAD by code-at-rest risk over the lookback window. One history pass, one graph build. */
-export async function hotspots(repoDir: string, config: OpendrsConfig, top = 20): Promise<Hotspot[]> {
+export async function hotspots(repoDir: string, config: OpendrsConfig, top = 20): Promise<HotspotsResult> {
+  const warnings: string[] = [];
   const [listing, history, graph] = await Promise.all([
     git(repoDir, ["ls-files", "-z"]),
     buildHistoryIndex(repoDir, "HEAD", config),
-    config.graph.enabled ? buildDependencyGraph(repoDir, "HEAD", config).catch(() => undefined) : undefined,
+    config.graph.enabled
+      ? buildDependencyGraph(repoDir, "HEAD", config).catch((e: unknown) => {
+          warnings.push(`import graph failed: ${e instanceof Error ? e.message : String(e)}; dependents not shown`);
+          return undefined;
+        })
+      : undefined,
   ]);
-  const from = Date.now() / 1000 - config.history.lookbackDays * 86_400;
+  // Window back from the newest commit (as suggestReviewers does), so archived repos still rank.
+  const from = (history.commits[0]?.time ?? 0) - config.history.lookbackDays * 86_400;
 
   const rows: Omit<Hotspot, "rank">[] = [];
   for (const path of listing.split("\0")) {
@@ -67,5 +80,5 @@ export async function hotspots(repoDir: string, config: OpendrsConfig, top = 20)
   }
 
   rows.sort((a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return rows.slice(0, top).map((r, i) => ({ rank: i + 1, ...r }));
+  return { hotspots: rows.slice(0, top).map((r, i) => ({ rank: i + 1, ...r })), warnings };
 }

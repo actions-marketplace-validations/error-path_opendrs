@@ -137,11 +137,12 @@ describe("explain_file_risk", () => {
 describe("list_hotspots", () => {
   it("returns the ranked files and passes top through", async () => {
     const row = { rank: 1, score: 3.2, path: "src/a.ts", commits: 4, fixCommits: 2, authors: 2, transitiveDependents: 9, critical: false, blocked: false };
-    vi.mocked(hotspots).mockResolvedValue([row]);
+    const warnings = ["import graph failed: boom; dependents not shown"];
+    vi.mocked(hotspots).mockResolvedValue({ hotspots: [row], warnings });
     const r = await listHotspotsTool({ repoDir: REPO, top: 5 });
     expect(vi.mocked(hotspots).mock.calls[0]![0]).toBe(REPO);
     expect(vi.mocked(hotspots).mock.calls[0]![2]).toBe(5);
-    expect(json(r)).toEqual([row]);
+    expect(json(r)).toEqual({ hotspots: [row], warnings });
   });
 
   it("reports failures as a tool error", async () => {

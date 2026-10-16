@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import type { Incident } from "../../domain/types.js";
@@ -8,15 +8,22 @@ import { INCIDENTS_FILE, loadIncidents } from "../../model/label.js";
 import { repoRoot } from "../repo.js";
 import type { Command } from "../types.js";
 
-async function resolveCommit(repoDir: string, ref: string): Promise<string> {
+/** Full sha of `ref`, or undefined when it does not name a commit. */
+async function resolveMaybe(repoDir: string, ref: string): Promise<string | undefined> {
   const sha = await gitMaybe(repoDir, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+  return sha?.trim();
+}
+
+async function resolveCommit(repoDir: string, ref: string): Promise<string> {
+  const sha = await resolveMaybe(repoDir, ref);
   if (!sha) throw new OpendrsError(`unknown commit: ${ref}`, "git");
-  return sha.trim();
+  return sha;
 }
 
 /** Commits that landed PR #n on HEAD: the squash commit, or every non-merge commit a merge commit brought in. */
 async function prCommits(repoDir: string, pr: string): Promise<string[]> {
-  const log = await git(repoDir, ["log", "--format=%H%x1f%P%x1f%s", "HEAD"]);
+  // git narrows to messages that mention the PR anywhere; the subject is re-checked below.
+  const log = await git(repoDir, ["log", "-E", `--grep=\\(#${pr}\\)$`, `--grep=^Merge pull request #${pr} `, "--format=%H%x1f%P%x1f%s", "HEAD"]);
   for (const line of log.split("\n")) {
     const [sha, parents, subject] = line.split("\x1f");
     if (!sha || subject === undefined) continue;
@@ -72,7 +79,13 @@ Options:
     const inducing = values.inducing !== undefined ? [await resolveCommit(repoDir, values.inducing)] : await prCommits(repoDir, values.pr!);
     const fix = values.fix === undefined ? undefined : await resolveCommit(repoDir, values.fix);
     const paths = values.paths?.split(",").map((p) => p.trim()).filter(Boolean);
-    const existing = await loadIncidents(repoDir);
+    // Recorded shas may be abbreviated: compare full shas (an unresolvable one matches nothing).
+    const existing = await Promise.all(
+      (await loadIncidents(repoDir)).map(async (i) => ({
+        inducing: i.inducing === undefined ? undefined : ((await resolveMaybe(repoDir, i.inducing)) ?? null),
+        fix: i.fix === undefined ? undefined : ((await resolveMaybe(repoDir, i.fix)) ?? null),
+      })),
+    );
 
     const lines: string[] = [];
     for (const sha of inducing) {
@@ -90,7 +103,9 @@ Options:
 
     const file = join(repoDir, INCIDENTS_FILE);
     await mkdir(dirname(file), { recursive: true });
-    await appendFile(file, lines.join("\n") + "\n");
+    const current = await readFile(file, "utf8").catch(() => "");
+    const separator = current && !current.endsWith("\n") ? "\n" : "";
+    await appendFile(file, separator + lines.join("\n") + "\n");
     for (const line of lines) io.out(`Wrote to ${INCIDENTS_FILE}: ${line}`);
     io.out(`Commit ${INCIDENTS_FILE} (it is a blocked path, so that PR goes to a human reviewer).`);
     return 0;

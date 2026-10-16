@@ -394,7 +394,7 @@ The agent skill in [`skills/opendrs/SKILL.md`](skills/opendrs/SKILL.md) tells an
 |---|---|
 | `opendrs score [--base ref] [--head ref] [--json \| --markdown] [--fail-above x] [--no-llm] [--title t]` | Score `merge-base(base, head)..head`. Base defaults to `origin/HEAD`, then `main`, then `master`. |
 | `opendrs explain <file> [--json]` | A file's history, fixes, authors, dependents and path policy. |
-| `opendrs hotspots [--top n] [--json]` | Rank the repository's files by risk at rest (fixes, churn, authors, dependents, critical paths): where refactoring pays off. |
+| `opendrs hotspots [--top n] [--json]` | Rank the repository's files by risk at rest (ranks by fixes, churn, dependents and critical paths; shows authors): where refactoring pays off. |
 | `opendrs feedback --inducing <sha> [--fix <sha>] [--note text]`, or `--pr <n> --was-incident` | Record an incident in `.opendrs/incidents.jsonl`, the strongest label for `calibrate`. |
 | `opendrs calibrate [--since date] [--max-commits n] [--label-horizon-days n]` | Fit the model and write it to `config.model`. |
 | `opendrs backtest [--since date] [--max-commits n] [--label-horizon-days n] [--json]` | Compare default and calibrated models on your history. |
@@ -481,6 +481,14 @@ content:
   block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]
 
 freezes: []   # while a window is active: auto-approval suspended, or held to a stricter green
+#  - name: weekend
+#    timezone: America/New_York   # IANA name; default UTC
+#    days: [sat, sun]
+#  - name: black-friday
+#    from: "2026-11-26"           # inclusive local dates, quoted
+#    to: "2026-11-30"
+#    green: 0.15                  # same units as thresholds; must be below thresholds.green
+
 sources:      # per-source policy; every setting only tightens the gate
   agent:
     green: 0.2                # stricter green for AI-agent PRs (thresholds.mode units)
@@ -490,13 +498,6 @@ sources:      # per-source policy; every setting only tightens the gate
     patterns: []              # extra regexes over commit messages / author emails
   bot: {}
   human: {}
-#  - name: weekend
-#    timezone: America/New_York   # IANA name; default UTC
-#    days: [sat, sun]
-#  - name: black-friday
-#    from: "2026-11-26"           # inclusive local dates, quoted
-#    to: "2026-11-30"
-#    green: 0.15                  # same units as thresholds; must be below thresholds.green
 ```
 
 **Why the default block list is long.** Besides the gate's own files, `paths.block` lists

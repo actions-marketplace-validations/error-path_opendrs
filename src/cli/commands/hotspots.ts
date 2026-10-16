@@ -27,9 +27,9 @@ export const hotspotsCommand: Command = {
   summary: "Rank the repository's files by risk at rest",
   help: `Usage: opendrs hotspots [--top N] [--json]
 
-Rank every file tracked at HEAD by code-at-rest risk: fix commits, commits and
-authors in the history lookback window, transitive dependents in the import
-graph, and whether it matches paths.critical or paths.block.
+Rank every file tracked at HEAD by code-at-rest risk: fix commits and commits in
+the history lookback window, transitive dependents in the import graph, and
+whether it matches paths.critical or paths.block. Authors are shown, not scored.
 
 Options:
   --top N  Show the N riskiest files (default 20)
@@ -45,7 +45,8 @@ Options:
     const top = values.top === undefined ? 20 : Number(values.top);
     if (!Number.isInteger(top) || top < 1) throw new OpendrsError("--top must be a positive integer", "usage");
     const repoDir = await repoRoot(io.cwd);
-    const rows = await hotspots(repoDir, await loadConfig(repoDir), top);
+    const { hotspots: rows, warnings } = await hotspots(repoDir, await loadConfig(repoDir), top);
+    for (const w of warnings) io.err(`opendrs: warning: ${w}`);
     io.out(values.json ? JSON.stringify(rows, null, 2) : rows.length ? render(rows) : "no tracked files");
     return 0;
   },
