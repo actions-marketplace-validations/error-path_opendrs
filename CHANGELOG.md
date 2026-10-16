@@ -2,6 +2,12 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.1.5 - 2026-10-16
+
+- Metadata for the official MCP registry entry `io.github.error-path/opendrs`: the npm package
+  now carries the matching `mcpName`, and `server.json` describes how to start the server
+  (`npx -y @error-path/opendrs mcp`).
+
 ## 0.1.4 - 2026-10-16
 
 - Published to npm as [`@error-path/opendrs`](https://www.npmjs.com/package/@error-path/opendrs).

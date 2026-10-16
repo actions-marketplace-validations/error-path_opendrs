@@ -55,7 +55,7 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
     },
     diff: { base: "abcdef1234567890", head: "0123456789abcdef", files: 9, added: 300, deleted: 112 },
     model: "default",
-    version: "0.1.4",
+    version: "0.1.5",
     ...over,
   };
 }
@@ -133,7 +133,7 @@ describe("renderMarkdown", () => {
 
   it("ends with a footer naming the model kind, version and project link", () => {
     const footer = md.trimEnd().split("\n").at(-1)!;
-    expect(footer).toContain("opendrs 0.1.4");
+    expect(footer).toContain("opendrs 0.1.5");
     expect(footer).toContain("default model");
     expect(footer).toContain("https://github.com/error-path/opendrs");
   });
