@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.error-path/opendrs",
+  "title": "opendrs",
+  "description": "PR blast radius and 0-1 risk score from git history, so low-risk PRs can be auto-approved.",
+  "websiteUrl": "https://error-path.github.io/opendrs/",
+  "repository": {
+    "url": "https://github.com/error-path/opendrs",
+    "source": "github"
+  },
+  "version": "0.1.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@error-path/opendrs",
+      "version": "0.1.5",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        { "type": "positional", "value": "mcp" }
+      ]
+    }
+  ]
+}

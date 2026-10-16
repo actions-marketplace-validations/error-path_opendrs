@@ -26,6 +26,6 @@ export function fakeResult(score: number, tier: Tier = "green", decision: Decisi
     },
     diff: { base: "b".repeat(40), head: "h".repeat(40), files: 1, added: 3, deleted: 1 },
     model: "default",
-    version: "0.1.4",
+    version: "0.1.5",
   };
 }

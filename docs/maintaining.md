@@ -39,6 +39,10 @@ A short runbook for the maintainer.
 4. Create a GitHub release from the tag with the changelog section as notes.
 5. Publish to npm from the tag with `npm publish`. The package is `@error-path/opendrs`;
    `publishConfig` makes it public, and the `prepack` script builds `dist`.
+6. Update the MCP registry entry: set both `version` fields in `server.json` to the release
+   (do this in step 1), then run `mcp-publisher login github` and `mcp-publisher publish` from
+   the tag. The registry checks that the npm package's `mcpName` matches `server.json`'s `name`,
+   so publish to npm first.
 
 Users pin `@v0`, so moving `v0` ships the release to them. Never move `v0` to a version with a
 breaking change; release `v1` instead.
