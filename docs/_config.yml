@@ -1,10 +1,38 @@
-title: "opendrs: PR blast radius analyzer and risk score"
+title: opendrs
+tagline: "PR blast radius analyzer and risk score for safe auto-approval"
 description: "Open-source PR blast radius analyzer: a calibrated 0-1 risk score for every pull request, so AI-reviewed, low-risk PRs can be auto-approved into the merge queue while risky ones wait for a human. GitHub Action, CLI, Claude Code plugin and MCP server."
 url: "https://error-path.github.io"
 baseurl: "/opendrs"
-theme: jekyll-theme-cayman
+lang: en
+repository: error-path/opendrs
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+      image: /assets/og.png
+author:
+  name: error-path
+  url: https://github.com/error-path
+social:
+  name: opendrs
+  links:
+    - https://github.com/error-path/opendrs
 plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
+include:
+  - llms.txt
 exclude:
   - specs
+nav:
+  - title: Auto-approve PRs
+    url: /auto-approve.html
+  - title: Blast radius
+    url: /blast-radius.html
+  - title: GitHub Action
+    url: /github-action.html
+  - title: Calibration
+    url: /calibration.html
+  - title: Alternatives
+    url: /alternatives.html

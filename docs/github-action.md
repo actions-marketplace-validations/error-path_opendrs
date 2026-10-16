@@ -1,3 +1,8 @@
+---
+title: "GitHub Action: score, label and auto-approve pull requests"
+description: "Set up the opendrs GitHub Action: comment a 0-1 risk score on every pull request, label it green, yellow or red, and auto-approve low-risk PRs into auto-merge or the merge queue. Inputs, outputs, permissions and branch rules."
+---
+
 # The opendrs GitHub Action
 
 The Action scores each pull request, upserts one PR comment, sets a `risk:green`,

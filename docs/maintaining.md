@@ -1,3 +1,8 @@
+---
+title: "Maintaining opendrs"
+description: "The maintainer runbook for opendrs: weekly triage, releases and security."
+---
+
 # Maintaining opendrs
 
 A short runbook for the maintainer.

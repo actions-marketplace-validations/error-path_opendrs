@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="{{ site.lang | default: 'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#000000">
+  {% seo %}
+  <link rel="alternate" type="text/plain" title="llms.txt" href="{{ '/llms.txt' | relative_url }}">
+  <link rel="icon" href="{{ '/assets/favicon.svg' | relative_url }}" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
+  {% if page.software %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "opendrs",
+    "alternateName": "Open Diff Risk Score",
+    "description": {{ site.description | jsonify }},
+    "url": {{ '/' | absolute_url | jsonify }},
+    "codeRepository": "https://github.com/error-path/opendrs",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS, Windows",
+    "license": "https://opensource.org/licenses/MIT",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "keywords": "PR blast radius, pull request risk score, diff risk score, auto-approve pull requests, auto-merge, merge queue, AI code review, defect prediction"
+  }
+  </script>
+  {% endif %}
+  {% if page.faq %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {% for q in page.faq %}{ "@type": "Question", "name": {{ q.q | jsonify }}, "acceptedAnswer": { "@type": "Answer", "text": {{ q.a | markdownify | strip_html | strip | jsonify }} } }{% unless forloop.last %},{% endunless %}
+      {% endfor %}
+    ]
+  }
+  </script>
+  {% endif %}
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="wordmark" href="{{ '/' | relative_url }}"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="8.5" width="5" height="3" rx="1.5" fill="#5cc08f"/><rect x="7.5" y="8.5" width="6" height="3" rx="1.5" fill="#e3ab4a"/><rect x="15" y="8.5" width="4" height="3" rx="1.5" fill="#ec6e60"/><circle cx="4" cy="10" r="3.2" fill="#000" stroke="#f4f4f5" stroke-width="1.6"/></svg>opendrs</a>
+      <nav aria-label="Documentation">
+        <ul>
+          {% for item in site.nav %}
+          <li><a href="{{ item.url | relative_url }}"{% if page.url == item.url %} aria-current="page"{% endif %}>{{ item.title }}</a></li>
+          {% endfor %}
+          <li><a href="https://github.com/error-path/opendrs">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="{% if page.layout_class %}{{ page.layout_class }}{% else %}doc{% endif %}">
+    {% if page.layout_class == "home" %}
+    {{ content }}
+    {% else %}
+    <div class="wrap">
+      <article class="prose">
+        {{ content }}
+        <p class="edit"><a href="https://github.com/error-path/opendrs/blob/main/docs/{{ page.path }}">Edit this page on GitHub</a></p>
+      </article>
+    </div>
+    {% endif %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>opendrs is open source under the MIT license. It is an independent implementation of the approach in Meta's Diff Risk Score and is not affiliated with Meta.</p>
+      <p><a href="https://github.com/error-path/opendrs">Source</a> <a href="https://github.com/error-path/opendrs/releases">Releases</a> <a href="https://github.com/marketplace/actions/opendrs-diff-risk-score">GitHub Marketplace</a> <a href="https://github.com/error-path/opendrs/issues">Issues</a> <a href="{{ '/llms.txt' | relative_url }}">llms.txt</a></p>
+    </div>
+  </footer>
+</body>
+</html>
