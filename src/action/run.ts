@@ -136,8 +136,11 @@ async function prAuthor(d: ActionDeps, pr: PullRequest): Promise<{ verified: boo
  */
 async function requestOneReviewer({ client, io }: ActionDeps, pr: PullRequest, reviewers: string[], decision: Decision): Promise<string | undefined> {
   if (decision !== "human-review") return undefined;
-  const login = noreplyLogin(assignReviewer(reviewers, `${pr.base.repo.full_name}#${pr.number}`) ?? "");
+  const logins = reviewers.map(noreplyLogin).filter((l): l is string => l !== undefined);
+  const login = assignReviewer(logins, `${pr.base.repo.full_name}#${pr.number}`);
   if (login === undefined || sameLogin(login, pr.user?.login) || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return undefined;
+  // Re-requesting a review resets one that was already submitted.
+  if ((await client.listReviews(pr.number)).some((r) => sameLogin(r.user?.login, login))) return undefined;
   try {
     await client.requestReviewers(pr.number, [login]);
     return login;
@@ -159,11 +162,12 @@ export async function runAction(d: ActionDeps): Promise<ActionOutcome> {
 }
 
 /**
- * The eligibility time from opendrs's own comment, unless it predates the comment by more than the
- * length of a run: a comment cannot vouch for a time before it existed, so another bot's comment
- * that copies the marker cannot backdate the clock by more than that.
+ * The eligibility time from opendrs's own comment, unless it predates the comment by more than two
+ * minutes: a comment cannot vouch for a time before it existed, so another bot's comment that copies
+ * the marker cannot backdate the clock by more than that. The marker's time is taken seconds before
+ * the comment is written (`now` in the approval, then the comment call), so two minutes is ample.
  */
-const MAX_RUN_MS = 15 * 60_000;
+const MAX_RUN_MS = 2 * 60_000;
 function trustedSince(comment: IssueComment | undefined, head: string): Date | undefined {
   const since = readEligibleSince(comment?.body ?? undefined, head);
   const created = comment?.created_at ? Date.parse(comment.created_at) : NaN;
@@ -252,10 +256,17 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   io.setOutput("tier", result.tier);
   io.setOutput("decision", result.policy.decision);
 
+  // A push during scoring: the comment, labels and reviewer request belong to the run for the new head.
+  const current = await client.pullHeadSha(pr.number);
+  if (current !== pr.head.sha) {
+    io.notice(`The PR head moved to ${current} while opendrs scored ${pr.head.sha}: not approving. The run for the new head decides.`);
+    return { score: result.score, tier: result.tier, decision: result.policy.decision, approved: false };
+  }
+
   const files = await changedFiles(d.repoDir, pr.base.sha, pr.head.sha);
   // Exclude the PR author's verified emails, not the head commit's claimed one, which they control.
   const paths = files.filter((f) => !matchAny(config.paths.ignore, f));
-  result.policy.suggestedReviewers = suggestReviewers(history, paths, undefined, 3 + author.emails.size)
+  result.policy.suggestedReviewers = suggestReviewers(history, paths, undefined, 3 + author.emails.size, result.tier !== "green")
     .filter((email) => !author.emails.has(email))
     .slice(0, 3);
   const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
@@ -269,7 +280,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
   }
   const approval = await io.group("Approval", () =>
-    reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels }),
+    reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment }),
   );
 
   const report = renderMarkdown(result);

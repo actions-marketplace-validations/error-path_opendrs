@@ -48,7 +48,7 @@ function io(): WorkflowIO & { warnings: string[] } {
 /** An earlier opendrs approval of `commit`, as the fake GitHub lists it. */
 const ownApproval = (commit = HEAD) => ({ id: 1, body: `${APPROVAL_MARKER}\nApproved by opendrs`, state: "APPROVED", user: BOT, commit_id: commit });
 
-function setup(res: ScoreResult, o: { gh?: Partial<FakeGitHub>; labels?: string[]; eligibleSince?: Date; now?: Date } = {}) {
+function setup(res: ScoreResult, o: { gh?: Partial<FakeGitHub>; labels?: string[]; eligibleSince?: Date; now?: Date; commentEnabled?: boolean } = {}) {
   const gh = installFakeGitHub({ headSha: HEAD, ...o.gh });
   const client = new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" });
   const log = io();
@@ -63,6 +63,7 @@ function setup(res: ScoreResult, o: { gh?: Partial<FakeGitHub>; labels?: string[
     now: o.now ?? NOW,
     eligibleSince: o.eligibleSince,
     labels: o.labels ?? [],
+    commentEnabled: o.commentEnabled ?? true,
   };
   return { gh, io: log, run: () => reconcileApproval(input) };
 }
@@ -174,6 +175,13 @@ describe("reconcileApproval", () => {
     expect(out.eligibleSince).toEqual(since);
     expect(out.pendingUntil).toBeUndefined();
     expect(gh.ops("createReview")).toHaveLength(1);
+  });
+
+  it("blocks a landing delay when the comment input is off: the clock has nowhere to live", async () => {
+    const { gh, run } = setup(result("auto-approve", { delay: 30 }), { commentEnabled: false, gh: { reviews: [ownApproval()] } });
+    const out = await run();
+    expect(out).toEqual({ approved: false, status: "not approved: landing delay needs the comment input." });
+    expect(gh.ops("dismissReview")).toHaveLength(1);
   });
 
   it("does not start the clock for an ineligible PR", async () => {

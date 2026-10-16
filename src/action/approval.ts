@@ -53,6 +53,8 @@ export interface ApprovalInput {
   eligibleSince?: Date;
   /** The PR's current labels. */
   labels: string[];
+  /** The Action's comment input; a landing delay keeps its clock in opendrs's comment. */
+  commentEnabled: boolean;
 }
 
 export interface ApprovalOutcome {
@@ -67,10 +69,11 @@ export interface ApprovalOutcome {
 
 const isFork = (pr: PullRequest) => pr.head.repo?.full_name !== pr.base.repo.full_name;
 
-function blockers({ config, result, files, pr }: ApprovalInput): string[] {
+function blockers({ config, result, files, pr, commentEnabled }: ApprovalInput): string[] {
   const out: string[] = [];
   if (!config.autoApprove.enabled) out.push("autoApprove.enabled is false (comment-only mode)");
   if (!ELIGIBLE.has(result.policy.decision)) out.push(`decision is ${result.policy.decision}`);
+  if (result.policy.landingDelayMinutes > 0 && !commentEnabled) out.push("landing delay needs the comment input");
   const touched = selfModifiedPaths(files, [config.model.replace(/^\.\//, "")]);
   if (touched.length) {
     const shown = touched.slice(0, 5).join(", ") + (touched.length > 5 ? `, and ${touched.length - 5} more` : "");
