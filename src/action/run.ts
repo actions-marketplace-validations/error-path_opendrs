@@ -7,7 +7,7 @@ import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
 import { suggestReviewers } from "../policy/reviewers.js";
 import { cell, renderMarkdown } from "../report/markdown.js";
-import { ownApprovals, reconcileApproval, stopMerge, withdraw } from "./approval.js";
+import { changesRequested, ownApprovals, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
 
@@ -36,6 +36,7 @@ export interface PullRequest {
   title: string;
   body: string | null;
   labels: Array<{ name: string }>;
+  draft?: boolean;
   /** The account that opened the PR. */
   user?: { login: string } | null;
   base: { sha: string; ref: string; repo: { full_name: string } };
@@ -178,6 +179,10 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const mergeBase = (await git(d.repoDir, ["merge-base", pr.base.sha, pr.head.sha])).trim();
   const history = await buildHistoryIndex(d.repoDir, mergeBase, config);
 
+  const viewer = await client.viewerLogin();
+  if (viewer === undefined) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
+  const changesRequestedBy = await changesRequested(client, pr.number, viewer);
+
   const result = await io.group("Score", async () => {
     const r = await scoreDiff({
       repoDir: d.repoDir,
@@ -190,7 +195,13 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
       title: pr.title,
       description: pr.body ?? undefined,
       // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.
-      pr: { successfulChecks, number: pr.number, samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}` },
+      pr: {
+        successfulChecks,
+        number: pr.number,
+        samplingKey: `${pr.base.repo.full_name}#${pr.number}#${d.inputs.sampleSalt ?? ""}`,
+        draft: pr.draft,
+        changesRequestedBy,
+      },
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -207,8 +218,6 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     .filter((email) => !author.emails.has(email))
     .slice(0, 3);
 
-  const viewer = await client.viewerLogin();
-  if (viewer === undefined) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
   const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config, result, files, viewer }));
 
   const report = renderMarkdown(result);

@@ -14,6 +14,8 @@ import type { ModelWeights } from "../domain/types.js";
  * - Most features are log1p counts, so a weight of 0.25 on size.churn means ~+0.17 logit per
  *   doubling of changed lines.
  * - size.new_files_only is negative: Meta found new-file-only diffs rarely cause SEVs.
+ * - size.comment_only is strongly negative: Meta notes a comment-only change "has no risk" even on a
+ *   risky path. -2.0 brings a comment edit to an incident-prone critical file (≈ 0.70 as code) to ≈ 0.24.
  * - paths.critical is the largest single bump (Meta's "high-criticality service").
  * - paths.blocked is also a policy hard block; its weight only colours the score.
  * - tests.deleted (a test file deleted, or net test deletion of 10+ lines) is also a policy rule. Its
@@ -32,6 +34,7 @@ export const DEFAULT_WEIGHTS: ModelWeights = {
     "size.churn": 0.25,
     "size.relative": 0.3,
     "size.new_files_only": -0.5,
+    "size.comment_only": -2.0,
     "diffusion.files": 0.2,
     "diffusion.dirs": 0.1,
     "diffusion.authors": 0.15,

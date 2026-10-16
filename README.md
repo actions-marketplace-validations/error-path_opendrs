@@ -96,6 +96,7 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 |---|---|---|
 | Log of added/deleted lines relative to file size | `size.churn`, `size.relative` | `log1p` of changed lines, and of changed lines over base file length; lockfiles, generated and vendored files excluded |
 | Diff creates new files only | `size.new_files_only` | 1 when every changed file is new |
+| Comment-only change ("has no risk", §II-B) | `size.comment_only` | 1 when every added or deleted line is blank or a plain comment in the file's own syntax (not a lone `/*` or `*/`, not a directive such as `//go:embed` or `// @ts-nocheck`), with no renames or binary files |
 | Log of number of files | `diffusion.files`, `diffusion.dirs` | `log1p` of changed files and of distinct top-level directories |
 | Log of distinct authors of the changed files | `diffusion.authors` | `log1p` of distinct authors in the files' history |
 | Previous SEV in the file or folder | `history.incident`, `history.prior_fixes` | a recorded incident or revert touched the file or folder; `log1p` of fix and revert commits in the lookback window |
@@ -119,15 +120,18 @@ treats as risk, not as zero.
 The decision rules run in this order; the first that matches wins:
 
 1. a changed file matches `paths.block` → `human-review` (hard block);
-2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink), or the PR
-   deletes tests (`tests.deleted`) → `human-review`;
+2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink), the PR
+   deletes tests (`tests.deleted`), or an added line matches a `content.block` pattern →
+   `human-review`;
 3. more than `maxChangedLines` changed → `human-review`;
-4. tier is not green → `human-review`;
+4. tier is not green, or an active freeze window suspends auto-approval or holds it to a
+   stricter green → `human-review`;
 5. the LLM judge failed, or the `unknown` signals, all at their worst at once, could have changed
    the tier → `human-review`;
-6. a required AI-review check has not passed on the head commit → `waiting-ai-review`;
-7. the PR is sampled for human review → `human-review`;
-8. otherwise `auto-approve`.
+6. the PR is a draft, or a reviewer's latest review requests changes → `human-review`;
+7. a required AI-review check has not passed on the head commit → `waiting-ai-review`;
+8. the PR is sampled for human review → `human-review`;
+9. otherwise `auto-approve`.
 
 The decision also suggests three reviewers: the most frequent recent authors of the changed files.
 
@@ -157,7 +161,14 @@ The rails that matter when the Action can approve PRs:
   auto-approval when it could have changed the tier. A failed or unparseable LLM answer counts the
   same way.
 - **Withdrawn approvals.** When a new push makes the PR ineligible, the Action dismisses its own
-  earlier approval ("Risk increased: yellow 0.45").
+  earlier approval ("Risk increased: yellow 0.45"). A green PR held back by a freeze or a sample
+  names that rule instead.
+- **Freeze windows.** Meta gates more diffs on weekends and around peak events, when fewer people
+  can respond to an incident. A `freezes` window (weekdays and/or dates in a timezone) suspends
+  auto-approval, or with `green` holds it to a stricter threshold. Tiers and labels do not change.
+- **Content blocklist.** `content.block` regexes are checked against every added line, like
+  Meta's RADAR blocklisted code phrases. A match goes to a human, and the reason names
+  `file:line`.
 - **Stale approvals are blocked by branch rules.** The Action approves only if the base branch
   requires at least one approval and dismisses stale approvals on push. Without that rule, an
   approval for one commit could carry over to a later, riskier push. See
@@ -395,6 +406,18 @@ graph:
   maxFiles: 50000
 
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
+
+content:
+  block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]
+
+freezes: []   # while a window is active: auto-approval suspended, or held to a stricter green
+#  - name: weekend
+#    timezone: America/New_York   # IANA name; default UTC
+#    days: [sat, sun]
+#  - name: black-friday
+#    from: "2026-11-26"           # inclusive local dates, quoted
+#    to: "2026-11-30"
+#    green: 0.15                  # same units as thresholds; must be below thresholds.green
 ```
 
 **Why the default block list is long.** Besides the gate's own files, `paths.block` lists
@@ -427,6 +450,10 @@ opendrs refuses a config that would fail silently, naming the offending value:
 - **`paths.unblock`** entries must each be a default `paths.block` glob, character for character.
 - **Thresholds** must be ordered: `0 ≤ green < yellow ≤ red ≤ 1` in absolute mode, and
   `0 < green < yellow ≤ red < 100` in percentile mode.
+- **`content.block`** entries must compile as JS regular expressions. JS has no inline flags such as
+  `(?i)`, so write `[Dd]rop` instead.
+- **`freezes`** need at least one of `days`, `from` or `to`, a real IANA timezone, `YYYY-MM-DD`
+  dates with `from` ≤ `to`, and a `green` below `thresholds.green`.
 
 ## Limitations
 

@@ -2,6 +2,27 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+Ideas from Meta's DRS paper (arXiv 2410.06351) and its RADAR auto-review funnel (arXiv 2605.30208).
+
+- New signal `size.comment_only` (prior weight -2.0). It is 1 when every added or deleted line is
+  blank or a plain comment in the file's own syntax, and no file is renamed or binary. A lone `/*`
+  or `*/` (which can switch code on or off), a directive comment (`//go:embed`, `// @ts-nocheck`,
+  `# type: ignore`, a shebang) and any line in a language without a known comment syntax count as
+  code. Meta notes that a comment-only change "has
+  no risk" even on a risky path. A calibrated model gives the signal no weight until you run
+  `opendrs calibrate` again.
+- `freezes`: windows of weekdays and/or dates in a timezone. While one is active, auto-approval is
+  suspended, or held to a stricter `green` (Meta's weekend gate and "code chill"). Tiers and labels
+  do not change.
+- `content.block`: regexes checked against every added line. A match sends the PR to a human, and
+  the reason names `file:line` (RADAR's blocklisted code phrases).
+- The Action never auto-approves a draft PR, or a PR where a reviewer's latest review requests
+  changes.
+- When a green PR's earlier approval is withdrawn, for example by a freeze or a sample, the
+  dismissal message names the rule instead of "Risk increased".
+
 ## 0.1.3 - 2026-10-16
 
 - `opendrs calibrate` keeps the default priors when the fitted weights do not beat them on a

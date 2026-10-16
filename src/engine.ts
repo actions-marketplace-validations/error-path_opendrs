@@ -33,6 +33,8 @@ export interface ScoreOptions {
   authorVerified?: boolean;
   title?: string;
   description?: string;
+  /** Epoch ms for freeze windows. Default: Date.now(). */
+  now?: number;
 }
 
 /** Load the calibrated model if config.model exists in the repo; else the default priors. */
@@ -126,6 +128,7 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     history,
     pr: opts.pr,
     llmFailed: Boolean(ctx.llm?.error),
+    now: opts.now,
   });
 
   const counted = diff.files.filter((f) => !f.ignored);

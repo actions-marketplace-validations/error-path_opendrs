@@ -95,6 +95,7 @@ detail). The model, not the provider, assigns weights.
 | `size.churn` | log SLOC rel. file size | `log1p(added + deleted)`, excluding generated, lock and vendored files |
 | `size.relative` | same | `log1p(Σ changed lines / Σ base file length)`, over modified files |
 | `size.new_files_only` | new-files-only bool | 1 if every changed file is new |
+| `size.comment_only` | "comment only change … has no risk" | 1 if every added/deleted line is blank or a plain comment in the file's own syntax; 0 with a rename, a binary file, a lone block delimiter or a directive comment |
 | `diffusion.files` | log #files | `log1p(#changed files)` |
 | `diffusion.dirs` | — | `log1p(#distinct top-2-level directories)` |
 | `diffusion.authors` | log #authors of files | `log1p(#distinct authors in history of the changed files)` |
