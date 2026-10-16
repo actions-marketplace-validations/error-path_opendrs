@@ -5,7 +5,7 @@ import type { DependencyGraph, DiffInfo, HistoryIndex, LlmProvider, ModelWeights
 import { OpendrsError } from "./domain/types.js";
 import { createBlobReader } from "./git/blobs.js";
 import { git } from "./git/exec.js";
-import { loadDiff } from "./git/diff.js";
+import { EMPTY_TREE, loadDiff } from "./git/diff.js";
 import { buildHistoryIndex } from "./git/history.js";
 import { buildDependencyGraph } from "./graph/graph.js";
 import { buildDiffText } from "./llm/prompt.js";
@@ -13,6 +13,7 @@ import { createLlmProvider } from "./llm/provider.js";
 import { DEFAULT_WEIGHTS } from "./model/defaults.js";
 import { scoreSignals } from "./model/logistic.js";
 import { decide, type GateInput } from "./policy/gate.js";
+import { agentPatterns, classifyPr } from "./policy/source.js";
 import { SIGNAL_PROVIDERS } from "./signals/index.js";
 import { VERSION } from "./version.js";
 
@@ -31,6 +32,8 @@ export interface ScoreOptions {
   pr?: GateInput["pr"];
   /** False when CI could not tie the head commit's author to the PR account. Default true. */
   authorVerified?: boolean;
+  /** The GitHub account that opened the PR (CI only); its `type` is "Bot" for a GitHub App. */
+  account?: { login: string; type?: string };
   title?: string;
   description?: string;
   /** Epoch ms for freeze windows. Default: Date.now(). */
@@ -46,6 +49,19 @@ export async function loadModel(repoDir: string, config: OpendrsConfig): Promise
     // missing or unreadable model file: fall back to priors
   }
   return { model: DEFAULT_WEIGHTS, kind: "default" };
+}
+
+const FIELD = "\x1f";
+const RECORD = "\x1e";
+
+/** The PR's own commits, newest first, without merges: what `classifyPr` reads and the gate excludes from "landed". */
+async function prCommits(repoDir: string, base: string, head: string) {
+  const range = base === EMPTY_TREE ? head : `${base}..${head}`;
+  const out = await git(repoDir, ["log", "--no-merges", "--no-show-signature", `--format=%H${FIELD}%an${FIELD}%ae${FIELD}%B${RECORD}`, "--end-of-options", range]);
+  return out.split(RECORD).flatMap((record) => {
+    const [sha = "", authorName = "", authorEmail = "", ...message] = record.trim().split(FIELD);
+    return sha ? [{ sha, authorName, authorEmail, message: message.join(FIELD) }] : [];
+  });
 }
 
 /** Compute every signal for a diff. Exported for calibrate/backtest, which fit weights on these. */
@@ -118,6 +134,8 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
   }
 
   const signals = await computeSignals(ctx);
+  const commits = await prCommits(repoDir, diff.base, diff.head);
+  const source = classifyPr(commits, opts.account, agentPatterns(config));
   const { model, kind } = opts.model ? { model: opts.model, kind: "calibrated" as const } : await loadModel(repoDir, config);
   const { score, logit, contributions } = scoreSignals(signals, model);
   const policy = decide({
@@ -133,6 +151,8 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     llmFailed: Boolean(ctx.llm?.error),
     llm: ctx.llm?.judgement,
     now: opts.now,
+    source,
+    prCommits: commits.map((c) => c.sha),
   });
 
   const counted = diff.files.filter((f) => !f.ignored);
@@ -144,6 +164,7 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     unknowns: signals.filter((s) => s.status === "unknown").map((s) => s.id),
     policy,
     llm: ctx.llm?.judgement,
+    source,
     diff: {
       base: diff.base,
       head: diff.head,

@@ -41,6 +41,7 @@ function result(): ScoreResult {
       suggestedReviewers: ["ana@example.com"],
     },
     llm: { risk: 0.6, rationale: "changes locking", riskySnippets: [], confidence: 7, hunks: [], unclassified: [], truncated: false },
+    source: { kind: "agent", name: "Claude Code", evidence: ['commit 3f2a9c1: trailer "Co-Authored-By: Claude <noreply@anthropic.com>"'], verified: false },
     diff: { base: "b", head: "h", files: 3, added: 40, deleted: 2 },
     model: "default",
     version: "0.1.5",
@@ -76,6 +77,7 @@ describe("score_diff", () => {
       unknowns: ["blast.dependents"],
       suggestedReviewers: ["ana@example.com"],
       llmRationale: "changes locking",
+      source: { kind: "agent", name: "Claude Code" },
     });
     expect(out.contributions).toHaveLength(6);
     expect(out.contributions[0]).toMatchObject({ id: "sig.0", contribution: 9, summary: "summary sig.0" });

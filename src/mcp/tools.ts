@@ -41,6 +41,7 @@ export async function scoreDiffTool(args: { repoDir: string; base?: string; head
       unknowns: r.unknowns,
       suggestedReviewers: r.policy.suggestedReviewers,
       llmRationale: r.llm?.rationale,
+      source: r.source,
       diff: r.diff,
     });
   } catch (e) {

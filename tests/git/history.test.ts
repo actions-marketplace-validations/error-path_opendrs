@@ -59,6 +59,16 @@ describe("buildHistoryIndex", () => {
     expect(h.commits.map((c) => c.isFix)).toEqual([false, true]);
   });
 
+  it("classifies each commit's source from its author and message, with sources.agent.patterns", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "init", ALICE);
+    repo.commit({ "a.ts": "2\n" }, "feat: x\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>", BOB);
+    repo.commit({ "a.ts": "3\n" }, "chore: bump", { name: "dependabot[bot]", email: "49699333+dependabot[bot]@users.noreply.github.com" });
+    repo.commit({ "a.ts": "4\n" }, "fix: y\n\nMade by sweep-bot", CAROL);
+    const h = await buildHistoryIndex(repo.dir, "HEAD", parseConfig({ sources: { agent: { patterns: ["\\bsweep-bot\\b"] } } }));
+    expect(h.commits.map((c) => c.source)).toEqual(["agent", "bot", "agent", "human"]);
+  });
+
   it("answers file and author queries point-in-time", async () => {
     repo = makeRepo();
     const c1 = repo.commit({ "src/a.ts": "1\n" }, "add a", ALICE, T + 1000);

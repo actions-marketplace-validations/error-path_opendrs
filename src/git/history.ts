@@ -1,6 +1,7 @@
 import type { CommitInfo, HistoryIndex } from "../domain/types.js";
 import { OpendrsError } from "../domain/types.js";
 import type { OpendrsConfig } from "../domain/config.js";
+import { agentPatterns, classifyCommit } from "../policy/source.js";
 import { unquotePath } from "./diff.js";
 import { git } from "./exec.js";
 
@@ -28,6 +29,7 @@ interface Lineage {
 /** One `git log` pass up to `ref`, bounded by history.maxCommits. */
 export async function buildHistoryIndex(repoDir: string, ref: string, config: OpendrsConfig): Promise<HistoryIndex> {
   const fixRe = compileFixPattern(config.history.fixPattern);
+  const patterns = agentPatterns(config);
   const out = await git(repoDir, [
     "log",
     `-n${config.history.maxCommits}`,
@@ -58,6 +60,7 @@ export async function buildHistoryIndex(repoDir: string, ref: string, config: Op
       isFix: fixRe.test(subject),
       isRevert: subject.startsWith('Revert "') || revertsSha !== undefined,
       ...(revertsSha !== undefined && { revertsSha }),
+      source: classifyCommit({ authorName, authorEmail, message: `${subject}\n\n${body.join(FIELD)}` }, patterns).kind,
     });
     changes.push(fileChanges);
   }
