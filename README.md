@@ -20,10 +20,10 @@ open-source implementation that runs in any git repository, with no service to h
 Use it as:
 
 - **a GitHub Action**: [`error-path/opendrs@v0`](https://github.com/marketplace/actions/opendrs-diff-risk-score), which comments, labels and, optionally, approves and merges;
-- **a CLI**: `npx github:error-path/opendrs score`;
+- **a CLI**: `npx @error-path/opendrs score`;
 - **a Claude Code plugin** (skill plus MCP server): `/plugin marketplace add error-path/opendrs`, then `/plugin install opendrs@opendrs`;
 - **an agent skill** for Claude Code, Cursor, Codex and others: `npx skills add error-path/opendrs`;
-- **an MCP server** for any agent: `npx -y github:error-path/opendrs mcp`.
+- **an MCP server** for any agent: `npx -y @error-path/opendrs mcp`.
 
 Website and guides: [error-path.github.io/opendrs](https://error-path.github.io/opendrs/), including
 [how to auto-approve low-risk PRs](https://error-path.github.io/opendrs/auto-approve.html) and
@@ -47,14 +47,14 @@ Website and guides: [error-path.github.io/opendrs](https://error-path.github.io/
 Score your current branch against the default branch. No configuration or API key is needed:
 
 ```sh
-npx github:error-path/opendrs score
+npx @error-path/opendrs score
 ```
 
 You get a score, a tier (green, yellow or red), the signals that drove it with their evidence,
 and the policy decision. `--json` prints the full result, and `--fail-above 0.6` makes the
 command exit 1 above a threshold.
 
-To score every pull request, add `.github/workflows/opendrs.yml` (or run `npx github:error-path/opendrs init`):
+To score every pull request, add `.github/workflows/opendrs.yml` (or run `npx @error-path/opendrs init`):
 
 ```yaml
 name: opendrs
@@ -202,9 +202,9 @@ The default weights are priors. Before you let the score approve anything, measu
 history:
 
 ```sh
-npx github:error-path/opendrs backtest     # how well do the default priors rank your past commits?
-npx github:error-path/opendrs calibrate    # fit weights to your history, write .opendrs/model.json
-npx github:error-path/opendrs backtest     # compare default and calibrated models
+npx @error-path/opendrs backtest     # how well do the default priors rank your past commits?
+npx @error-path/opendrs calibrate    # fit weights to your history, write .opendrs/model.json
+npx @error-path/opendrs backtest     # compare default and calibrated models
 ```
 
 The backtest replays past commits point-in-time (each commit sees only the history before it) and
@@ -296,7 +296,7 @@ What this adds:
 - Held-out AUCs near 0.45–0.50 (tokio, terraform, eslint) come from the newest commits, whose
   bugs mostly haven't been found and fixed yet. Expect labels there to be incomplete.
 
-Reproduce a row: `git clone <repo> && cd <repo> && npx github:error-path/opendrs calibrate --max-commits 4000 && npx github:error-path/opendrs backtest --max-commits 4000`.
+Reproduce a row: `git clone <repo> && cd <repo> && npx @error-path/opendrs calibrate --max-commits 4000 && npx @error-path/opendrs backtest --max-commits 4000`.
 Runs took 1 to 16 minutes per repository on a 4-core Linux machine.
 
 ## LLM judge (optional)
@@ -329,10 +329,10 @@ before they open a PR. It exposes `score_diff` (base, head, cwd), `explain_file_
 `suggest_reviewers` (paths). For Claude Code:
 
 ```sh
-claude mcp add opendrs -- npx -y github:error-path/opendrs mcp
+claude mcp add opendrs -- npx -y @error-path/opendrs mcp
 ```
 
-Other clients take the same command: `{"command": "npx", "args": ["-y", "github:error-path/opendrs", "mcp"]}`.
+Other clients take the same command: `{"command": "npx", "args": ["-y", "@error-path/opendrs", "mcp"]}`.
 
 The agent skill in [`skills/opendrs/SKILL.md`](skills/opendrs/SKILL.md) tells an agent to run
 `opendrs score` before opening a PR and to split changes with a large blast radius.

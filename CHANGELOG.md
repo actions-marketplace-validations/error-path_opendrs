@@ -2,7 +2,16 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.4 - 2026-10-16
+
+- Published to npm as [`@error-path/opendrs`](https://www.npmjs.com/package/@error-path/opendrs).
+  npm refuses the unscoped name `opendrs` as too close to an existing package. Run the CLI with
+  `npx @error-path/opendrs score` and the MCP server with `npx -y @error-path/opendrs mcp`; the
+  command it installs is still `opendrs`. `npx github:error-path/opendrs` keeps working.
+- Fixed: `blast.public_surface` evidence reported line numbers one too low after a blank context
+  line that git printed without its leading space (`diff.suppressBlankEmpty`). The diff walkers in
+  the blast, content-block and SZZ code now share one helper that counts hunk lines the way the
+  diff parser does.
 
 Ideas from Meta's DRS paper (arXiv 2410.06351) and its RADAR auto-review funnel (arXiv 2605.30208).
 

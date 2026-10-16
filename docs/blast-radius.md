@@ -52,8 +52,8 @@ its link to Meta's Diff Risk Score are in the
 ## Check a change's blast radius yourself
 
 ```sh
-npx github:error-path/opendrs score              # this branch against the default branch
-npx github:error-path/opendrs explain src/auth.ts  # one file's dependents, history and owners
+npx @error-path/opendrs score                # this branch against the default branch
+npx @error-path/opendrs explain src/auth.ts  # one file's dependents, history and owners
 ```
 
 Coding agents can call the same checks through the MCP server (`score_diff`,
