@@ -6,6 +6,26 @@ import type { PullRequest } from "./run.js";
 import type { WorkflowIO } from "./workflow.js";
 
 export const APPROVAL_MARKER = "<!-- opendrs-approval -->";
+export const ELIGIBLE_MARKER = "opendrs-eligible";
+export const HOLD_LABEL = "opendrs:hold";
+const REVIEW_AFTER_MERGE_LABEL = "opendrs:review-after-merge";
+
+/** Records in opendrs's comment when `head` first became eligible to land, so the landing delay survives reruns. */
+export const eligibleMarker = (head: string, since: Date) => `<!-- ${ELIGIBLE_MARKER}: ${head} ${since.toISOString()} -->`;
+
+/** The eligibility time recorded for exactly `head`; a marker for another commit does not count, so a push restarts the clock. */
+export function readEligibleSince(body: string | undefined, head: string): Date | undefined {
+  const m = body?.match(new RegExp(`<!-- ${ELIGIBLE_MARKER}: (\\S+) (\\S+) -->`));
+  if (!m || m[1] !== head) return undefined;
+  const since = new Date(m[2]!);
+  return Number.isNaN(since.getTime()) ? undefined : since;
+}
+
+/** Decisions that may land without a human approving first. */
+const ELIGIBLE = new Set<ScoreResult["policy"]["decision"]>(["auto-approve", "deferred-review"]);
+
+/** The login behind a GitHub noreply address (`<id>+<login>@` or `<login>@users.noreply.github.com`); other emails map to nothing. */
+const noreplyLogin = (email: string) => email.match(/^(?:\d+\+)?([A-Za-z0-9-]+)@users\.noreply\.github\.com$/i)?.[1];
 
 const APPROVAL_FORBIDDEN =
   "GitHub refused the approval (403). In Settings > Actions > General > Workflow permissions, enable " +
@@ -28,6 +48,21 @@ export interface ApprovalInput {
   files: string[];
   /** Login of the token's user (undefined = unknown); only its own marked approvals are ever dismissed. */
   viewer: string | undefined;
+  now: Date;
+  /** When this head first became eligible, from opendrs's own comment; undefined starts the landing delay now. */
+  eligibleSince?: Date;
+  /** The PR's current labels. */
+  labels: string[];
+}
+
+export interface ApprovalOutcome {
+  approved: boolean;
+  /** One line for the PR comment. */
+  status: string;
+  /** Set while the PR is eligible: the caller writes it into the comment as `eligibleMarker`. */
+  eligibleSince?: Date;
+  /** Set while the landing delay is still running. */
+  pendingUntil?: Date;
 }
 
 const isFork = (pr: PullRequest) => pr.head.repo?.full_name !== pr.base.repo.full_name;
@@ -35,7 +70,7 @@ const isFork = (pr: PullRequest) => pr.head.repo?.full_name !== pr.base.repo.ful
 function blockers({ config, result, files, pr }: ApprovalInput): string[] {
   const out: string[] = [];
   if (!config.autoApprove.enabled) out.push("autoApprove.enabled is false (comment-only mode)");
-  if (result.policy.decision !== "auto-approve") out.push(`decision is ${result.policy.decision}`);
+  if (!ELIGIBLE.has(result.policy.decision)) out.push(`decision is ${result.policy.decision}`);
   const touched = selfModifiedPaths(files, [config.model.replace(/^\.\//, "")]);
   if (touched.length) {
     const shown = touched.slice(0, 5).join(", ") + (touched.length > 5 ? `, and ${touched.length - 5} more` : "");
@@ -119,10 +154,10 @@ export async function stopMerge(client: GitHubClient, io: WorkflowIO, pr: PullRe
 }
 
 /**
- * Approve (and queue or auto-merge) only when every rail passes; otherwise dismiss this
- * token's own earlier opendrs approvals. Returns a one-line status for the PR comment.
+ * Approve (and queue or auto-merge) only when every rail passes and neither `opendrs:hold` nor
+ * a running landing delay holds the PR; otherwise dismiss this token's own earlier opendrs approvals.
  */
-export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: boolean; status: string }> {
+export async function reconcileApproval(a: ApprovalInput): Promise<ApprovalOutcome> {
   const { client, io, pr, result } = a;
   const own = await ownApprovals(client, pr.number, a.viewer);
 
@@ -136,7 +171,7 @@ export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: b
     io.info(`Not approving: ${reasons.join("; ")}.`);
     // A green PR held back (a freeze, a sample) has not risen in risk: say what held it.
     const message =
-      result.policy.decision !== "auto-approve"
+      !ELIGIBLE.has(result.policy.decision)
         ? result.tier === "green"
           ? `opendrs approval withdrawn: ${result.policy.reasons[0]}`
           : `Risk increased: ${result.tier} ${result.score.toFixed(2)}`
@@ -152,20 +187,65 @@ export async function reconcileApproval(a: ApprovalInput): Promise<{ approved: b
     return { approved: false, status: "not approved: a new commit was pushed while scoring; the next run decides." };
   }
 
+  // A human veto: the hold label and the landing delay both postpone, and nothing of ours may merge meanwhile.
+  if (a.labels.includes(HOLD_LABEL)) {
+    io.info(`Not approving: the PR has the ${HOLD_LABEL} label.`);
+    await withdraw(client, io, pr, own, `opendrs approval withdrawn: ${HOLD_LABEL} label`);
+    return { approved: false, status: `on hold (${HOLD_LABEL} label)`, eligibleSince: a.eligibleSince };
+  }
+  const since = a.eligibleSince ?? a.now;
+  const delay = result.policy.landingDelayMinutes;
+  const until = new Date(since.getTime() + delay * 60_000);
+  if (delay > 0 && a.now < until) {
+    const at = `${until.toISOString().slice(11, 16)} UTC`;
+    io.info(`Not approving yet: the landing delay of ${delay} min runs until ${at}.`);
+    await withdraw(client, io, pr, own, "opendrs approval withdrawn: the landing delay is still running");
+    return {
+      approved: false,
+      status: `approves at ${at} unless someone requests changes, pushes, or adds ${HOLD_LABEL}`,
+      eligibleSince: since,
+      pendingUntil: until,
+    };
+  }
+
+  const deferred = result.policy.decision === "deferred-review";
+  let note = deferred ? " (deferred review)" : "";
   if (own.some((r) => r.commit_id === pr.head.sha)) {
     io.info("This head commit is already approved by opendrs.");
   } else {
-    const body =
-      `${APPROVAL_MARKER}\nApproved by opendrs: risk score ${result.score.toFixed(2)} (${result.tier}) ` +
-      `for commit ${pr.head.sha}. Every auto-approval rule passed.`;
+    const body = deferred
+      ? `${APPROVAL_MARKER}\nApproved by opendrs for deferred review: risk score ${result.score.toFixed(2)} (${result.tier}) ` +
+        `for commit ${pr.head.sha}. It lands now; a human reviews it after merge.`
+      : `${APPROVAL_MARKER}\nApproved by opendrs: risk score ${result.score.toFixed(2)} (${result.tier}) ` +
+        `for commit ${pr.head.sha}. Every auto-approval rule passed.`;
     const done = await unlessForbidden(
       () => client.approve(pr.number, pr.head.sha, body).then(() => true),
       () => io.warning(APPROVAL_FORBIDDEN),
     );
     if (!done) return { approved: false, status: "not approved: GitHub refused the approval (see the job log)." };
-    io.notice(`Approved: risk ${result.score.toFixed(2)} (${result.tier}).`);
+    io.notice(`Approved${deferred ? " for deferred review" : ""}: risk ${result.score.toFixed(2)} (${result.tier}).`);
+    // Only with the first approval of this head: re-requesting would reset a finished review.
+    if (deferred) note = ` (deferred review: ${await requestDeferredReview(a)})`;
   }
-  return { approved: true, status: `approved by opendrs${await enableMerge(a)}.` };
+  return { approved: true, status: `approved by opendrs${note}${await enableMerge(a)}.`, eligibleSince: since };
+}
+
+/** Best-effort: ask the suggested reviewers (GitHub logins only) to review after merge, and label the PR. */
+async function requestDeferredReview({ client, io, pr, result }: ApprovalInput): Promise<string> {
+  const logins = result.policy.suggestedReviewers.map(noreplyLogin).filter((l): l is string => l !== undefined);
+  await unlessForbidden(
+    () => client.addLabels(pr.number, [REVIEW_AFTER_MERGE_LABEL]),
+    (e) => io.warning(`Could not add the ${REVIEW_AFTER_MERGE_LABEL} label (${e.message}).`),
+  );
+  if (!logins.length) return "no GitHub login among the suggested reviewers, none requested";
+  try {
+    await client.requestReviewers(pr.number, logins);
+    return `review requested from ${logins.join(", ")}`;
+  } catch (e) {
+    if (!(e instanceof GitHubError && (e.status === 403 || e.status === 422))) throw e;
+    io.warning(`Could not request a review from ${logins.join(", ")} (${e.message}). Ask them by hand.`);
+    return "requesting a review failed (see the job log)";
+  }
 }
 
 async function enableMerge({ client, io, pr, result }: ApprovalInput): Promise<string> {

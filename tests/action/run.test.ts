@@ -21,7 +21,8 @@ vi.mock("../../src/report/markdown.js", async (importOriginal) => ({
 
 const { scoreDiff } = await import("../../src/engine.js");
 const { renderMarkdown } = await import("../../src/report/markdown.js");
-const { runAction, COMMENT_MARKER, APPROVAL_MARKER } = await import("../../src/action/run.js");
+const { runAction, COMMENT_MARKER, APPROVAL_MARKER, LANDING_LABEL } = await import("../../src/action/run.js");
+const { eligibleMarker } = await import("../../src/action/approval.js");
 
 const ENABLED = { autoApprove: { enabled: true } };
 
@@ -46,6 +47,10 @@ interface Options {
   env?: NodeJS.ProcessEnv;
   /** Commits made before the base commit, e.g. to give files a history of authors. */
   before?: (repo: TestRepo) => void;
+  /** The rest of opendrs's own earlier comment (after the marker), given the head sha. */
+  ownComment?: (head: string) => string;
+  /** When the own comment was created (ISO); absent = unknown. */
+  ownCommentCreated?: string;
 }
 
 /** The PR's author, and the email GitHub has verified for that account. */
@@ -91,7 +96,10 @@ async function run(o: Options = {}) {
   let log = "";
   const io = createWorkflowIO(ioEnv, (s) => void (log += s));
 
-  const gh = installFakeGitHub({ labels: [...(o.labels ?? [])], headSha, commits: [prCommit(headSha)], ...o.gh });
+  const comments = o.ownComment
+    ? [{ id: 2, body: `${COMMENT_MARKER}\nold report\n${o.ownComment(headSha)}`, user: BOT, ...(o.ownCommentCreated ? { created_at: o.ownCommentCreated } : {}) }]
+    : [];
+  const gh = installFakeGitHub({ labels: [...(o.labels ?? [])], headSha, commits: [prCommit(headSha)], comments, ...o.gh });
   vi.mocked(scoreDiff).mockResolvedValue(o.result ?? result(0.12, "green", "auto-approve"));
   const env: NodeJS.ProcessEnv = { ...o.env };
   const event = {
@@ -871,5 +879,81 @@ describe("dismissal", () => {
     });
     await expect(t.promise).resolves.toMatchObject({ approved: false });
     expect(t.log()).toMatch(/::warning::.*dismiss/i);
+  });
+});
+
+describe("landing delay", () => {
+  const DELAYED = { autoApprove: { enabled: true, landingDelayMinutes: 30 } };
+  const delayed = () => {
+    const r = result(0.12, "green", "auto-approve");
+    r.policy.landingDelayMinutes = 30;
+    return r;
+  };
+  const markerFor = (head: string, minutesAgo: number) => eligibleMarker(head, new Date(Date.now() - minutesAgo * 60_000));
+  const removed = (t: Awaited<ReturnType<typeof run>>) => t.gh.ops("removeLabel").map((e) => decodeURIComponent(e.path.split("/").pop()!));
+
+  it("holds a fresh eligible PR: no approval, an eligibility marker for the head in its comment, and the opendrs:landing label", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed() });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.ops("createReview")).toEqual([]);
+    expect(t.gh.comments[0]!.body).toMatch(new RegExp(`<!-- opendrs-eligible: ${t.headSha} \\S+ -->`));
+    expect(t.gh.comments[0]!.body).toContain("approves at");
+    expect(t.gh.labels).toContain(LANDING_LABEL);
+  });
+
+  it("approves once the delay has run since its own comment's marker, keeps the marker and removes opendrs:landing", async () => {
+    const since = new Date(Date.now() - 31 * 60_000);
+    const t = await run({ baseConfig: DELAYED, result: delayed(), labels: [LANDING_LABEL], ownComment: (head) => eligibleMarker(head, since) });
+    await expect(t.promise).resolves.toMatchObject({ approved: true });
+    expect(t.gh.ops("createReview")).toHaveLength(1);
+    expect(t.gh.comments[0]!.body).toContain(eligibleMarker(t.headSha, since));
+    expect(removed(t)).toContain(LANDING_LABEL);
+    expect(t.gh.labels).not.toContain(LANDING_LABEL);
+  });
+
+  it("restarts the delay when the marker belongs to another head commit", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), labels: [LANDING_LABEL], ownComment: () => markerFor("a".repeat(40), 31) });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.comments[0]!.body).toContain(`<!-- opendrs-eligible: ${t.headSha} `);
+    expect(t.gh.comments[0]!.body).not.toContain("a".repeat(40));
+    expect(t.gh.ops("removeLabel")).toEqual([]);
+  });
+
+  it("ignores a marker in someone else's comment", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed() });
+    t.gh.comments.push({ id: 9, body: `${COMMENT_MARKER}\n${markerFor(t.headSha, 31)}`, user: { login: "mallory", type: "User" } });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+  });
+
+  it("removes opendrs:landing and writes no marker when the PR is no longer eligible", async () => {
+    const t = await run({ baseConfig: DELAYED, result: result(0.7, "red", "human-review"), labels: [LANDING_LABEL] });
+    await t.promise;
+    expect(removed(t)).toContain(LANDING_LABEL);
+    expect(t.gh.comments[0]!.body).not.toContain("opendrs-eligible");
+  });
+
+  it("passes the PR's labels to the approval: opendrs:hold stops the delay but keeps opendrs:landing, so the sweep resumes it", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), labels: ["opendrs:hold", LANDING_LABEL], ownComment: (head) => markerFor(head, 31) });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.comments[0]!.body).toContain("on hold");
+    expect(removed(t)).not.toContain(LANDING_LABEL);
+  });
+
+  it("ignores a marker older than the comment that carries it (a copied marker cannot backdate the clock)", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), ownComment: (head) => markerFor(head, 120), ownCommentCreated: new Date().toISOString() });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.gh.comments[0]!.body).toContain("approves at");
+  });
+
+  it("sets opendrs:landing even when the labels input is false", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), inputs: { labels: false } });
+    await t.promise;
+    expect(t.gh.labels).toEqual([LANDING_LABEL]);
+  });
+
+  it("warns and carries on when the landing label cannot be set", async () => {
+    const t = await run({ baseConfig: DELAYED, result: delayed(), gh: { forbid: new Set(["addLabels"]) } });
+    await expect(t.promise).resolves.toMatchObject({ approved: false });
+    expect(t.log()).toMatch(/::warning::.*opendrs:landing/);
   });
 });

@@ -39,6 +39,7 @@ function result(): ScoreResult {
       sampled: false,
       mergeMethod: "queue",
       suggestedReviewers: ["ana@example.com"],
+      landingDelayMinutes: 0,
     },
     llm: { risk: 0.6, rationale: "changes locking", riskySnippets: [], confidence: 7, hunks: [], unclassified: [], truncated: false },
     source: { kind: "agent", name: "Claude Code", evidence: ['commit 3f2a9c1: trailer "Co-Authored-By: Claude <noreply@anthropic.com>"'], verified: false },

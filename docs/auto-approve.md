@@ -24,7 +24,7 @@ Add `.github/workflows/opendrs.yml`. It comments a risk report on each PR and se
 name: opendrs
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 concurrency:
   group: opendrs-${{ github.event.pull_request.number }}
   cancel-in-progress: true

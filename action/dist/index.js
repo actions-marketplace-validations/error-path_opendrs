@@ -7506,6 +7506,10 @@ var GitHubClient = class {
   async dismissReview(pr, reviewId, message) {
     await this.rest("PUT", `${this.repoPath}/pulls/${pr}/reviews/${reviewId}/dismissals`, { message, event: "DISMISS" });
   }
+  /** GitHub answers 422 when a login is not a collaborator or is the PR's author. */
+  async requestReviewers(pr, logins) {
+    await this.rest("POST", `${this.repoPath}/pulls/${pr}/requested_reviewers`, { reviewers: logins });
+  }
   /**
    * Name and app slug of the latest check runs that concluded success on exactly `sha`. Never counts
    * opendrs's own job: the names of this workflow run's (`ownRunId`) unfinished Actions jobs, opendrs
@@ -27422,6 +27426,8 @@ var sourcePolicySchema = external_exports.object({
   green: external_exports.number().optional(),
   /** Like llm.requireSafe, for this source only. Needs llm.enabled. */
   requireSafe: external_exports.boolean().default(false),
+  /** A longer landing delay for this source; the larger of this and autoApprove.landingDelayMinutes applies. */
+  landingDelayMinutes: external_exports.number().int().min(0).optional(),
   /** At most this many commits of this source landed on the base branch in the last 24 hours. */
   dailyCap: external_exports.number().int().positive().optional(),
   /** RADAR's track record: enough recent landed commits of this source, and few of them reverted. */
@@ -27463,7 +27469,19 @@ var configSchema = external_exports.object({
     }).prefault({}),
     mergeMethod: external_exports.enum(["queue", "auto-merge", "none"]).default("queue"),
     sampleRate: external_exports.number().min(0).max(1).default(0.1),
-    maxChangedLines: external_exports.number().int().positive().default(400)
+    maxChangedLines: external_exports.number().int().positive().default(400),
+    /** Minutes an eligible PR waits, on the same head commit, before opendrs approves it (a veto window). */
+    landingDelayMinutes: external_exports.number().int().min(0).default(0),
+    /**
+     * RADAR's deferred review: a PR whose score is at or above green but below `below` (thresholds.mode
+     * units), and that passes every other rule, is approved and lands now, with a human review assigned
+     * after merge. Only for the listed sources; the trusted floor must be listed too.
+     */
+    deferredReview: external_exports.object({
+      enabled: external_exports.boolean().default(false),
+      below: external_exports.number().optional(),
+      sources: external_exports.array(external_exports.enum(["human", "bot", "agent"])).default(["human"])
+    }).prefault({})
   }).prefault({}),
   paths: external_exports.object({
     block: globs([]),
@@ -27541,7 +27559,15 @@ var configSchema = external_exports.object({
       ).default([])
     }).prefault({})
   }).prefault({})
-}).superRefine(({ thresholds, freezes, llm, sources }, ctx) => {
+}).superRefine(({ thresholds, freezes, llm, sources, autoApprove }, ctx) => {
+  const deferred = autoApprove.deferredReview;
+  if (deferred.enabled && (deferred.below === void 0 || deferred.below <= thresholds.green || deferred.below > thresholds.yellow)) {
+    ctx.addIssue({
+      code: "custom",
+      message: `autoApprove.deferredReview.below must be set above thresholds.green (${thresholds.green}) and at most thresholds.yellow (${thresholds.yellow}), in ${thresholds.mode} units`,
+      path: ["autoApprove", "deferredReview", "below"]
+    });
+  }
   for (const kind of ["human", "bot", "agent"]) {
     const policy = sources[kind];
     if (policy.green !== void 0 && policy.green >= thresholds.green) {
@@ -29402,7 +29428,11 @@ function decide(input2) {
   if (changedLines3 > auto.maxChangedLines) {
     fired.push({ decision: "human-review", reason: `${changedLines3} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
   }
-  if (tier !== "green") {
+  const kinds = input2.source ? [.../* @__PURE__ */ new Set([input2.source.floor ?? "human", input2.source.kind])] : [];
+  const deferredReview = auto.deferredReview;
+  const deferredBelow = deferredReview.enabled && deferredReview.below !== void 0 ? config2.thresholds.mode === "absolute" ? deferredReview.below : percentileScore(model.percentiles, deferredReview.below) : void 0;
+  const deferrable = deferredBelow !== void 0 && input2.score >= thresholds.green && input2.score < deferredBelow && (kinds.length > 0 ? kinds : ["human"]).every((k) => deferredReview.sources.includes(k));
+  if (tier !== "green" && !deferrable) {
     fired.push({
       decision: "human-review",
       reason: `tier ${tier}: score ${input2.score.toFixed(2)} \u2265 green threshold ${thresholds.green.toFixed(2)}`
@@ -29424,7 +29454,6 @@ function decide(input2) {
       fired.push({ decision: "human-review", reason: `freeze "${f.name}": score ${input2.score.toFixed(2)} \u2265 freeze green ${green.toFixed(2)}` });
     }
   }
-  const kinds = input2.source ? [.../* @__PURE__ */ new Set([input2.source.floor ?? "human", input2.source.kind])] : [];
   const inPr = new Set(input2.prCommits ?? []);
   for (const kind of kinds) {
     const source = config2.sources[kind];
@@ -29499,7 +29528,7 @@ function decide(input2) {
   }
   const worst = sigmoid(input2.logit + lifts.reduce((n, l) => n + l.lift, 0));
   const worstTier = tierOf(worst, thresholds);
-  if (worstTier !== tier) {
+  if (worstTier !== tier || deferrable && worst >= deferredBelow) {
     const alone = lifts.sort((a, b) => b.lift - a.lift).map((l) => `${l.id} \u2192 ${sigmoid(input2.logit + l.lift).toFixed(2)}`).join(", ");
     const reason = lifts.length === 1 ? `unknown ${lifts[0].id} could raise the score to ${worst.toFixed(2)} (${worstTier})` : `unknown signals could together raise the score to ${worst.toFixed(2)} (${worstTier}); alone: ${alone}`;
     fired.push({ decision: "human-review", reason });
@@ -29520,26 +29549,33 @@ function decide(input2) {
   }
   const sampled = sampleValue(input2.pr?.samplingKey ?? diff.head) < auto.sampleRate;
   if (sampled) fired.push({ decision: "human-review", reason: `sampled for human review (${Math.round(auto.sampleRate * 100)}% drift check)` });
-  const decision = fired[0]?.decision ?? "auto-approve";
+  const decision = fired[0]?.decision ?? (deferrable ? "deferred-review" : "auto-approve");
+  const lands = decision === "auto-approve" || decision === "deferred-review";
   if (decision === "auto-approve") {
     fired.push({
       decision,
       reason: `auto-approve: score ${input2.score.toFixed(2)} < green ${thresholds.green.toFixed(2)} and every gate passed (merge: ${auto.mergeMethod})`
     });
-    if (!auto.enabled) notes.push("dry run: autoApprove.enabled=false");
+  } else if (decision === "deferred-review") {
+    fired.push({
+      decision,
+      reason: `deferred review: score ${input2.score.toFixed(2)} is in the deferred band (${thresholds.green.toFixed(2)}\u2013${deferredBelow.toFixed(2)}); lands now, reviewed after merge`
+    });
   }
+  if (lands && !auto.enabled) notes.push("dry run: autoApprove.enabled=false");
   return {
     tier,
     decision,
     reasons: [...fired.map((f) => f.reason), ...notes],
     hardBlocked,
     sampled,
-    mergeMethod: decision === "auto-approve" ? auto.mergeMethod : "none",
+    mergeMethod: lands ? auto.mergeMethod : "none",
     suggestedReviewers: suggestReviewers(
       input2.history,
       diff.files.filter((f) => !f.ignored).map((f) => f.path),
       diff.author?.email
-    )
+    ),
+    landingDelayMinutes: Math.max(auto.landingDelayMinutes, ...kinds.map((k) => config2.sources[k].landingDelayMinutes ?? 0))
   };
 }
 function contentHits(diff, patterns) {
@@ -30379,6 +30415,7 @@ var MAX_RATIONALE2 = 400;
 var TIER_EMOJI = { green: "\u{1F7E2}", yellow: "\u{1F7E1}", red: "\u{1F534}" };
 var DECISION_TEXT = {
   "auto-approve": "auto-approve",
+  "deferred-review": "deferred review (lands now, reviewed after merge)",
   "waiting-ai-review": "waiting for AI review",
   "human-review": "human review"
 };
@@ -30421,6 +30458,9 @@ function renderMarkdown(result) {
     lines.push("");
   }
   lines.push("**Policy**", ...policy.reasons.map((r) => `- ${cell(r)}`), "");
+  if (policy.landingDelayMinutes > 0 && (policy.decision === "auto-approve" || policy.decision === "deferred-review")) {
+    lines.push(`Landing delay: ${policy.landingDelayMinutes} min after the head commit becomes eligible`, "");
+  }
   if (policy.suggestedReviewers.length > 0) {
     lines.push(`**Suggested reviewers:** ${policy.suggestedReviewers.map(code).join(", ")}`, "");
   }
@@ -30458,13 +30498,25 @@ function selfModifiedPaths(files, extra = []) {
 
 // src/action/approval.ts
 var APPROVAL_MARKER = "<!-- opendrs-approval -->";
+var ELIGIBLE_MARKER = "opendrs-eligible";
+var HOLD_LABEL = "opendrs:hold";
+var REVIEW_AFTER_MERGE_LABEL = "opendrs:review-after-merge";
+var eligibleMarker = (head, since) => `<!-- ${ELIGIBLE_MARKER}: ${head} ${since.toISOString()} -->`;
+function readEligibleSince(body, head) {
+  const m = body?.match(new RegExp(`<!-- ${ELIGIBLE_MARKER}: (\\S+) (\\S+) -->`));
+  if (!m || m[1] !== head) return void 0;
+  const since = new Date(m[2]);
+  return Number.isNaN(since.getTime()) ? void 0 : since;
+}
+var ELIGIBLE = /* @__PURE__ */ new Set(["auto-approve", "deferred-review"]);
+var noreplyLogin = (email3) => email3.match(/^(?:\d+\+)?([A-Za-z0-9-]+)@users\.noreply\.github\.com$/i)?.[1];
 var APPROVAL_FORBIDDEN = 'GitHub refused the approval (403). In Settings > Actions > General > Workflow permissions, enable "Allow GitHub Actions to create and approve pull requests", and give the job `pull-requests: write`.';
 var staleApprovalsUnverified = (branch) => `Not approving: could not confirm that ${branch} requires an approval and dismisses it when new commits are pushed. Without that, a commit pushed after opendrs approves can merge on the earlier approval. In Settings > Rules > Rulesets, add an active branch ruleset for ${branch} with "Require a pull request before merging", "Required approvals" of at least 1 and "Dismiss stale pull request approvals when new commits are pushed". Classic branch protection with the same settings also counts, but only when github-token can read it (Administration: read), which the default GITHUB_TOKEN cannot.`;
 var isFork = (pr) => pr.head.repo?.full_name !== pr.base.repo.full_name;
 function blockers({ config: config2, result, files, pr }) {
   const out = [];
   if (!config2.autoApprove.enabled) out.push("autoApprove.enabled is false (comment-only mode)");
-  if (result.policy.decision !== "auto-approve") out.push(`decision is ${result.policy.decision}`);
+  if (!ELIGIBLE.has(result.policy.decision)) out.push(`decision is ${result.policy.decision}`);
   const touched = selfModifiedPaths(files, [config2.model.replace(/^\.\//, "")]);
   if (touched.length) {
     const shown = touched.slice(0, 5).join(", ") + (touched.length > 5 ? `, and ${touched.length - 5} more` : "");
@@ -30534,7 +30586,7 @@ async function reconcileApproval(a) {
   }
   if (reasons.length) {
     io.info(`Not approving: ${reasons.join("; ")}.`);
-    const message = result.policy.decision !== "auto-approve" ? result.tier === "green" ? `opendrs approval withdrawn: ${result.policy.reasons[0]}` : `Risk increased: ${result.tier} ${result.score.toFixed(2)}` : `opendrs approval withdrawn: ${reasons.join("; ")}`;
+    const message = !ELIGIBLE.has(result.policy.decision) ? result.tier === "green" ? `opendrs approval withdrawn: ${result.policy.reasons[0]}` : `Risk increased: ${result.tier} ${result.score.toFixed(2)}` : `opendrs approval withdrawn: ${reasons.join("; ")}`;
     await withdraw(client, io, pr, own2, message);
     return { approved: false, status: `not approved: ${reasons.join("; ")}.` };
   }
@@ -30543,19 +30595,58 @@ async function reconcileApproval(a) {
     io.notice(`The PR head moved to ${current} while opendrs scored ${pr.head.sha}: not approving. The run for the new head decides.`);
     return { approved: false, status: "not approved: a new commit was pushed while scoring; the next run decides." };
   }
+  if (a.labels.includes(HOLD_LABEL)) {
+    io.info(`Not approving: the PR has the ${HOLD_LABEL} label.`);
+    await withdraw(client, io, pr, own2, `opendrs approval withdrawn: ${HOLD_LABEL} label`);
+    return { approved: false, status: `on hold (${HOLD_LABEL} label)`, eligibleSince: a.eligibleSince };
+  }
+  const since = a.eligibleSince ?? a.now;
+  const delay = result.policy.landingDelayMinutes;
+  const until = new Date(since.getTime() + delay * 6e4);
+  if (delay > 0 && a.now < until) {
+    const at = `${until.toISOString().slice(11, 16)} UTC`;
+    io.info(`Not approving yet: the landing delay of ${delay} min runs until ${at}.`);
+    await withdraw(client, io, pr, own2, "opendrs approval withdrawn: the landing delay is still running");
+    return {
+      approved: false,
+      status: `approves at ${at} unless someone requests changes, pushes, or adds ${HOLD_LABEL}`,
+      eligibleSince: since,
+      pendingUntil: until
+    };
+  }
+  const deferred = result.policy.decision === "deferred-review";
+  let note = deferred ? " (deferred review)" : "";
   if (own2.some((r) => r.commit_id === pr.head.sha)) {
     io.info("This head commit is already approved by opendrs.");
   } else {
-    const body = `${APPROVAL_MARKER}
+    const body = deferred ? `${APPROVAL_MARKER}
+Approved by opendrs for deferred review: risk score ${result.score.toFixed(2)} (${result.tier}) for commit ${pr.head.sha}. It lands now; a human reviews it after merge.` : `${APPROVAL_MARKER}
 Approved by opendrs: risk score ${result.score.toFixed(2)} (${result.tier}) for commit ${pr.head.sha}. Every auto-approval rule passed.`;
     const done = await unlessForbidden(
       () => client.approve(pr.number, pr.head.sha, body).then(() => true),
       () => io.warning(APPROVAL_FORBIDDEN)
     );
     if (!done) return { approved: false, status: "not approved: GitHub refused the approval (see the job log)." };
-    io.notice(`Approved: risk ${result.score.toFixed(2)} (${result.tier}).`);
+    io.notice(`Approved${deferred ? " for deferred review" : ""}: risk ${result.score.toFixed(2)} (${result.tier}).`);
+    if (deferred) note = ` (deferred review: ${await requestDeferredReview(a)})`;
   }
-  return { approved: true, status: `approved by opendrs${await enableMerge(a)}.` };
+  return { approved: true, status: `approved by opendrs${note}${await enableMerge(a)}.`, eligibleSince: since };
+}
+async function requestDeferredReview({ client, io, pr, result }) {
+  const logins = result.policy.suggestedReviewers.map(noreplyLogin).filter((l) => l !== void 0);
+  await unlessForbidden(
+    () => client.addLabels(pr.number, [REVIEW_AFTER_MERGE_LABEL]),
+    (e) => io.warning(`Could not add the ${REVIEW_AFTER_MERGE_LABEL} label (${e.message}).`)
+  );
+  if (!logins.length) return "no GitHub login among the suggested reviewers, none requested";
+  try {
+    await client.requestReviewers(pr.number, logins);
+    return `review requested from ${logins.join(", ")}`;
+  } catch (e) {
+    if (!(e instanceof GitHubError && (e.status === 403 || e.status === 422))) throw e;
+    io.warning(`Could not request a review from ${logins.join(", ")} (${e.message}). Ask them by hand.`);
+    return "requesting a review failed (see the job log)";
+  }
 }
 async function enableMerge({ client, io, pr, result }) {
   const method = result.policy.mergeMethod;
@@ -30578,12 +30669,14 @@ async function enableMerge({ client, io, pr, result }) {
 
 // src/action/run.ts
 var COMMENT_MARKER = "<!-- opendrs -->";
+var LANDING_LABEL = "opendrs:landing";
 var RISK_LABELS = ["risk:green", "risk:yellow", "risk:red"];
+var COMMENT_FORBIDDEN = "Could not write the PR comment (403): the token needs `pull-requests: write`. Fork PRs get a read-only token on `pull_request` events.";
 var PREDICTABLE_SAMPLING = "sampling is predictable; set sample-salt to a secret. Without it, anyone can compute which PR numbers autoApprove.sampleRate sends to a human, and time a risky PR for one that is not sampled.";
 function readPullRequest(event) {
   const pr = event?.pull_request;
   if (!pr || typeof pr.number !== "number" || !pr.base?.sha || !pr.head?.sha) {
-    throw new OpendrsError("opendrs needs a pull_request event: this event has no pull_request payload", "usage");
+    throw new OpendrsError("opendrs needs a pull_request event (or a schedule / workflow_dispatch sweep): this event has no pull_request payload", "usage");
   }
   return pr;
 }
@@ -30635,7 +30728,16 @@ async function changedFiles(repoDir, base, head) {
   return out.split("\0").filter(Boolean);
 }
 async function runAction(d) {
-  const pr = readPullRequest(d.event);
+  return runPullRequest(d, readPullRequest(d.event));
+}
+var MAX_RUN_MS = 15 * 6e4;
+function trustedSince(comment, head) {
+  const since = readEligibleSince(comment?.body ?? void 0, head);
+  const created = comment?.created_at ? Date.parse(comment.created_at) : NaN;
+  if (since === void 0 || Number.isNaN(created)) return since;
+  return since.getTime() >= created - MAX_RUN_MS ? since : void 0;
+}
+async function runPullRequest(d, pr) {
   try {
     return await scorePullRequest(d, pr);
   } catch (e) {
@@ -30704,42 +30806,112 @@ async function scorePullRequest(d, pr) {
   const files = await changedFiles(d.repoDir, pr.base.sha, pr.head.sha);
   const paths = files.filter((f) => !matchAny(config2.paths.ignore, f));
   result.policy.suggestedReviewers = suggestReviewers(history, paths, void 0, 3 + author.emails.size).filter((email3) => !author.emails.has(email3)).slice(0, 3);
-  const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer }));
+  const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : void 0;
+  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
+  const labels = pr.labels.map((l) => l.name);
+  if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
+    io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
+  }
+  const approval = await io.group(
+    "Approval",
+    () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer, now: /* @__PURE__ */ new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels })
+  );
   const report = renderMarkdown(result);
   const warning = predictable ? `
 
 **Warning:** ${PREDICTABLE_SAMPLING}` : "";
+  const eligible = approval.eligibleSince ? `
+${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}
 ${report}`}${warning}
 
-**Auto-approval:** ${cell(approval.status)}`;
-  if (d.inputs.comment) {
+**Auto-approval:** ${cell(approval.status)}${eligible}`;
+  if (comments) {
     await unlessForbidden(
       async () => {
-        const mine = (await client.listComments(pr.number)).find(
-          (c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)
-        );
         if (mine) await client.updateComment(mine.id, body);
         else await client.createComment(pr.number, body);
       },
-      () => io.warning(
-        "Could not write the PR comment (403): the token needs `pull-requests: write`. Fork PRs get a read-only token on `pull_request` events."
-      )
+      () => io.warning(COMMENT_FORBIDDEN)
+    );
+  }
+  const landing = approval.pendingUntil !== void 0 || labels.includes(HOLD_LABEL) && approval.eligibleSince !== void 0;
+  if (landing !== labels.includes(LANDING_LABEL)) {
+    await unlessForbidden(
+      () => landing ? client.addLabels(pr.number, [LANDING_LABEL]) : client.removeLabel(pr.number, LANDING_LABEL),
+      () => io.warning(`Could not ${landing ? "add" : "remove"} the ${LANDING_LABEL} label (403): the token needs \`pull-requests: write\`.`)
     );
   }
   if (d.inputs.labels) {
     const want = `risk:${result.tier}`;
-    const current = pr.labels.map((l) => l.name);
     await unlessForbidden(
       async () => {
-        for (const label of current) if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
-        if (!current.includes(want)) await client.addLabels(pr.number, [want]);
+        for (const label of labels) if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
+        if (!labels.includes(want)) await client.addLabels(pr.number, [want]);
       },
       () => io.warning("Could not set risk labels (403): the token needs `pull-requests: write` (and `issues: write` to create new labels).")
     );
   }
   io.summary(body);
   return { score: result.score, tier: result.tier, decision: result.policy.decision, approved: approval.approved };
+}
+
+// src/action/sweep.ts
+var SWEEP_EVENTS = ["schedule", "workflow_dispatch"];
+var PULLS_QUERY = `query($owner: String!, $name: String!, $label: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, labels: [$label], first: 100, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number id title body isDraft
+        author { login __typename }
+        labels(first: 100) { nodes { name } }
+        baseRefOid baseRefName baseRepository { nameWithOwner }
+        headRefOid headRefName headRepository { nameWithOwner }
+      }
+    }
+  }
+}`;
+async function listLabelledPulls(client, owner, repo, label) {
+  const out = [];
+  let after = null;
+  do {
+    const page = await client.graphql(PULLS_QUERY, { owner, name: repo, label, after });
+    const { pageInfo, nodes } = page.repository.pullRequests;
+    for (const n of nodes) {
+      out.push({
+        number: n.number,
+        node_id: n.id,
+        title: n.title,
+        body: n.body,
+        labels: n.labels.nodes,
+        draft: n.isDraft,
+        user: n.author ? { login: n.author.login, type: n.author.__typename === "Bot" ? "Bot" : "User" } : null,
+        base: { sha: n.baseRefOid, ref: n.baseRefName, repo: { full_name: n.baseRepository?.nameWithOwner ?? `${owner}/${repo}` } },
+        head: { sha: n.headRefOid, ref: n.headRefName, repo: n.headRepository && { full_name: n.headRepository.nameWithOwner } }
+      });
+    }
+    after = pageInfo.hasNextPage ? pageInfo.endCursor : null;
+  } while (after);
+  return out;
+}
+async function runSweep(d) {
+  const { io } = d;
+  const pulls = await listLabelledPulls(d.client, d.owner, d.repo, LANDING_LABEL);
+  io.info(pulls.length ? `Sweeping ${pulls.length} open PR(s) labelled ${LANDING_LABEL}: ${pulls.map((p) => `#${p.number}`).join(", ")}.` : `No open PRs labelled ${LANDING_LABEL}.`);
+  const failed = [];
+  for (const pr of pulls) {
+    await io.group(`PR #${pr.number}: ${pr.title}`, async () => {
+      try {
+        await git(d.repoDir, ["fetch", "-q", "origin", `refs/pull/${pr.number}/head`]);
+        await runPullRequest(d, pr);
+      } catch (e) {
+        failed.push(pr.number);
+        io.error(`PR #${pr.number}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
+  }
+  if (failed.length) throw new OpendrsError(`sweep: ${failed.length} of ${pulls.length} PR(s) failed: ${failed.map((n) => `#${n}`).join(", ")}`, "io");
 }
 
 // src/action/workflow.ts
@@ -30809,7 +30981,9 @@ async function runFromEnv(env, write) {
     if (!owner || !repo) throw new OpendrsError("GITHUB_REPOSITORY is not set", "usage");
     const apiUrl = env.GITHUB_API_URL ?? "https://api.github.com";
     const client = new GitHubClient({ token: inputs.token, apiUrl, graphqlUrl: env.GITHUB_GRAPHQL_URL ?? `${apiUrl}/graphql`, owner, repo });
-    await runAction({ repoDir: env.GITHUB_WORKSPACE ?? process.cwd(), event, inputs, client, io, env });
+    const deps = { repoDir: env.GITHUB_WORKSPACE ?? process.cwd(), event, inputs, client, io, env };
+    if (SWEEP_EVENTS.includes(env.GITHUB_EVENT_NAME ?? "")) await runSweep({ ...deps, owner, repo });
+    else await runAction(deps);
     return 0;
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));

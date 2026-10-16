@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../../src/domain/config.js";
-import type { Authorship, ChangedFile, CommitInfo, LlmHunkVerdict, LlmJudgement, ModelWeights, Signal, SourceKind } from "../../src/domain/types.js";
+import type { Authorship, ChangedFile, CommitInfo, Decision, LlmHunkVerdict, LlmJudgement, ModelWeights, Signal, SourceKind } from "../../src/domain/types.js";
 import { DEFAULT_WEIGHTS } from "../../src/model/defaults.js";
 import { decide, sampleValue, type GateInput } from "../../src/policy/gate.js";
 import { NOW, fakeCommit, fakeHistory } from "./fakes.js";
@@ -668,5 +668,98 @@ describe("decide: rule 6 (sampling)", () => {
       return decide({ ...base, diff: { ...base.diff, head: `sha-${i}` } }).sampled;
     });
     expect(sampled).toEqual(Array(20).fill(sampleValue("o/r#7#salt") < 0.5));
+  });
+});
+
+describe("decide: deferred review", () => {
+  const deferred = (over: Record<string, unknown> = {}, cfg: Record<string, unknown> = {}) => ({
+    autoApprove: { sampleRate: 0, deferredReview: { enabled: true, below: 0.45, ...over } },
+    ...cfg,
+  });
+  const agent: Authorship = { kind: "agent", name: "Claude Code", evidence: [], verified: false };
+
+  it("changes nothing by default: a score in the band is still human review", () => {
+    expect(decide(input({ score: 0.34 })).decision).toBe("human-review");
+    expect(decide(input({ score: 0.34, cfg: { autoApprove: { sampleRate: 0, deferredReview: { below: 0.45 } } } })).decision).toBe("human-review");
+  });
+
+  it("defers a PR in [green, below) that passes every other rule, keeping the configured merge method", () => {
+    const out = decide(input({ score: 0.34, cfg: deferred() }));
+    expect(out).toMatchObject({ tier: "yellow", decision: "deferred-review", mergeMethod: "queue", hardBlocked: false, sampled: false });
+    expect(out.reasons[0]).toBe("deferred review: score 0.34 is in the deferred band (0.30–0.45); lands now, reviewed after merge");
+    expect(out.reasons).toContain("dry run: autoApprove.enabled=false");
+  });
+
+  it("includes the green edge and excludes the below edge", () => {
+    expect(decide(input({ score: 0.3, cfg: deferred() })).decision).toBe("deferred-review");
+    expect(decide(input({ score: 0.449, cfg: deferred() })).decision).toBe("deferred-review");
+    expect(decide(input({ score: 0.45, cfg: deferred() })).decision).toBe("human-review");
+    expect(decide(input({ score: 0.29, cfg: deferred() })).decision).toBe("auto-approve");
+  });
+
+  it("maps a percentile below through the model's percentiles, and never defers without them", () => {
+    const model: ModelWeights = { ...DEFAULT_WEIGHTS, percentiles: { "50": 0.1, "75": 0.2, "90": 0.4, "95": 0.5, "99": 0.7 } };
+    const cfg = deferred({ below: 75 }, { thresholds: { mode: "percentile", green: 60, yellow: 90, red: 95 } });
+    const out = decide(input({ cfg, model, score: 0.15 }));
+    expect(out.decision).toBe("deferred-review");
+    expect(out.reasons[0]).toContain("(0.14–0.20)");
+    expect(decide(input({ cfg, model, score: 0.2 })).decision).toBe("human-review");
+    expect(decide(input({ cfg, score: 0.34 })).decision).toBe("human-review");
+  });
+
+  it("relaxes only the tier rule: every other rule still decides", () => {
+    const withAuto = (auto: Record<string, unknown>, cfg: Record<string, unknown> = {}) => ({
+      autoApprove: { sampleRate: 0, deferredReview: { enabled: true, below: 0.45 }, ...auto },
+      ...cfg,
+    });
+    const cases: Array<[string, Partial<GateInput> & { cfg?: Record<string, unknown>; files?: ChangedFile[] }, Decision]> = [
+      ["sampling", { cfg: withAuto({ sampleRate: 1 }) }, "human-review"],
+      ["draft", { cfg: deferred(), pr: { successfulChecks: [], draft: true } }, "human-review"],
+      ["changes requested", { cfg: deferred(), pr: { successfulChecks: [], changesRequestedBy: ["ann"] } }, "human-review"],
+      ["AI review", { cfg: withAuto({ requireAiReview: { checks: ["ai"] } }) }, "waiting-ai-review"],
+      ["freeze", { cfg: deferred({}, { freezes: [{ name: "all", days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }] }) }, "human-review"],
+      ["size cap", { cfg: withAuto({ maxChangedLines: 5 }) }, "human-review"],
+      ["LLM failure", { cfg: deferred(), llmFailed: true }, "human-review"],
+      ["unknown", { cfg: deferred(), signals: [unknown("paths.critical", 0)] }, "human-review"],
+      ["ignored file", { cfg: deferred(), files: [file("src/a.ts"), file("package-lock.json", 1, 0, true)] }, "human-review"],
+      ["source green", { cfg: deferred({ sources: ["human", "agent"] }, { sources: { agent: { green: 0.2 } } }), source: agent, now: NOW * 1000 }, "human-review"],
+    ];
+    for (const [name, over, want] of cases) expect(decide(input({ score: 0.34, ...over })).decision, name).toBe(want);
+  });
+
+  it("requires every kind from the floor to the kind to be a deferrable source", () => {
+    expect(decide(input({ score: 0.34, cfg: deferred(), source: agent })).decision).toBe("human-review");
+    expect(decide(input({ score: 0.34, cfg: deferred({ sources: ["agent"] }), source: agent })).decision).toBe("human-review");
+    expect(decide(input({ score: 0.34, cfg: deferred({ sources: ["human", "agent"] }), source: agent })).decision).toBe("deferred-review");
+    expect(decide(input({ score: 0.34, cfg: deferred({ sources: ["human", "agent"] }), source: { ...agent, floor: "bot" } })).decision).toBe("human-review");
+    expect(decide(input({ score: 0.34, cfg: deferred({ sources: ["bot", "agent"] }), source: { ...agent, floor: "bot" } })).decision).toBe("deferred-review");
+  });
+
+  it("treats a PR without a source as human", () => {
+    expect(decide(input({ score: 0.34, cfg: deferred({ sources: ["bot"] }) })).decision).toBe("human-review");
+    expect(decide(input({ score: 0.34, cfg: deferred({ sources: ["human"] }) })).decision).toBe("deferred-review");
+  });
+});
+
+describe("decide: landing delay", () => {
+  const agent: Authorship = { kind: "agent", name: "Claude Code", evidence: [], verified: false };
+  const cfg = (auto: number, sources: Record<string, unknown> = {}) => ({ autoApprove: { sampleRate: 0, landingDelayMinutes: auto }, sources });
+
+  it("is 0 by default", () => {
+    expect(decide(input()).landingDelayMinutes).toBe(0);
+    expect(decide(input({ source: agent })).landingDelayMinutes).toBe(0);
+  });
+
+  it("is the larger of autoApprove.landingDelayMinutes and every applicable source's own", () => {
+    expect(decide(input({ cfg: cfg(30) })).landingDelayMinutes).toBe(30);
+    expect(decide(input({ cfg: cfg(30, { agent: { landingDelayMinutes: 60 } }) })).landingDelayMinutes).toBe(30);
+    expect(decide(input({ cfg: cfg(30, { agent: { landingDelayMinutes: 60 } }), source: agent })).landingDelayMinutes).toBe(60);
+    expect(decide(input({ cfg: cfg(120, { agent: { landingDelayMinutes: 60 } }), source: agent })).landingDelayMinutes).toBe(120);
+    expect(decide(input({ cfg: cfg(0, { bot: { landingDelayMinutes: 90 }, agent: { landingDelayMinutes: 60 } }), source: { ...agent, floor: "bot" } })).landingDelayMinutes).toBe(90);
+    expect(decide(input({ cfg: cfg(0, { human: { landingDelayMinutes: 15 } }), source: agent })).landingDelayMinutes).toBe(15);
+  });
+
+  it("is reported whatever the decision", () => {
+    expect(decide(input({ cfg: cfg(30), score: 0.9 })).landingDelayMinutes).toBe(30);
   });
 });

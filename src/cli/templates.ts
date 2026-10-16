@@ -20,6 +20,11 @@ autoApprove:
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human, to detect drift
   maxChangedLines: 400  # never auto-approve above this, whatever the score
+  landingDelayMinutes: 0  # minutes an eligible PR waits, on the same head commit, before approval
+  deferredReview:       # RADAR: land now, review after merge, for scores just above green
+    enabled: false
+    # below: 0.45       # upper end of the deferred band (thresholds.mode units)
+    sources: [human]
 
 paths:
   # Hard block: a PR touching any of these always needs a human. Matched ignoring case.
@@ -197,7 +202,7 @@ name: opendrs
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 
 # A newer push cancels the run for the older head, so it cannot approve or merge a stale commit.
 concurrency:

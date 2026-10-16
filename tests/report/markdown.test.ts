@@ -44,6 +44,7 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
       sampled: false,
       mergeMethod: "none",
       suggestedReviewers: ["bob@x.com", "carol@x.com"],
+      landingDelayMinutes: 0,
     },
     llm: {
       risk: 0.62,
@@ -203,6 +204,16 @@ describe("renderMarkdown", () => {
     expect(quiet).not.toContain("Unknowns");
     expect(quiet).not.toContain("LLM");
     expect(quiet).not.toContain("reviewers");
+  });
+
+  it("names a deferred review and the landing delay when one applies", () => {
+    const policy = { ...result().policy, decision: "deferred-review" as const, reasons: ["deferred review: ok"], landingDelayMinutes: 30 };
+    const md = renderMarkdown(result({ policy }));
+    expect(md.split("\n")[1]).toContain("deferred review (lands now, reviewed after merge)");
+    expect(md).toContain("Landing delay: 30 min after the head commit becomes eligible");
+    expect(renderMarkdown(result({ policy: { ...policy, decision: "auto-approve" } }))).toContain("Landing delay: 30 min");
+    expect(renderMarkdown(result({ policy: { ...policy, decision: "human-review" } }))).not.toContain("Landing delay");
+    expect(renderMarkdown(result({ policy: { ...policy, landingDelayMinutes: 0 } }))).not.toContain("Landing delay");
   });
 
   it("labels a calibrated model and red tier", () => {

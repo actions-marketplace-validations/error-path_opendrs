@@ -230,7 +230,11 @@ export interface Contribution {
 
 export type Tier = "green" | "yellow" | "red";
 
-export type Decision = "auto-approve" | "waiting-ai-review" | "human-review";
+/**
+ * `deferred-review` (RADAR): approve and land now, and assign a human review after merge. Only for
+ * PRs that pass every rule except that their score is in the deferred band above green.
+ */
+export type Decision = "auto-approve" | "deferred-review" | "waiting-ai-review" | "human-review";
 
 export interface PolicyOutcome {
   tier: Tier;
@@ -241,6 +245,11 @@ export interface PolicyOutcome {
   sampled: boolean;
   mergeMethod: "queue" | "auto-merge" | "none";
   suggestedReviewers: string[];
+  /**
+   * Minutes the PR must stay eligible (same head commit) before opendrs approves it: a window for a
+   * human veto. The largest of autoApprove.landingDelayMinutes and the source's own setting.
+   */
+  landingDelayMinutes: number;
 }
 
 export interface ScoreResult {

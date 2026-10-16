@@ -329,3 +329,36 @@ describe("sources", () => {
     expect(configError({ sources: { bot: { dailyCap: 0 } } })).toMatch(/dailyCap/);
   });
 });
+
+describe("autoApprove.landingDelayMinutes and deferredReview", () => {
+  it("default to off: no delay, deferral disabled, human sources only", () => {
+    const { landingDelayMinutes, deferredReview } = defaultConfig().autoApprove;
+    expect(landingDelayMinutes).toBe(0);
+    expect(deferredReview).toEqual({ enabled: false, sources: ["human"] });
+    for (const kind of ["human", "bot", "agent"] as const) expect(defaultConfig().sources[kind].landingDelayMinutes).toBeUndefined();
+  });
+
+  it("accept a non-negative integer delay, globally and per source", () => {
+    const cfg = parseConfig({ autoApprove: { landingDelayMinutes: 30 }, sources: { agent: { landingDelayMinutes: 60 } } });
+    expect(cfg.autoApprove.landingDelayMinutes).toBe(30);
+    expect(cfg.sources.agent.landingDelayMinutes).toBe(60);
+    expect(configError({ autoApprove: { landingDelayMinutes: -1 } })).toMatch(/landingDelayMinutes/);
+    expect(configError({ sources: { bot: { landingDelayMinutes: 1.5 } } })).toMatch(/landingDelayMinutes/);
+  });
+
+  it("require below in (green, yellow] once deferral is enabled, in the thresholds' units", () => {
+    const message = "autoApprove.deferredReview.below must be set above thresholds.green (0.3) and at most thresholds.yellow (0.6), in absolute units";
+    expect(configError({ autoApprove: { deferredReview: { enabled: true } } })).toContain(message);
+    expect(configError({ autoApprove: { deferredReview: { enabled: true, below: 0.3 } } })).toContain(message);
+    expect(configError({ autoApprove: { deferredReview: { enabled: true, below: 0.61 } } })).toContain(message);
+    expect(() => parseConfig({ autoApprove: { deferredReview: { enabled: true, below: 0.6 } } })).not.toThrow();
+    expect(() => parseConfig({ autoApprove: { deferredReview: { below: 0.3 } } })).not.toThrow();
+    const percentile = { thresholds: { mode: "percentile", green: 60, yellow: 90, red: 95 } };
+    expect(() => parseConfig({ ...percentile, autoApprove: { deferredReview: { enabled: true, below: 75 } } })).not.toThrow();
+    expect(configError({ ...percentile, autoApprove: { deferredReview: { enabled: true, below: 95 } } })).toContain("in percentile units");
+  });
+
+  it("only accept known source kinds", () => {
+    expect(configError({ autoApprove: { deferredReview: { sources: ["robot"] } } })).toMatch(/sources/);
+  });
+});

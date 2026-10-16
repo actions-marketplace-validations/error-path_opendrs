@@ -33,6 +33,7 @@ export interface GitHubUser {
 export interface IssueComment {
   id: number;
   body?: string | null;
+  created_at?: string;
   user: GitHubUser | null;
 }
 
@@ -179,6 +180,10 @@ export class GitHubClient {
   }
   async dismissReview(pr: number, reviewId: number, message: string) {
     await this.rest("PUT", `${this.repoPath}/pulls/${pr}/reviews/${reviewId}/dismissals`, { message, event: "DISMISS" });
+  }
+  /** GitHub answers 422 when a login is not a collaborator or is the PR's author. */
+  async requestReviewers(pr: number, logins: string[]) {
+    await this.rest("POST", `${this.repoPath}/pulls/${pr}/requested_reviewers`, { reviewers: logins });
   }
 
   /**

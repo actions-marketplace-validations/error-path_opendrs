@@ -23,6 +23,7 @@ export function fakeResult(score: number, tier: Tier = "green", decision: Decisi
       sampled: false,
       mergeMethod: "queue",
       suggestedReviewers: [],
+      landingDelayMinutes: 0,
     },
     source: { kind: "human", name: "human", evidence: [], verified: false },
     diff: { base: "b".repeat(40), head: "h".repeat(40), files: 1, added: 3, deleted: 1 },

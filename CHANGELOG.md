@@ -4,6 +4,14 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+- Deferred review and landing delay, after Meta's RADAR (both off by default).
+  `autoApprove.deferredReview` adds the decision `deferred-review`: a PR just above green that
+  passes every other rule is approved and lands now, with a post-merge review requested and the
+  label `opendrs:review-after-merge`. `autoApprove.landingDelayMinutes` (and
+  `sources.<kind>.landingDelayMinutes`) make an eligible PR wait on the same head commit before
+  opendrs approves it, labelled `opendrs:landing`; `opendrs:hold`, a change request or a push stops
+  it. A `schedule` or `workflow_dispatch` run of the Action re-checks waiting PRs.
+
 - Authorship and per-source policy, after Meta's RADAR: every PR is classified as human, bot or AI
   agent (Claude Code, Copilot coding agent, Cursor, Codex, Devin, Jules, Aider, or
   `sources.agent.patterns`) from commit trailers, author emails and, in CI, the GitHub account

@@ -3,7 +3,7 @@ import { defaultConfig } from "../src/domain/config.js";
 import type { PolicyOutcome } from "../src/domain/types.js";
 import { makeRepo, type TestRepo } from "./helpers/repo.js";
 
-const POLICY: PolicyOutcome = { tier: "green", decision: "auto-approve", reasons: [], hardBlocked: false, sampled: false, mergeMethod: "queue", suggestedReviewers: [] };
+const POLICY: PolicyOutcome = { tier: "green", decision: "auto-approve", reasons: [], hardBlocked: false, sampled: false, mergeMethod: "queue", suggestedReviewers: [], landingDelayMinutes: 0 };
 vi.mock("../src/policy/gate.js", () => ({ decide: vi.fn(() => POLICY) }));
 
 const { decide } = await import("../src/policy/gate.js");

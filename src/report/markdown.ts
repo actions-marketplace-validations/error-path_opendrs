@@ -10,6 +10,7 @@ const MAX_RATIONALE = 400;
 const TIER_EMOJI: Record<Tier, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
 const DECISION_TEXT: Record<Decision, string> = {
   "auto-approve": "auto-approve",
+  "deferred-review": "deferred review (lands now, reviewed after merge)",
   "waiting-ai-review": "waiting for AI review",
   "human-review": "human review",
 };
@@ -74,6 +75,10 @@ export function renderMarkdown(result: ScoreResult): string {
   }
 
   lines.push("**Policy**", ...policy.reasons.map((r) => `- ${cell(r)}`), "");
+
+  if (policy.landingDelayMinutes > 0 && (policy.decision === "auto-approve" || policy.decision === "deferred-review")) {
+    lines.push(`Landing delay: ${policy.landingDelayMinutes} min after the head commit becomes eligible`, "");
+  }
 
   if (policy.suggestedReviewers.length > 0) {
     lines.push(`**Suggested reviewers:** ${policy.suggestedReviewers.map(code).join(", ")}`, "");
