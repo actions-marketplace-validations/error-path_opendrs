@@ -52,6 +52,16 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
         { file: "src/auth/login.ts", line: 42, reason: "expiry check inverted" },
         { file: "src/auth/session.ts", reason: "session reuse" },
       ],
+      confidence: 8,
+      hunks: [
+        { file: "tests/login.test.ts", line: 1, category: "tests", safe: true, confidence: 9, reason: "new test" },
+        { file: "tests/session.test.ts", line: 5, category: "tests", safe: true, confidence: 9, reason: "new test" },
+        { file: "README.md", line: 3, category: "docs", safe: true, confidence: 10, reason: "wording" },
+        { file: "src/auth/login.ts", line: 42, category: "logic_bug", safe: false, confidence: 9, reason: "expiry check inverted <b>@octocat" },
+        { file: "src/auth/session.ts", line: 10, category: "security", safe: false, confidence: 7, reason: "session reuse" },
+      ],
+      unclassified: [],
+      truncated: false,
     },
     diff: { base: "abcdef1234567890", head: "0123456789abcdef", files: 9, added: 300, deleted: 112 },
     model: "default",
@@ -103,13 +113,35 @@ describe("renderMarkdown", () => {
     expect(md).toContain("`src/auth/session.ts` session reuse");
   });
 
+  it("counts the judge's hunk verdicts and lists the risky ones with untrusted text defused", () => {
+    expect(md).toContain("Hunks: 3 safe (tests 2, docs 1), 2 risky");
+    expect(md).toContain("- `src/auth/login.ts:42` — logic_bug (9/10): expiry check inverted &lt;b&gt;@​octocat");
+    expect(md).toContain("- `src/auth/session.ts:10` — security (7/10): session reuse");
+  });
+
+  it("lists at most 3 risky hunks", () => {
+    const hunks = [1, 2, 3, 4, 5].map((line) => ({ file: "src/x.ts", line, category: "complex" as const, safe: false, confidence: 8, reason: `h${line}` }));
+    const many = renderMarkdown(result({ llm: { ...result().llm!, hunks } }));
+    expect(many).toContain("Hunks: 0 safe, 5 risky");
+    expect(many).toContain("`src/x.ts:3` — complex");
+    expect(many).not.toContain("`src/x.ts:4`");
+  });
+
   describe("with hostile file names and text", () => {
     const NASTY = "x\n::stop-commands::p\r\n| `y` <img src=x> & [ok](evil) \\| z";
     const evil = renderMarkdown(
       result({
         signals: result().signals.map((sig) => (sig.id === "size.churn" ? { ...sig, summary: NASTY } : sig)),
         policy: { ...result().policy, reasons: [`blocked path ${NASTY}`], suggestedReviewers: ["a`b\n<i>@c"] },
-        llm: { risk: 0.5, rationale: NASTY, riskySnippets: [{ file: NASTY, line: 3, reason: NASTY }] },
+        llm: {
+          risk: 0.5,
+          rationale: NASTY,
+          riskySnippets: [{ file: NASTY, line: 3, reason: NASTY }],
+          confidence: 5,
+          hunks: [{ file: NASTY, line: 3, category: "logic_bug", safe: false, confidence: 5, reason: NASTY }],
+          unclassified: [],
+          truncated: false,
+        },
       }),
     );
     const ESCAPED = "x ::stop-commands::p \\| \\`y\\` &lt;img src=x&gt; &amp; \\[ok\\](evil) \\\\\\| z";
@@ -122,6 +154,7 @@ describe("renderMarkdown", () => {
     it("escapes policy reasons and the LLM rationale the same way", () => {
       expect(evil).toContain(`- blocked path ${ESCAPED}\n`);
       expect(evil).toContain(`> ${ESCAPED}\n`);
+      expect(evil).toContain(`— logic_bug (5/10): ${ESCAPED}\n`);
       expect(evil).not.toMatch(/\n::|\r/);
     });
 
@@ -189,8 +222,12 @@ describe("renderText", () => {
     expect(text).not.toContain("`");
   });
 
+  it("puts the hunk counts on the LLM line", () => {
+    expect(text).toContain("LLM (p=0.62; hunks: 3 safe (tests 2, docs 1), 2 risky): Changes token expiry");
+  });
+
   it("strips terminal control characters from untrusted text", () => {
-    const evil = renderText(result({ llm: { risk: 0.5, rationale: "ok\u001b[2J\u0007 then", riskySnippets: [] } }));
+    const evil = renderText(result({ llm: { ...result().llm!, risk: 0.5, rationale: "ok\u001b[2J\u0007 then", riskySnippets: [] } }));
     expect(evil).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f]/);
     expect(evil).toContain("ok[2J then");
   });

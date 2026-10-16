@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../../src/domain/config.js";
-import type { ChangedFile, ModelWeights, Signal } from "../../src/domain/types.js";
+import type { ChangedFile, LlmHunkVerdict, LlmJudgement, ModelWeights, Signal } from "../../src/domain/types.js";
 import { DEFAULT_WEIGHTS } from "../../src/model/defaults.js";
 import { decide, sampleValue, type GateInput } from "../../src/policy/gate.js";
 import { fakeCommit, fakeHistory } from "./fakes.js";
@@ -323,6 +323,85 @@ describe("decide: freezes", () => {
 describe("decide: rule 4 (unknowns and LLM failure)", () => {
   it("routes an LLM failure to human review", () => {
     expect(decide(input({ llmFailed: true })).decision).toBe("human-review");
+  });
+
+  describe("llm.requireSafe", () => {
+    const requireSafe = { llm: { enabled: true, requireSafe: true } };
+    const judgement = (over: Partial<LlmJudgement> = {}): LlmJudgement => ({
+      risk: 0.1,
+      rationale: "",
+      riskySnippets: [],
+      confidence: 9,
+      hunks: [],
+      unclassified: [],
+      truncated: false,
+      ...over,
+    });
+    const verdict = (over: Partial<LlmHunkVerdict> = {}): LlmHunkVerdict => ({
+      file: "src/a.ts",
+      line: 1,
+      category: "refactor",
+      safe: true,
+      confidence: 9,
+      reason: "renames",
+      ...over,
+    });
+    const risky = verdict({ file: "src/b.ts", line: 7, category: "logic_bug", safe: false, confidence: 9, reason: "off by one" });
+
+    it("is off by default: a risky hunk does not block when requireSafe is false", () => {
+      expect(decide(input({ cfg: { llm: { enabled: true } }, llm: judgement({ hunks: [risky] }) })).decision).toBe("auto-approve");
+    });
+
+    it("does nothing without a judgement", () => {
+      expect(decide(input({ cfg: requireSafe })).decision).toBe("auto-approve");
+    });
+
+    it("passes when every hunk is safe at or above minConfidence", () => {
+      const out = decide(input({ cfg: requireSafe, llm: judgement({ hunks: [verdict(), verdict({ line: 20, category: "tests", confidence: 8 })] }) }));
+      expect(out.decision).toBe("auto-approve");
+    });
+
+    it("blocks on a safe hunk below minConfidence, naming it with its confidence", () => {
+      const out = decide(input({ cfg: requireSafe, llm: judgement({ hunks: [verdict({ confidence: 7 })] }) }));
+      expect(out.decision).toBe("human-review");
+      expect(out.reasons[0]).toBe("LLM judge: not all hunks safe: src/a.ts:1 refactor (confidence 7)");
+    });
+
+    it("honours a configured minConfidence", () => {
+      const cfg = { llm: { enabled: true, requireSafe: true, minConfidence: 6 } };
+      expect(decide(input({ cfg, llm: judgement({ hunks: [verdict({ confidence: 7 })] }) })).decision).toBe("auto-approve");
+    });
+
+    it("blocks on a risk-category hunk even at full confidence", () => {
+      const out = decide(input({ cfg: requireSafe, llm: judgement({ hunks: [verdict(), risky] }) }));
+      expect(out.decision).toBe("human-review");
+      expect(out.reasons[0]).toBe("LLM judge: not all hunks safe: src/b.ts:7 logic_bug (confidence 9)");
+    });
+
+    it("blocks on a truncated diff", () => {
+      const out = decide(input({ cfg: requireSafe, llm: judgement({ truncated: true }) }));
+      expect(out.decision).toBe("human-review");
+      expect(out.reasons[0]).toBe("LLM judge saw a truncated diff");
+    });
+
+    it("blocks on unclassified hunks, naming them", () => {
+      const out = decide(input({ cfg: requireSafe, llm: judgement({ unclassified: [{ file: "src/a.ts", line: 3 }, { file: "src/c.ts", line: 9 }] }) }));
+      expect(out.decision).toBe("human-review");
+      expect(out.reasons[0]).toBe("LLM judge did not classify 2 hunks: src/a.ts:3, src/c.ts:9");
+    });
+
+    it("names at most 3 hunks, then counts the rest", () => {
+      const hunks = [1, 2, 3, 4, 5].map((line) => verdict({ line, confidence: 2 }));
+      const out = decide(input({ cfg: requireSafe, llm: judgement({ hunks }) }));
+      expect(out.reasons[0]).toBe(
+        "LLM judge: not all hunks safe: src/a.ts:1 refactor (confidence 2), src/a.ts:2 refactor (confidence 2), src/a.ts:3 refactor (confidence 2) and 2 more",
+      );
+    });
+
+    it("only adds human-review: it never clears another rule or lowers the tier", () => {
+      const out = decide(input({ score: 0.5, cfg: requireSafe, llm: judgement({ hunks: [verdict()] }) }));
+      expect(out).toMatchObject({ tier: "yellow", decision: "human-review" });
+    });
   });
 
   it("routes an unknown signal that could lift the score out of green", () => {

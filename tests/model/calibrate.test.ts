@@ -108,6 +108,19 @@ describe("fitModel: llm.semantic stays raise-only", () => {
     });
     expect(fitModel(rows).weights["llm.semantic"]).toBe(0);
   });
+
+  it("clamps a negative fitted llm.risk.* weight to 0 too", () => {
+    const rows = Array.from({ length: 300 }, (_, i) => {
+      const label = (i % 5 === 0 ? 1 : 0) as 0 | 1;
+      return {
+        sha: String(i),
+        time: i,
+        label,
+        signals: [{ id: "llm.risk.logic_bug", value: label ? 0 : 1, status: "inferred" as const, summary: "", evidence: [] }],
+      };
+    });
+    expect(fitModel(rows).weights["llm.risk.logic_bug"]).toBe(0);
+  });
 });
 
 describe("fitModel: keeps the priors when the fit cannot beat them", () => {
