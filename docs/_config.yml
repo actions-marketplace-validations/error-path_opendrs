@@ -5,6 +5,8 @@ url: "https://error-path.github.io"
 baseurl: "/opendrs"
 lang: en
 repository: error-path/opendrs
+webmaster_verifications:
+  google: dM0nzCEhvSbj69Yk42MgDyi4fXr_mUPHU5Vzrs-8WGU
 defaults:
   - scope:
       path: ""
