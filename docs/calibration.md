@@ -76,6 +76,16 @@ about an `inducing` sha that is not in the indexed history or a `fix` sha that d
 the repository, and do not count it. They also report how many commits they skipped because they
 could not be read (for example objects missing from a partial clone).
 
+### Recording incidents with `opendrs feedback`
+
+`opendrs feedback` appends the line for you and resolves refs to full shas:
+`opendrs feedback --inducing <sha|ref> [--fix <sha|ref>] [--paths a,b] [--note "SEV-12: ..."]`.
+When you only know the PR, `opendrs feedback --pr <number> --was-incident` finds the commit that
+landed it on the current branch (a squash commit whose subject ends in `(#N)`, or every commit a
+`Merge pull request #N` merge brought in) and records each as `inducing`. A pair already in the
+file is skipped. Commit the file afterwards: `.opendrs/**` is a blocked path, so that PR is routed
+to a human reviewer on purpose.
+
 ## Results on ApacheJIT
 
 [ApacheJIT](https://zenodo.org/records/5907002) (Keshavarz and Nagappan, MSR 2022) is a public
