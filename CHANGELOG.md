@@ -2,7 +2,7 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.3 - 2026-10-16
 
 - `opendrs calibrate` keeps the default priors when the fitted weights do not beat them on a
   validation slice inside the training window, and says so. On small or noisy histories, such as
