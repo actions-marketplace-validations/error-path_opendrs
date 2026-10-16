@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { OpendrsError } from "../domain/types.js";
 import { GitHubClient } from "./github.js";
 import { runAction, type ActionInputs } from "./run.js";
+import { runSweep, SWEEP_EVENTS } from "./sweep.js";
 import { createWorkflowIO } from "./workflow.js";
 
 /** Action inputs arrive as INPUT_<NAME> with the name upper-cased (hyphens kept). */
@@ -26,7 +27,7 @@ export function readInputs(env: NodeJS.ProcessEnv): ActionInputs {
   };
 }
 
-/** Wire the real environment into runAction. Returns the process exit code. */
+/** Wire the real environment into runAction, or into the sweep on a schedule / workflow_dispatch event. Returns the process exit code. */
 export async function runFromEnv(env: NodeJS.ProcessEnv, write?: (s: string) => void): Promise<number> {
   const io = createWorkflowIO(env, write);
   try {
@@ -37,7 +38,9 @@ export async function runFromEnv(env: NodeJS.ProcessEnv, write?: (s: string) => 
     if (!owner || !repo) throw new OpendrsError("GITHUB_REPOSITORY is not set", "usage");
     const apiUrl = env.GITHUB_API_URL ?? "https://api.github.com";
     const client = new GitHubClient({ token: inputs.token, apiUrl, graphqlUrl: env.GITHUB_GRAPHQL_URL ?? `${apiUrl}/graphql`, owner, repo });
-    await runAction({ repoDir: env.GITHUB_WORKSPACE ?? process.cwd(), event, inputs, client, io, env });
+    const deps = { repoDir: env.GITHUB_WORKSPACE ?? process.cwd(), event, inputs, client, io, env };
+    if (SWEEP_EVENTS.includes(env.GITHUB_EVENT_NAME ?? "")) await runSweep({ ...deps, owner, repo });
+    else await runAction(deps);
     return 0;
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));

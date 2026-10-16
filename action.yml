@@ -37,7 +37,7 @@ outputs:
   tier:
     description: green, yellow or red.
   decision:
-    description: auto-approve, waiting-ai-review or human-review. This is the policy decision; the PR is approved only when autoApprove.enabled is true and every safety rail passes.
+    description: auto-approve, deferred-review, waiting-ai-review or human-review. This is the policy decision; the PR is approved only when autoApprove.enabled is true, every safety rail passes and any landing delay has run. On a schedule or workflow_dispatch sweep, the outputs are those of the last PR swept.
 
 runs:
   using: node24

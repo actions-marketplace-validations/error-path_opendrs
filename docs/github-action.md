@@ -48,8 +48,10 @@ pushed after the approval from merging on it; that needs the branch ruleset desc
 
 Run it on `pull_request`, never on `pull_request_target`. A `pull_request_target` run uses the
 base branch's workflow with a write token and the repository's secrets, even for fork PRs, and
-opendrs checks out and reads the PR's code. opendrs only works on events that carry a
-`pull_request` payload; do not add `merge_group` or `push` triggers to this workflow.
+opendrs checks out and reads the PR's code. opendrs scores on events that carry a
+`pull_request` payload, and sweeps delayed PRs on `schedule` and `workflow_dispatch` (see
+[Deferred review and landing delay](#deferred-review-and-landing-delay)); do not add
+`merge_group` or `push` triggers to this workflow.
 
 ## Inputs and outputs
 
@@ -58,7 +60,7 @@ opendrs checks out and reads the PR's code. opendrs only works on events that ca
 | `github-token` | `${{ github.token }}` | Token for the REST and GraphQL APIs. |
 | `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. When `false`, the `llm` section and the `model` path still come from the base commit, so a PR cannot send the LLM key to its own `llm.baseUrl` or export another secret through `llm.apiKeyEnv`. |
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
-| `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). |
+| `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). A landing delay needs it: the comment records when the head commit became eligible. |
 | `labels` | `true` | Set the risk label and remove stale ones. |
 | `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 
@@ -66,7 +68,7 @@ opendrs checks out and reads the PR's code. opendrs only works on events that ca
 |---|---|
 | `score` | 0 to 1, four decimals |
 | `tier` | `green`, `yellow`, `red` |
-| `decision` | `auto-approve`, `waiting-ai-review`, `human-review` (the policy decision, even when approval is disabled) |
+| `decision` | `auto-approve`, `deferred-review`, `waiting-ai-review`, `human-review` (the policy decision, even when approval is disabled or a landing delay is still running) |
 
 Use the outputs in later steps, for example to request a reviewer on red PRs:
 
@@ -181,7 +183,8 @@ auto-merge is not allowed), the approval stays and the Action logs a warning.
 Approval needs all of these:
 
 - `autoApprove.enabled: true` in `.opendrs.yml` **on the base commit**;
-- the policy decision is `auto-approve`;
+- the policy decision is `auto-approve` or `deferred-review`, and any landing delay has run
+  (see [Deferred review and landing delay](#deferred-review-and-landing-delay));
 - the PR does not add, change, delete or rename `.opendrs.yml`, `.opendrs/**`, `.github/**`,
   `action.yml`, `action.yaml`, `action/**`, or the configured model file. This guard is in code
   and no configuration turns it off;
@@ -291,6 +294,59 @@ workflow from another. A PR cannot add its own fake reviewer workflow: a PR that
 workflow that already exists on the base branch, so give the reviewer job a name no other job uses,
 such as `claude-review`, not `review` or `test`.
 
+## Deferred review and landing delay
+
+Both are off by default; see the config reference for `autoApprove.deferredReview` and
+`autoApprove.landingDelayMinutes` (and `sources.<kind>.landingDelayMinutes`).
+
+**Deferred review** lands a PR whose score is just above green now and asks for a human review
+after merge. The decision is `deferred-review`; the Action approves it like `auto-approve`, says
+so in the approval, requests the suggested reviewers when they map to GitHub logins, and adds the
+label `opendrs:review-after-merge`.
+
+**Landing delay** holds the approval of an eligible PR for `landingDelayMinutes` after its head
+commit became eligible, so a person can still veto it. While the delay runs the PR carries the
+label `opendrs:landing`, the comment says when opendrs will approve, and the clock is kept in the
+comment as `<!-- opendrs-eligible: <head sha> <time> -->`. Only opendrs's own comment counts, and
+only for the current head: a push restarts the delay. To veto, do any of these before it ends:
+
+- request changes (the decision becomes `human-review`);
+- push a commit (the new head is scored and delayed again);
+- add the label `opendrs:hold` (the PR stays on hold, and any earlier approval is withdrawn,
+  until the label is removed).
+
+Nothing runs when the delay ends unless something re-runs the Action, so add a scheduled sweep to
+the same workflow. On `schedule` and `workflow_dispatch` events the Action lists the open PRs
+labelled `opendrs:landing`, fetches `refs/pull/<n>/head` for each into the checkout and runs the
+same per-PR flow (score, comment, labels, approval). One PR's error is logged as `::error::` and
+the sweep goes on to the next; the job fails at the end if any PR failed. The checkout must be
+the default branch with `fetch-depth: 0`, so the base commit and the history are present:
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: opendrs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  opendrs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: error-path/opendrs@v0
+```
+
+The same `concurrency` block serves both: a sweep has no PR number, so sweeps share the group
+`opendrs-` and a new one cancels a stale one. The sweep needs the same permissions as a PR run, plus `contents: write` when it merges, and it
+uses the sweep run's `github-token`, so it cannot run on fork PRs (which are never approved anyway).
+On a sweep the `score`, `tier` and `decision` outputs are those of the last PR swept.
+
 ## Rollout
 
 1. **Comment-only (default).** Install the workflow with `autoApprove.enabled: false`. For two to
@@ -324,4 +380,6 @@ warnings. Fork PRs are never approved, whatever the token can do. Do not switch 
 | `sampling is predictable; set sample-salt to a secret` | Pass a secret as `sample-salt`; see [Set sample-salt](#set-sample-salt). |
 | `could not confirm that ... dismisses it when new commits are pushed` | Add the branch ruleset from [Required: dismiss stale approvals on push](#required-dismiss-stale-approvals-on-push). |
 | `enabling auto-merge failed` | Enable *Allow auto-merge*, grant `contents: write`, or check the branch's merge queue. |
-| `opendrs needs a pull_request event` | Run the workflow on `pull_request` only. |
+| `opendrs needs a pull_request event` | Run the workflow on `pull_request` (and `schedule` / `workflow_dispatch` for the sweep) only. |
+| `approves at ... UTC unless ...` in the comment, but nothing happens then | Add the `schedule` trigger from [Deferred review and landing delay](#deferred-review-and-landing-delay); only the sweep re-runs the Action when the delay ends. |
+| `sweep: N of M PR(s) failed` | Each failed PR has an `::error::PR #n:` line above it in the log; the other PRs were processed. |
