@@ -29189,9 +29189,54 @@ var ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com";
 var API_VERSION = "2023-06-01";
 var MAX_TOKENS = 16e3;
 var ACCEPTS_TEMPERATURE = /claude-(?:3[\w.-]*|(?:opus|sonnet|haiku)-4(?:-[0-6])?(?:[-@]\d{8})?)$/;
+var LACKS_STRUCTURED_OUTPUTS = /claude-(?:3[\w.-]*|(?:opus|sonnet|haiku)-4(?:-0)?(?:[-@]\d{8})?)$/;
+var JUDGEMENT_SCHEMA = {
+  type: "object",
+  properties: {
+    risk: { type: "number" },
+    confidence: { type: "number" },
+    rationale: { type: "string" },
+    hunks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          hunk: { type: "integer" },
+          category: { type: "string", enum: [...LLM_SAFE_CATEGORIES, ...LLM_RISK_CATEGORIES] },
+          confidence: { type: "number" },
+          reason: { type: "string" }
+        },
+        required: ["hunk", "category", "confidence", "reason"],
+        additionalProperties: false
+      }
+    },
+    risky_snippets: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          file: { type: "string" },
+          line: { type: ["integer", "null"] },
+          reason: { type: "string" }
+        },
+        required: ["file", "line", "reason"],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ["risk", "confidence", "rationale", "hunks", "risky_snippets"],
+  additionalProperties: false
+};
 function createAnthropicProvider(opts) {
   const url2 = `${(opts.baseUrl ?? ANTHROPIC_DEFAULT_BASE_URL).replace(/\/+$/, "")}/v1/messages`;
-  const sampling = ACCEPTS_TEMPERATURE.test(opts.model) ? { temperature: 0 } : { output_config: { effort: "low" } };
+  const outputConfig = {
+    ...ACCEPTS_TEMPERATURE.test(opts.model) ? {} : { effort: "low" },
+    ...LACKS_STRUCTURED_OUTPUTS.test(opts.model) ? {} : { format: { type: "json_schema", schema: JUDGEMENT_SCHEMA } }
+  };
+  const sampling = {
+    ...ACCEPTS_TEMPERATURE.test(opts.model) ? { temperature: 0 } : {},
+    ...Object.keys(outputConfig).length > 0 ? { output_config: outputConfig } : {}
+  };
   return {
     name: "anthropic",
     async judge(input2) {
@@ -29341,12 +29386,13 @@ function featureValues(signals, priors) {
 }
 
 // src/policy/gate.ts
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 
 // src/policy/reviewers.ts
+import { createHash } from "node:crypto";
 var RECENT_SECONDS = 90 * 86400;
 var isBot = (email3) => email3.includes("[bot]") || email3 === "noreply@github.com" || email3 === "actions@github.com";
-function suggestReviewers(history, paths, exclude, n = 3) {
+function suggestReviewers(history, paths, exclude, n = 3, risky = false) {
   const now = history.commits[0]?.time ?? 0;
   const excluded = exclude?.toLowerCase();
   const seen = /* @__PURE__ */ new Set();
@@ -29358,12 +29404,17 @@ function suggestReviewers(history, paths, exclude, n = 3) {
       const email3 = c.authorEmail.toLowerCase();
       if (email3 === excluded || isBot(email3)) continue;
       const t = tally.get(email3) ?? { score: 0, latest: 0 };
-      t.score += now - c.time <= RECENT_SECONDS ? 2 : 1;
+      t.score += (now - c.time <= RECENT_SECONDS ? 2 : 1) * (risky && (c.isFix || c.isRevert) ? 2 : 1);
       t.latest = Math.max(t.latest, c.time);
       tally.set(email3, t);
     }
   }
   return [...tally].sort(([ea, a], [eb, b]) => b.score - a.score || b.latest - a.latest || (ea < eb ? -1 : 1)).slice(0, n).map(([email3]) => email3);
+}
+function assignReviewer(candidates, seed) {
+  const top2 = candidates.slice(0, 3);
+  if (top2.length === 0) return void 0;
+  return top2[createHash("sha256").update(seed).digest().readUInt32BE(0) % top2.length];
 }
 
 // src/policy/gate.ts
@@ -29391,7 +29442,7 @@ var PLAUSIBLE_RANGE = {
 };
 var rangeOf = (id) => PLAUSIBLE_RANGE[id] ?? (id.startsWith("lang.") || id.startsWith("llm.risk.") ? [0, 1] : void 0);
 function sampleValue(head) {
-  return createHash("sha256").update(head).digest().readUIntBE(0, 6) / 2 ** 48;
+  return createHash2("sha256").update(head).digest().readUIntBE(0, 6) / 2 ** 48;
 }
 function decide(input2) {
   const { config: config2, diff, model } = input2;
@@ -29573,7 +29624,9 @@ function decide(input2) {
     suggestedReviewers: suggestReviewers(
       input2.history,
       diff.files.filter((f) => !f.ignored).map((f) => f.path),
-      diff.author?.email
+      diff.author?.email,
+      3,
+      tier !== "green"
     ),
     landingDelayMinutes: Math.max(auto.landingDelayMinutes, ...kinds.map((k) => config2.sources[k].landingDelayMinutes ?? 0))
   };
@@ -30723,6 +30776,19 @@ async function prAuthor(d, pr) {
   const emails = theirs.flatMap((c) => c.commit.author?.email ? [c.commit.author.email.toLowerCase()] : []);
   return { verified, emails: new Set(emails) };
 }
+async function requestOneReviewer({ client, io }, pr, reviewers, decision) {
+  if (decision !== "human-review") return void 0;
+  const login = noreplyLogin(assignReviewer(reviewers, `${pr.base.repo.full_name}#${pr.number}`) ?? "");
+  if (login === void 0 || sameLogin(login, pr.user?.login) || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return void 0;
+  try {
+    await client.requestReviewers(pr.number, [login]);
+    return login;
+  } catch (e) {
+    if (!(e instanceof GitHubError && (e.status === 403 || e.status === 422))) throw e;
+    io.warning(`Could not request a review from @${login} (${e.message}). Ask them by hand.`);
+    return void 0;
+  }
+}
 async function changedFiles(repoDir, base, head) {
   const out = await git(repoDir, ["diff", "--name-only", "--no-renames", "-z", `${base}...${head}`]);
   return out.split("\0").filter(Boolean);
@@ -30806,6 +30872,7 @@ async function scorePullRequest(d, pr) {
   const files = await changedFiles(d.repoDir, pr.base.sha, pr.head.sha);
   const paths = files.filter((f) => !matchAny(config2.paths.ignore, f));
   result.policy.suggestedReviewers = suggestReviewers(history, paths, void 0, 3 + author.emails.size).filter((email3) => !author.emails.has(email3)).slice(0, 3);
+  const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
   const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : void 0;
   const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
   const labels = pr.labels.map((l) => l.name);
@@ -30822,10 +30889,12 @@ async function scorePullRequest(d, pr) {
 **Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `
 ${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
+  const reviewer = assigned ? `
+**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
   const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}
 ${report}`}${warning}
 
-**Auto-approval:** ${cell(approval.status)}${eligible}`;
+**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
   if (comments) {
     await unlessForbidden(
       async () => {
