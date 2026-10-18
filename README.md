@@ -156,6 +156,7 @@ Flags, exit codes, MCP tools and the agent skill: [CLI, MCP server and agent ski
 | [LLM judge](docs/llm-judge.md) | turn on the optional LLM judge or the `requireSafe` gate |
 | [Calibration and backtesting](docs/calibration.md) | fit the model to your repository and choose thresholds |
 | [Benchmark results](docs/results.md) | see how opendrs ranks risk on public repositories |
+| [Experiments](docs/experiments.md) | see what we tried and what did not work |
 | [CLI, MCP server and agent skill](docs/cli-and-mcp.md) | run opendrs locally or from an agent |
 | [Known limitations](docs/limitations.md) | know what opendrs cannot see |
 | [Compared with other tools](docs/alternatives.md) | choose between opendrs and other PR risk tools |

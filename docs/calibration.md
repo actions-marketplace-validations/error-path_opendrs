@@ -138,6 +138,9 @@ labelled positive.
   riskiest 30 %, against 66 % here. That gap is what an LLM signal such as `llm.semantic` would have to
   close, and this benchmark is how to measure it.
 
+Every experiment behind these numbers, including the ones that did not help, is in the
+[experiment log](experiments.html).
+
 The full report, with per-project numbers, coverage and caveats, is in
 [`bench/apachejit/results.md`](../bench/apachejit/results.md); [`bench/apachejit/README.md`](../bench/apachejit/README.md)
 explains how to reproduce it.
@@ -163,7 +166,7 @@ The `requireSafe` gate, applied to the same test commits (25.5 % of them buggy):
 
 | `minConfidence` | Commits passing | Buggy among them |
 |---:|---:|---:|
-| 6 | 31.6 % | 5.9 % |
+| 6 | 31.9 % | 5.9 % |
 | 8 (default) | 28.5 % | 5.3 % |
 | 9 | 22.4 % | 2.8 % |
 

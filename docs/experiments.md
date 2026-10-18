@@ -1,0 +1,287 @@
+---
+title: "Experiments: what we tried and what did not work"
+description: "The opendrs experiment log: every benchmark and model experiment with its question, setup, real numbers and verdict, including the negative results, so nobody repeats a dead end."
+---
+
+# Experiments
+
+This is opendrs's experiment log. It records every experiment, the ones that did not work
+included, so that nobody repeats a dead end. Newest first. All numbers are copied from the files
+named under **Where**.
+
+Unless stated otherwise, ApacheJIT numbers are on the dataset's official split: train 2003–2016,
+test 2017–2019. They are pooled over the held-out test commits, excluding `apache/hadoop`, which
+has no positive labels: 24,686 commits, 5,818 positive. "Recall@X %" is the share of buggy
+commits in the riskiest X % of commits. How to read the metrics is in
+[Calibration and backtesting](calibration.html#reading-the-metrics).
+
+| Date | Question | Result | Verdict | Details |
+|---|---|---|---|---|
+| 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
+| 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Not merged | [details](#review-heuristic-signals) |
+| 2026-10-18 | Do the missing Kamei features (ent, age, nuc, sexp) close the gap? | No. AUC 0.819 → 0.817 | Not merged | [details](#kamei-features) |
+| 2026-10-16 | Do structured outputs fix the judge's malformed replies? | Judge failures 36 → 0 of 1,600 | Merged | [details](#structured-outputs-for-the-llm-judge) |
+| 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
+| 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
+| 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Fit experiment and the calibrate refit
+
+**Question.** Calibrated opendrs trailed the Kamei logistic regression on ApacheJIT (0.819 vs
+0.821), and adding the Kamei features did not help ([Kamei features](#kamei-features)). Is the fit the
+problem? The hypothesis was that `calibrate` pulls weights toward the default priors too hard.
+
+**Setup.**
+- Data: the cached replay rows of the ApacheJIT run. No new replay or clones were needed.
+- Train: 41,967 replayed commits, 22,420 positive. Test: 24,686 commits, 5,818 positive.
+- Variants refitted:
+  - (a) `calibrate` as it was;
+  - (b) no pull toward the priors, at each L2 in 10, 1, 0.1, 0.01;
+  - (c) no negative resampling;
+  - (d) exactly what `fitModel` did internally.
+- Only an inner validation split of the training commits picks a row; test is never used to
+  choose. No API cost.
+
+**Result.**
+
+| Variant | Chosen L2 | Test AUC | Recall@10 % | Recall@30 % |
+|---|---:|---:|---:|---:|
+| (a) `calibrate` as it was | 0.01 | 0.819 | 29.1 % | 66.1 % |
+| (b) priors pull off | 0.1 | 0.817 | 29.7 % | 65.7 % |
+| (b) priors pull off, at L2 0.01 | — | 0.822 | 29.5 % | 66.6 % |
+| (d') same choice as (a), refitted on every training commit | 0.01 | **0.823** | **29.7 %** | **66.8 %** |
+| Kamei LR (dataset metrics) | — | 0.821 | 29.6 % | 66.2 % |
+
+- **The priors pull is not the gap.** At L2 0.01, priors on and off are within 0.001 AUC, and the
+  strong penalties are never chosen.
+- **Resampling is a no-op here.** ApacheJIT's training split is about half positive, so 5:1
+  resampling keeps every negative.
+- **The real gap.** `fitModel` held out the newest 20 % of the rows it was given for its reported
+  metrics, and saved the fit on the oldest 80 % only. Variant (d) reproduces (a) exactly.
+
+After the fix, the regenerated benchmark:
+
+| Pooled, excluding `apache/hadoop` | AUC | Recall@10 % | Recall@30 % | F1 |
+|---|---:|---:|---:|---:|
+| opendrs, calibrated, before | 0.819 | 29.1 % | 66.1 % | 0.559 |
+| opendrs, calibrated, after the refit | 0.823 | 29.7 % | 66.8 % | 0.568 |
+| Kamei LR | 0.821 | 29.6 % | 66.2 % | 0.554 |
+
+Per project, the refit is mixed:
+- Most projects rose or held level, for example hadoop-hdfs 0.851 → 0.882 and hadoop-mapreduce
+  0.867 → 0.888.
+- groovy fell 0.692 → 0.609 and activemq 0.863 → 0.843.
+- opendrs still leads the Kamei LR in 4 of 14 projects.
+
+**Verdict.** Merged. `calibrate` now picks its penalty, decides whether to keep the priors, and
+measures its held-out metrics on the 80 / 20 split. It then refits the chosen setting on every
+labelled commit. `backtest` shows the recorded held-out metrics when there are no newer commits.
+Pooled, opendrs now matches the Kamei LR within noise. It does not beat it.
+
+**Where.** Commits `c14da1c` (fit experiment), `ad0d368` (fix), `35862bc` (regenerated benchmark).
+- [`bench/apachejit/fit-experiment.md`](../bench/apachejit/fit-experiment.md) and `bench/apachejit/fit-experiment.ts`.
+- [`bench/apachejit/results.md`](../bench/apachejit/results.md).
+- [Calibration and backtesting](calibration.html#what-calibrate-fits-on).
+
+## Review-heuristic signals
+
+**Question.** AI code reviewers check for concurrency changes, removed error handling or guards,
+and weakened tests. Do these, computed deterministically from the diff, add ranking signal? The
+background is in the
+[research note on how AI code reviewers judge PR risk](research/2026-10-18-review-risk-heuristics.html),
+recommendations R4–R6.
+
+**Setup.**
+- Three new signals:
+  - `change.concurrency`: 1 when a changed non-test code line uses a concurrency primitive;
+  - `change.safety_removed`: log1p of deleted error-handling and guard lines, net per hunk;
+  - `tests.weakened`: more assertion lines deleted than added, or a skip marker added.
+- Replayed on 5 ApacheJIT projects (zookeeper, groovy, kafka, spark, zeppelin): 9,708 labelled
+  commits, 44.6 % buggy. Calibrated per project and pooled, with and without the three signals on
+  the same rows.
+
+**Result.**
+
+| Signal | Fires on | Buggy when it fires | Buggy otherwise | Fitted weight sign (5 projects) |
+|---|---:|---:|---:|---|
+| `change.concurrency` | 10.3 % | 68.7 % | 41.8 % | positive in all 5 |
+| `change.safety_removed` | 15.4 % | 60.2 % | 41.7 % | near zero or negative in 4 |
+| `tests.weakened` | 3.3 % | 48.1 % | 44.4 % | negative in all 5 |
+
+| Calibrated test AUC | With the signals | Without |
+|---|---:|---:|
+| Pooled, 5 projects | 0.782 | 0.782 |
+| zookeeper | 0.645 | 0.637 |
+| groovy | 0.690 | 0.692 |
+| kafka | 0.820 | 0.822 |
+| spark | 0.756 | 0.756 |
+| zeppelin | 0.672 | 0.671 |
+
+**Verdict.** Not merged. The signals separate buggy from clean commits on their own, but add
+nothing once size, history and the other signals are in the model. `tests.weakened` gets a negative
+weight everywhere. It could still serve as a hard gate rule, which this benchmark does not test.
+
+**Where.** Branch `feat/review-signals`, not merged: commits `36a36c7` (signals and tests) and
+`4587edf` (subset results).
+
+## Kamei features
+
+**Question.** The Kamei LR uses four features opendrs lacked: entropy of the change across files
+(ent), time since the files last changed (age), number of unique prior changes (nuc) and subsystem
+experience (sexp). Does adding them close the gap?
+
+**Setup.** The four features were added as opendrs signals, computed from git. All 15 ApacheJIT
+projects were replayed and calibrated on the official split.
+
+**Result.**
+
+| Pooled, excluding `apache/hadoop` | AUC | Recall@10 % | Recall@30 % | F1 |
+|---|---:|---:|---:|---:|
+| opendrs, calibrated, without the four signals | 0.819 | 29.1 % | 66.1 % | 0.559 |
+| opendrs, calibrated, with the four signals | 0.817 | 29.4 % | 65.4 % | 0.566 |
+| Kamei LR | 0.821 | 29.6 % | 66.2 % | 0.554 |
+
+opendrs led the Kamei LR in the same 4 of 14 projects as before: activemq, hadoop-mapreduce,
+kafka and zeppelin.
+
+**Verdict.** Not merged. The features cost replay time and added nothing. This result led to the
+fit experiment ([fit experiment](#fit-experiment-and-the-calibrate-refit)).
+
+**Where.** Branch `feat/kamei-features`, not merged: commits `7af1abc` (signals) and `cfec653`
+(results).
+
+## Structured outputs for the LLM judge
+
+**Question.** In the first judged run ([LLM judge](#structured-llm-judge-on-sampled-apachejit)), the
+judge's reply was malformed for 36 of 1,600 commits (2.3 %). Does constraining the reply to the
+judge's JSON schema fix that?
+
+**Setup.** The Anthropic provider sends the judge's JSON schema as a structured output. The 36
+failed commits were judged again with the same model and prompt.
+
+**Result.**
+
+| | Judge failures |
+|---|---:|
+| Without structured outputs | 36 of 1,600 (2.3 %) |
+| With structured outputs | 0 of 36 re-judged; 0 of 1,600 in the final run |
+
+**Verdict.** Merged. The LLM-judge tables use the re-judged replies.
+
+**Where.** Commit `a9f4882` (structured outputs), `59e07e3` (results);
+[`bench/apachejit/results-llm.md`](../bench/apachejit/results-llm.md);
+[Calibration and backtesting](calibration.html#with-the-structured-llm-judge).
+
+## Structured LLM judge on sampled ApacheJIT
+
+**Question.** Does opendrs's prompted LLM judge improve ranking? Is its `requireSafe` gate,
+which auto-approves only when every hunk is classified safe, a useful filter?
+
+**Setup.**
+- Data: a seeded sample of 800 training commits (455 positive) and 800 test commits (204
+  positive), excluding `apache/hadoop`.
+- Judge: Claude Sonnet 5 with opendrs's judge prompt (prompt hash `678a59d397a9`), diffs cut to
+  60,000 characters.
+- Models compared with and without the `llm.*` signals.
+- Cost: about $55 in API calls.
+
+**Result.**
+
+| Model (800 test commits) | AUC | Recall@10 % | Recall@30 % | F1 |
+|---|---:|---:|---:|---:|
+| opendrs, default priors | 0.776 | 23.5 % | 60.3 % | 0.518 |
+| opendrs, default priors + LLM signals | 0.798 | 26.0 % | 63.2 % | 0.545 |
+| opendrs, calibrated | 0.790 | 27.5 % | 56.9 % | 0.550 |
+| opendrs, calibrated + LLM signals | 0.805 | 28.4 % | 60.8 % | 0.561 |
+| Kamei LR (same commits) | 0.814 | 26.0 % | 63.7 % | 0.588 |
+
+| `requireSafe` at `minConfidence` | Commits passing | Buggy among them |
+|---:|---:|---:|
+| 6 | 31.9 % | 5.9 % |
+| 8 (default) | 28.5 % | 5.3 % |
+| 9 | 22.4 % | 2.8 % |
+
+The test sample's base rate is 25.5 % buggy.
+
+| Risk category | Test commits flagged | Buggy among them |
+|---|---:|---:|
+| `logic_bug` | 393 | 38.9 % |
+| `security` | 18 | 44.4 % |
+| `performance` | 8 | 12.5 % |
+| `structural` | 406 | 37.4 % |
+| `complex` | 76 | 51.3 % |
+
+**Verdict.** Merged, as an opt-in judge and gate.
+- The gate is the win: the commits it passes are buggy at a fifth of the base rate.
+- The ranking gain (about +0.02 AUC) is within noise on 800 commits.
+- `logic_bug` and `structural` each flag about half the commits, which is why the categories rank
+  poorly. The [research note](research/2026-10-18-review-risk-heuristics.html) proposes prompt
+  changes to fix that.
+- This sample was fitted before the refit in [fit experiment](#fit-experiment-and-the-calibrate-refit) and
+  has not been re-run.
+
+**Where.** Commits `2c9e452` and `59e07e3`;
+[`bench/apachejit/results-llm.md`](../bench/apachejit/results-llm.md);
+[LLM judge](llm-judge.html).
+
+## ApacheJIT benchmark baseline
+
+**Question.** How do default and calibrated opendrs compare with a logistic regression on the
+classic Kamei JIT metrics, on a public benchmark with someone else's labels and split?
+
+**Setup.**
+- Data: [ApacheJIT](https://zenodo.org/records/5907002) (Keshavarz and Nagappan, MSR 2022),
+  106,674 commits from 15 Apache Java projects, SZZ labels.
+- Every labelled commit was replayed with opendrs's signals, computed from git alone.
+- Models: default priors, `calibrate`'s fit on the training years, and a Kamei LR on the
+  dataset's metrics.
+- DRS-OSS is quoted from [its paper](https://arxiv.org/abs/2511.21964): a fine-tuned LLM on a
+  different split.
+
+**Result.**
+
+| Model | AUC | Recall@5 % | Recall@10 % | Recall@30 % | Recall@50 % | F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| opendrs, default priors | 0.771 | 13.6 % | 24.9 % | 59.6 % | 80.0 % | 0.473 |
+| opendrs, calibrated | 0.819 | 15.5 % | 29.1 % | 66.1 % | 85.3 % | 0.559 |
+| Kamei LR (dataset metrics) | 0.821 | 15.8 % | 29.6 % | 66.2 % | 85.4 % | 0.554 |
+| DRS-OSS (published, other split) | 0.895 | 31.5 % | 50.3 % | 86.4 % | — | 0.641 |
+
+Calibration raised AUC in 13 of 14 projects; hadoop-hdfs was the exception. opendrs led the
+Kamei LR in 4 of 14 projects.
+
+**Verdict.** Merged, as the project's benchmark. The calibrated row was later raised to 0.823 by
+the refit ([fit experiment](#fit-experiment-and-the-calibrate-refit)). The gap to DRS-OSS is what LLM signals
+would have to close.
+
+**Where.** Commit `50060c5`; `bench/apachejit/run.ts`;
+[`bench/apachejit/results.md`](../bench/apachejit/results.md);
+[Calibration and backtesting](calibration.html#results-on-apachejit).
+
+## Public-repository backtests
+
+**Question.** Does the score rank later-fixed commits on real open-source repositories, with the
+default priors and after `calibrate`, with nothing configured?
+
+**Setup.**
+- Runs: `opendrs calibrate`, then `opendrs backtest`, with opendrs 0.1.x, before the label horizon
+  existed.
+- Labels: reverts and SZZ blame on fix commits.
+- Nine repositories (2026-10-15), up to 4,000 commits each.
+- 18 more (2026-10-16), the newest 1,200–1,500 commits each.
+- Held-out AUC is on commits newer than the calibration window.
+
+**Result.**
+
+| Run | Untuned: better than chance | Untuned AUC, all commits | Calibration vs default priors, held-out |
+|---|---|---|---|
+| 9 repositories | 9 of 9 | 0.58–0.70 | better in 9 of 9; median gain +0.04 |
+| 18 repositories | 17 of 18 (serde 0.51) | median 0.71 | better in 11, flat in 1, worse in 6 |
+
+**Verdict.** Kept as evidence. It led to two changes:
+- `calibrate` keeps the default priors when the fit does not beat them on a validation slice.
+- The label horizon: the newest commits' held-out AUC was near random (0.45–0.50 on tokio,
+  terraform and eslint) because their bugs had not been found yet.
+
+**Where.** Commits `1e557cd` (nine repositories) and `5442193` (18 repositories);
+[Benchmark results](results.html).

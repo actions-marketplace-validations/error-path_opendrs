@@ -15,6 +15,8 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - Bench: `bench/apachejit/run.ts --cached-only` re-fits from the row cache without cloning or
   replaying. `bench/apachejit/fit-experiment.ts` compares fit variants on the cached rows.
 - Research note: [how AI code reviewers judge PR risk](docs/research/2026-10-18-review-risk-heuristics.md).
+- [Experiment log](docs/experiments.md): every benchmark and model experiment with its numbers and verdict, the
+  ones that did not work included (Kamei features, review-heuristic signals).
 
 ## 0.2.0 - 2026-10-18
 
