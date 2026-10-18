@@ -153,7 +153,7 @@ export async function blameFix(repoDir: string, sha: string, ignore: string[]): 
   return hits;
 }
 
-/** For every fix (or revert, or incident-fix) commit, the lines it blamed on earlier commits. */
+/** For every fix commit (isFix, non-merge), the lines it blamed on earlier commits. */
 export async function blamedLinesBySha(repoDir: string, history: HistoryIndex, config: OpendrsConfig): Promise<Map<string, BlameFixHit[]>> {
   const out = new Map<string, BlameFixHit[]>();
   const resolve = shaResolver(history.commits);
@@ -190,7 +190,7 @@ function isMeaningful(content: string): boolean {
   return t !== "" && !COMMENT.test(t);
 }
 
-async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async () => {
     while (next < items.length) await fn(items[next++]!);
