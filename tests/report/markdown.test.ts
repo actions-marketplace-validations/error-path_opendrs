@@ -295,6 +295,14 @@ describe("renderMarkdown with a brief", () => {
     expect(md.split("\n")[1]).toContain("Diff risk 0.46");
   });
 
+  it("replaces the fenced brief with the omission notice, keeping the focus bullets and the fence, when asked to omit it", () => {
+    const md = renderMarkdown(result({ brief: brief() }), { omitBrief: true });
+    expect(md).toContain("**Review focus**");
+    expect(md).toContain("~~~~opendrs-brief\nbrief omitted: too large for a comment; see the `brief` output\n~~~~\n</details>");
+    expect(md).not.toContain("opendrs review brief v1");
+    expect(renderMarkdown(result({ brief: brief() }), {})).toBe(renderMarkdown(result({ brief: brief() })));
+  });
+
   it("still ends with the unchanged footer", () => {
     const md = renderMarkdown(result({ brief: brief() }));
     expect(md.trimEnd().split("\n").at(-1)).toContain("opendrs 0.1.5");

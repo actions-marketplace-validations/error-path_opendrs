@@ -238,14 +238,18 @@ describe("the review brief", () => {
 
   it("replaces the brief block with an omission notice when the assembled comment would exceed 60,000 characters, keeping the full brief in the output", async () => {
     // The real renderMarkdown (not the fixed-string mock the rest of this file uses) so the comment
-    // actually embeds the brief's own Markdown, including the oversized note that forces the cap.
+    // actually embeds the brief's own Markdown; it is rendered twice when the first body is over the cap.
     const { renderMarkdown: real } = await vi.importActual<typeof import("../../src/report/markdown.js")>("../../src/report/markdown.js");
-    vi.mocked(renderMarkdown).mockImplementationOnce(real);
-    const huge: NonNullable<ScoreResult["brief"]> = { ...BRIEF, notes: ["x".repeat(70_000)] };
+    vi.mocked(renderMarkdown).mockImplementationOnce(real).mockImplementationOnce(real);
+    // Paths with tilde runs: a regex looking for the fence's end would stop at the first one, inside the brief.
+    const files = Array.from({ length: 3_000 }, (_, i) => ({ file: `src/a~~~~b${i}.ts`, reasons: [], hunks: [] }));
+    const huge: NonNullable<ScoreResult["brief"]> = { ...BRIEF, reviewFirst: files, notes: ["x".repeat(100)] };
     const t = await run({ result: { ...result(0.5, "yellow", "human-review"), brief: huge } });
     await t.promise;
-    expect(t.gh.comments[0]!.body.length).toBeLessThanOrEqual(60_000);
-    expect(t.gh.comments[0]!.body).toContain("brief omitted: too large for a comment; see the `brief` output");
+    const body = t.gh.comments[0]!.body;
+    expect(body.length).toBeLessThanOrEqual(60_000);
+    expect(body).toContain("~~~~opendrs-brief\nbrief omitted: too large for a comment; see the `brief` output\n~~~~\n</details>");
+    expect(body).toMatch(/\n\*\*Auto-approval:\*\* [^\n]+\n?$/);
     expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*x{100}[\s\S]*\n\1$/m); // the full brief is still in the output, uncapped
   });
 });

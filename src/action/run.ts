@@ -301,14 +301,15 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment }),
   );
 
-  const report = renderMarkdown(result);
   const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
-  const capped = body.length > 60_000 && result.brief
-    ? body.replace(/~~~~opendrs-brief[\s\S]*?~~~~/, "brief omitted: too large for a comment; see the `brief` output")
-    : body;
+  const assemble = (report: string) =>
+    `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
+  const body = assemble(renderMarkdown(result));
+  // Over GitHub's limit the comment is rendered again without the brief, never edited by a pattern
+  // over content the PR controls; the full brief stays in the `brief` output.
+  const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true })) : body;
 
   if (comments) {
     await unlessForbidden(

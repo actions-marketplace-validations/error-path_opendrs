@@ -36,8 +36,11 @@ function hunkCounts(llm: LlmJudgement): string {
   return `${safe.length} safe${breakdown}, ${llm.hunks.length - safe.length} risky`;
 }
 
-/** PR comment body. Starts with the `<!-- opendrs -->` marker. */
-export function renderMarkdown(result: ScoreResult): string {
+/** What the Action posts in place of a brief that would push the comment over GitHub's size limit. */
+const BRIEF_OMITTED = "brief omitted: too large for a comment; see the `brief` output";
+
+/** PR comment body. Starts with the `<!-- opendrs -->` marker. `omitBrief` keeps the layout but fences the omission notice instead of the brief. */
+export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean } = {}): string {
   const { policy, diff } = result;
   const summaryOf = (id: string) => result.signals.find((s) => s.id === id)?.summary ?? "not reported; model prior used";
   const head = [
@@ -100,7 +103,7 @@ export function renderMarkdown(result: ScoreResult): string {
     "<details><summary>Review brief for AI reviewers (opendrs)</summary>",
     "",
     "~~~~opendrs-brief",
-    renderBriefMarkdown(brief).trimEnd(),
+    opts.omitBrief ? BRIEF_OMITTED : renderBriefMarkdown(brief).trimEnd(),
     "~~~~",
     "</details>",
     "",
