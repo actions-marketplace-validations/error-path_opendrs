@@ -14,7 +14,7 @@ import { cell } from "../report/escape.js";
 import { renderMarkdown } from "../report/markdown.js";
 import { HOLD_LABEL, changesRequested, eligibleMarker, noreplyLogin, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { GitHubError, type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
-import { readState, rescoreLine, stateMarker } from "./state.js";
+import { changeNotice, readState, rescoreLine, stateMarker } from "./state.js";
 import type { WorkflowIO } from "./workflow.js";
 
 export { APPROVAL_MARKER } from "./approval.js";
@@ -39,6 +39,8 @@ export interface ActionInputs {
   sampleSalt?: string;
   /** Build the review brief and add it to the comment, job summary and brief/brief-file outputs. */
   brief: boolean;
+  /** Post a short new comment when a re-score changes the tier or the decision. Needs `brief` and `comment`. */
+  notifyChanges: boolean;
 }
 
 /** The fields of the `pull_request` webhook payload the action uses. */
@@ -333,6 +335,14 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
       },
       () => io.warning(COMMENT_FORBIDDEN),
     );
+    // A short, separate notice so a re-score that changes the outcome is not missed in an updated-in-place
+    // comment; it never carries the opendrs marker, so it is never mistaken for the main comment.
+    if (d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
+      await unlessForbidden(
+        () => client.createComment(pr.number, changeNotice(previousState, result.score, result.tier, result.policy.decision)),
+        () => io.warning(COMMENT_FORBIDDEN),
+      );
+    }
   }
 
   // The sweep finds PRs waiting out their delay by this label, so it is kept whatever the labels input

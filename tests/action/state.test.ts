@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readState, rescoreLine, stateMarker, type OpendrsState } from "../../src/action/state.js";
+import { changeNotice, readState, rescoreLine, stateMarker, type OpendrsState } from "../../src/action/state.js";
 
 const HEAD = "a".repeat(40);
 
@@ -59,3 +59,11 @@ describe("rescoreLine", () => {
   });
 });
 
+describe("changeNotice", () => {
+  it("names the tier and decision change and points at the report", () => {
+    const prev = state({ score: 0.76, tier: "yellow", decision: "human-review" });
+    expect(changeNotice(prev, 0.28, "green", "auto-approve")).toBe(
+      "opendrs: risk changed yellow 0.76 → green 0.28 · decision human-review → auto-approve · see the updated report ↑",
+    );
+  });
+});

@@ -121,7 +121,7 @@ async function run(o: Options = {}) {
     },
   };
   const client = new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" });
-  const inputs: ActionInputs = { token: "t", baseConfig: true, comment: true, labels: true, brief: true, ...o.inputs };
+  const inputs: ActionInputs = { token: "t", baseConfig: true, comment: true, labels: true, brief: true, notifyChanges: true, ...o.inputs };
   const promise = runAction({ repoDir: repo.dir, event, inputs, client, io, env });
   return {
     promise,
@@ -210,7 +210,7 @@ describe("scoring", () => {
     const io = createWorkflowIO({}, () => {});
     const client = new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" });
     await expect(
-      runAction({ repoDir: repo.dir, event: { push: {} }, inputs: { token: "t", baseConfig: true, comment: true, labels: true, brief: true }, client, io, env: {} }),
+      runAction({ repoDir: repo.dir, event: { push: {} }, inputs: { token: "t", baseConfig: true, comment: true, labels: true, brief: true, notifyChanges: true }, client, io, env: {} }),
     ).rejects.toBeInstanceOf(OpendrsError);
   });
 });
@@ -714,6 +714,24 @@ describe("re-scoring", () => {
     expect(rescoreOpts()).toMatchObject({ rescoreLine: expect.stringContaining(`(run 2)`) });
   });
 
+  it("tier change: posts a short new comment pointing at the report, without the main marker", async () => {
+    const t = await run({ result: result(0.28, "green", "auto-approve"), ownComment: () => stateMarker(prevState()) });
+    await t.promise;
+    const notice = t.gh.comments.find((c) => c.body.includes("risk changed"));
+    expect(notice?.body).toBe("opendrs: risk changed yellow 0.76 → green 0.28 · decision human-review → auto-approve · see the updated report ↑");
+    expect(notice?.body).not.toContain(COMMENT_MARKER);
+  });
+
+  it("decision-only change (same tier) also notifies", async () => {
+    const t = await run({
+      result: result(0.46, "yellow", "human-review"),
+      ownComment: () => stateMarker(prevState({ score: 0.46, tier: "yellow", decision: "waiting-ai-review" })),
+    });
+    await t.promise;
+    const notice = t.gh.comments.find((c) => c.body.includes("risk changed"));
+    expect(notice?.body).toContain("decision waiting-ai-review → human-review");
+  });
+
   it("ignores a forged state marker in a comment that is not opendrs's own: counts as first run", async () => {
     const forged = stateMarker({ head: "f".repeat(40), score: 0.9, tier: "red", decision: "human-review", run: 9 });
     const t = await run({ result: result(0.76, "yellow", "human-review") });
@@ -733,7 +751,18 @@ describe("re-scoring", () => {
     expect(t.gh.comments.some((c) => c.body.includes("Re-scored for") || c.body.includes("risk changed"))).toBe(false);
   });
 
-  it("brief:false: no marker and no re-score line, so the comment stays byte-equal to today's output", async () => {
+  it("notify-changes false: still shows the re-score line but posts no change notice", async () => {
+    const t = await run({
+      result: result(0.28, "green", "auto-approve"),
+      ownComment: () => stateMarker(prevState()),
+      inputs: { notifyChanges: false },
+    });
+    await t.promise;
+    expect(rescoreOpts()).toMatchObject({ rescoreLine: expect.stringContaining("Re-scored for") });
+    expect(t.gh.comments.some((c) => c.body.includes("risk changed"))).toBe(false);
+  });
+
+  it("brief:false: no marker, no re-score line, no change notice", async () => {
     const t = await run({
       result: result(0.28, "green", "auto-approve"),
       ownComment: () => stateMarker(prevState()),
@@ -742,6 +771,7 @@ describe("re-scoring", () => {
     await t.promise;
     expect(rescoreOpts()).toEqual({});
     expect(t.gh.comments[0]!.body).not.toContain("opendrs-state");
+    expect(t.gh.comments.some((c) => c.body.includes("risk changed"))).toBe(false);
   });
 
   it("coexists with the landing-delay eligibility marker", async () => {

@@ -25,6 +25,7 @@ export function readInputs(env: NodeJS.ProcessEnv): ActionInputs {
     labels: bool("labels", true),
     sampleSalt: get("sample-salt"),
     brief: bool("brief", true),
+    notifyChanges: bool("notify-changes", true),
   };
 }
 

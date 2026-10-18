@@ -106,7 +106,7 @@ function setup(numbers: number[], gh: Partial<FakeGitHub> = {}, { labels = [LAND
   const deps = {
     repoDir: checkout,
     event: { schedule: "*/15 * * * *" },
-    inputs: { token: "t", baseConfig: true, comment: true, labels: true, brief: true },
+    inputs: { token: "t", baseConfig: true, comment: true, labels: true, brief: true, notifyChanges: true },
     client,
     io,
     env: {},

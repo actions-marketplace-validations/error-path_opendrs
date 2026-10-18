@@ -35,3 +35,8 @@ export function readState(body: string | undefined): OpendrsState | undefined {
 /** "Re-scored for `<head7>` (run N) · was <prev> → now <current>": one line for the PR comment. */
 export const rescoreLine = (prev: OpendrsState, run: number, head: string, score: number, tier: Tier): string =>
   `Re-scored for \`${head.slice(0, 7)}\` (run ${run}) · was ${prev.score.toFixed(2)} ${prev.tier} → now ${score.toFixed(2)} ${tier}`;
+
+/** "opendrs: risk changed ... · decision ... · see the updated report ↑": a short, separate comment. */
+export const changeNotice = (prev: OpendrsState, score: number, tier: Tier, decision: Decision): string =>
+  `opendrs: risk changed ${prev.tier} ${prev.score.toFixed(2)} → ${tier} ${score.toFixed(2)} · ` +
+  `decision ${prev.decision} → ${decision} · see the updated report ↑`;
