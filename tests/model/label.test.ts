@@ -170,6 +170,21 @@ describe("blameFix (exported, returns path+line)", () => {
   });
 });
 
+describe("blameFix (exported, returns path+line)", () => {
+  it("gives each hit the filename of its own blamed commit when the file was renamed in between", async () => {
+    const repo = makeRepo();
+    const first = repo.commit({ "old.ts": "1\nBUG1\n3\n" }, "base");
+    const second = repo.commit({ "old.ts": null, "new.ts": "1\nBUG1\n3\nBUG2\n" }, "rename and extend");
+    const fix = repo.commit({ "new.ts": "1\nFIX1\n3\nFIX2\n" }, "fix: both bugs");
+    const hits = await blameFix(repo.dir, fix, defaultConfig().paths.ignore);
+    expect(hits).toEqual([
+      { sha: first, path: "old.ts", line: 2 },
+      { sha: second, path: "new.ts", line: 4 },
+    ]);
+    repo.cleanup();
+  });
+});
+
 describe("blamedLinesBySha", () => {
   it("maps a buggy commit to the lines a later fix blamed on it", async () => {
     const repo = makeRepo();

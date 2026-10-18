@@ -137,16 +137,17 @@ export async function blameFix(repoDir: string, sha: string, ignore: string[]): 
     if (matchAny(ignore, oldPath) || matchAny(ignore, file.path)) continue;
     const ranges = deletedRanges(file.hunks);
     if (ranges.length === 0) continue;
-    const out = await gitMaybe(repoDir, ["blame", "--porcelain", "-w", ...ranges.flatMap(([a, b]) => ["-L", `${a},${b}`]), `${sha}^`, "--", oldPath]);
-    let path = oldPath;
+    // --line-porcelain repeats the headers for every line, so each hit's `filename` (the blamed
+    // commit's own path, across renames) follows its own header rather than an earlier commit's.
+    const out = await gitMaybe(repoDir, ["blame", "--line-porcelain", "-w", ...ranges.flatMap(([a, b]) => ["-L", `${a},${b}`]), `${sha}^`, "--", oldPath]);
     for (const line of out?.split("\n") ?? []) {
       const header = /^([0-9a-f]{40,64}) (\d+) \d+/.exec(line);
       if (header) {
-        hits.push({ sha: header[1]!, path, line: Number(header[2]) });
+        hits.push({ sha: header[1]!, path: oldPath, line: Number(header[2]) });
         continue;
       }
       const filename = /^filename (.+)$/.exec(line);
-      if (filename) path = filename[1]!;
+      if (filename) hits[hits.length - 1]!.path = filename[1]!;
     }
   }
   return hits;
