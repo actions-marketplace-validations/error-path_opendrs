@@ -31510,14 +31510,16 @@ ${report}`}${warning}
   const body = assemble(renderMarkdown(result, { rescoreLine: rescore }));
   const capped = body.length > 6e4 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore })) : body;
   if (comments) {
+    let written = false;
     await unlessForbidden(
       async () => {
         if (mine) await client.updateComment(mine.id, capped);
         else await client.createComment(pr.number, capped);
+        written = true;
       },
       () => io.warning(COMMENT_FORBIDDEN)
     );
-    if (d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
+    if (written && d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
       await unlessForbidden(
         () => client.createComment(pr.number, changeNotice(previousState, result.score, result.tier, result.policy.decision)),
         () => io.warning(COMMENT_FORBIDDEN)

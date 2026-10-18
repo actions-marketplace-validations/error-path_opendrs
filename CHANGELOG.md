@@ -2,6 +2,13 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- The change notice is posted only after the main report comment was written, so a forbidden
+  update can no longer announce a change the report does not show.
+- Docs: the `brief` input row now says `brief: false` omits the state marker, the re-score line and
+  the change notice.
+
 ## 0.3.0 - 2026-10-19
 
 The review-brief release. opendrs now tells LLM and human reviewers what to review first and why,
