@@ -116,6 +116,7 @@ flowchart LR
 | Content blocklist | Regexes on added lines send a PR to a human | off | [Configuration](docs/configuration.md) |
 | Reviewer assignment | One of the top three experts is asked to review risky PRs | on in the Action | [Policy](docs/policy.md) |
 | Hotspots | Rank files by risk at rest | run on demand | [CLI and MCP](docs/cli-and-mcp.md) |
+| Review brief | Ranks hunks to read first, fixed check questions, safe-to-skim list, hard-rule reasons — fed to Claude Code, claude-code-action, Bugbot, CodeRabbit, Copilot and Codex | on | [LLM reviewers](docs/llm-reviewers.md), [CLI and MCP](docs/cli-and-mcp.md) |
 | Incident feedback | `opendrs feedback` records incidents for calibration | run on demand | [Calibration](docs/calibration.md) |
 
 Every setting lives in `.opendrs.yml`, read from the base branch so a PR cannot loosen its own gate:
@@ -154,6 +155,7 @@ Flags, exit codes, MCP tools and the agent skill: [CLI, MCP server and agent ski
 | [Risk signals](docs/signals.md) | see what opendrs measures and how |
 | [What is the blast radius of a PR?](docs/blast-radius.md) | understand blast radius |
 | [LLM judge](docs/llm-judge.md) | turn on the optional LLM judge or the `requireSafe` gate |
+| [Feeding the review brief to an LLM reviewer](docs/llm-reviewers.md) | get opendrs's findings in front of Claude Code, claude-code-action, Bugbot, CodeRabbit, Copilot or Codex |
 | [Calibration and backtesting](docs/calibration.md) | fit the model to your repository and choose thresholds |
 | [Benchmark results](docs/results.md) | see how opendrs ranks risk on public repositories |
 | [Experiments](docs/experiments.md) | see what we tried and what did not work |
