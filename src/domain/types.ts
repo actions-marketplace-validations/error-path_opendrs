@@ -283,7 +283,7 @@ export interface ReviewBrief {
   skim: Array<{ file: string; category: "ignored" | "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
   human: Array<{ rule: PolicyRule; reason: string }>;
   notRanked: { hunks: number; files: number };
-  budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number } };
+  budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number; notes: number } };
   notes: string[];
 }
 

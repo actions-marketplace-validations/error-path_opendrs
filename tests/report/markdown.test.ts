@@ -272,7 +272,7 @@ function brief(): NonNullable<ScoreResult["brief"]> {
     skim: [],
     human: [],
     notRanked: { hunks: 0, files: 0 },
-    budget: { maxTokens: 2500, estimatedTokens: 50, truncated: false, omitted: { files: 0, hunks: 0, checks: 0 } },
+    budget: { maxTokens: 2500, estimatedTokens: 50, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
     notes: [],
   };
 }

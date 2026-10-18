@@ -42,7 +42,10 @@ export function renderBriefMarkdown(brief: ReviewBrief): string {
   if (skim.length > 0) lines.push("", "## Safe to skim", `- ${skim.join(", ")}`);
 
   const b = brief.budget;
-  if (b.truncated) lines.push("", `(brief truncated to fit ${b.maxTokens} tokens: ${b.omitted.files} files / ${b.omitted.hunks} hunks / ${b.omitted.checks} checks omitted)`);
+  if (b.truncated) {
+    const notes = b.omitted.notes > 0 ? ` / ${b.omitted.notes} notes` : "";
+    lines.push("", `(brief truncated to fit ${b.maxTokens} tokens: ${b.omitted.files} files / ${b.omitted.hunks} hunks / ${b.omitted.checks} checks${notes} omitted)`);
+  }
   for (const n of brief.notes) lines.push("", `Note: ${n}`);
 
   return `${lines.join("\n")}\n`;

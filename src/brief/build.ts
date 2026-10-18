@@ -66,7 +66,7 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
       skim: skimList(ctx),
       human: needsHuman(result.policy),
       notRanked: { hunks: totalHunks - shownHunks, files: ranked.length - shown.length },
-      budget: { maxTokens, estimatedTokens: 0, truncated: false, omitted: { files: 0, hunks: 0, checks: 0 } },
+      budget: { maxTokens, estimatedTokens: 0, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
       notes,
     },
     maxTokens,

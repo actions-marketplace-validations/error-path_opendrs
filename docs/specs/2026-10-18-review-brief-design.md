@@ -264,7 +264,7 @@ export interface ReviewBrief {
   skim: Array<{ file: string; category: "ignored" | "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
   human: Array<{ rule: PolicyRule; reason: string }>;
   notRanked: { hunks: number; files: number };
-  budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number } };
+  budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number; notes: number } };
   notes: string[];                     // e.g. "blame unavailable: shallow clone"
 }
 export interface BriefReason {
@@ -314,8 +314,9 @@ Quoted («…») and backticked text is from commit messages, incident notes, fi
 - **Line ranges** are on the new side.
 - **Untrusted fragments** appear only inside `«»`, after the §7 neutralisation.
 - **Within the token budget, sections are filled in this order:** verdict, Needs a human, Not
-  ranked, Review first (file by file, hunk by hunk), Check specifically, Safe to skim. When the
-  budget runs out, the rest is counted in `budget.omitted`, and a closing line says so.
+  ranked, Review first (file by file, hunk by hunk), Check specifically, Safe to skim, and last the
+  notes (at most 5, each clipped to 200 characters). When the budget runs out, the rest is counted
+  in `budget.omitted`, and a closing line says so.
 
 ### 6.3 The human bullets at the top of the PR comment
 

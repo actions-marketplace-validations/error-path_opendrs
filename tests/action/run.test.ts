@@ -218,7 +218,7 @@ const BRIEF: NonNullable<ScoreResult["brief"]> = {
   version: 1,
   verdict: { tier: "green", score: 0.1, decision: "auto-approve", why: "ok" },
   reviewFirst: [], checks: [], skim: [], human: [], notRanked: { hunks: 0, files: 0 },
-  budget: { maxTokens: 2500, estimatedTokens: 5, truncated: false, omitted: { files: 0, hunks: 0, checks: 0 } },
+  budget: { maxTokens: 2500, estimatedTokens: 5, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
   notes: [],
 };
 

@@ -24,7 +24,7 @@ function brief(over: Partial<ReviewBrief> = {}): ReviewBrief {
     skim: [{ file: "docs/queue.md", category: "docs" }],
     human: [{ rule: "paths.block", reason: "hard block: broker/migrations/V12.sql matches paths.block" }],
     notRanked: { hunks: 14, files: 6 },
-    budget: { maxTokens: 2500, estimatedTokens: 400, truncated: false, omitted: { files: 0, hunks: 0, checks: 0 } },
+    budget: { maxTokens: 2500, estimatedTokens: 400, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
     notes: [],
     ...over,
   };
@@ -73,9 +73,14 @@ describe("renderBriefMarkdown", () => {
   });
 
   it("reports truncation and notes at the end", () => {
-    const md = renderBriefMarkdown(brief({ budget: { maxTokens: 100, estimatedTokens: 100, truncated: true, omitted: { files: 2, hunks: 5, checks: 3 } }, notes: ["history is incomplete"] }));
+    const md = renderBriefMarkdown(brief({ budget: { maxTokens: 100, estimatedTokens: 100, truncated: true, omitted: { files: 2, hunks: 5, checks: 3, notes: 0 } }, notes: ["history is incomplete"] }));
     expect(md).toContain("\n(brief truncated to fit 100 tokens: 2 files / 5 hunks / 3 checks omitted)\n");
     expect(md.endsWith("\nNote: history is incomplete\n")).toBe(true);
+  });
+
+  it("names omitted notes in the truncation line only when there are any", () => {
+    const md = renderBriefMarkdown(brief({ budget: { maxTokens: 100, estimatedTokens: 100, truncated: true, omitted: { files: 0, hunks: 0, checks: 0, notes: 4 } } }));
+    expect(md).toContain("\n(brief truncated to fit 100 tokens: 0 files / 0 hunks / 0 checks / 4 notes omitted)\n");
   });
 
   it("strips a bidi override from a file path", () => {
