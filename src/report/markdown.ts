@@ -97,9 +97,7 @@ export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean 
   const focus = renderFocusBullets(brief).map((b) => `- ${b}`);
   const sections = [
     ...head,
-    "**Review focus**",
-    ...focus,
-    "",
+    ...(focus.length > 0 ? ["**Review focus**", ...focus, ""] : []),
     "<details><summary>Review brief for AI reviewers (opendrs)</summary>",
     "",
     "~~~~opendrs-brief",

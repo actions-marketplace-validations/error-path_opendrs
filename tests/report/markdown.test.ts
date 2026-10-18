@@ -316,6 +316,13 @@ describe("renderMarkdown with a brief", () => {
     expect(renderMarkdown(result({ brief: brief() }), {})).toBe(renderMarkdown(result({ brief: brief() })));
   });
 
+  it("omits the Review focus header when the brief has no focus bullets", () => {
+    const empty = { ...brief(), reviewFirst: [], checks: [], human: [] };
+    const md = renderMarkdown(result({ brief: empty }));
+    expect(md).not.toContain("**Review focus**");
+    expect(md).toContain("<details><summary>Review brief for AI reviewers (opendrs)</summary>");
+  });
+
   it("still ends with the unchanged footer", () => {
     const md = renderMarkdown(result({ brief: brief() }));
     expect(md.trimEnd().split("\n").at(-1)).toContain("opendrs 0.1.5");
