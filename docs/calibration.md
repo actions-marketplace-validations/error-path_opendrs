@@ -208,6 +208,22 @@ labels have matured past the label horizon, `backtest` scores the saved model on
 SEVs captured at 5 / 10 / 50 % gated) for orientation. Those come from Meta's own code and SEV
 data, which differ from yours in size, labels and practice. They are not a target.
 
+## Focus hit rate
+
+`opendrs backtest --brief` adds one more, free measurement: for every commit a later fix's SZZ-lite
+blame points back to, did the review brief's "Review first" hunks (built at that commit's own point
+in time) contain at least one of the lines that fix changed? This is report-only — it never gates
+anything — and is the signal the ranking weights in `src/brief/rank.ts` get tuned against over time.
+It needs no LLM and no incident log beyond what `calibrate`/`backtest` already use.
+
+```sh
+npx @error-path/opendrs backtest --brief
+```
+
+The output adds one line: the hit rate, and the average share of each commit's changed lines that
+fell inside its focus hunks (the same shape as Meta's reported 53.85 % hit rate / 26.28 % share for
+their top-2 hunks — see the approved spec for the comparison).
+
 ## Choosing thresholds
 
 The `green` threshold decides what can be auto-approved, so choose it from the capture curve rather
