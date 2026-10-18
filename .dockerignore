@@ -1,0 +1,9 @@
+node_modules
+dist
+action
+.git
+.claude
+bench
+docs
+tests
+coverage

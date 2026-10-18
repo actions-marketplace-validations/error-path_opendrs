@@ -385,6 +385,9 @@ claude mcp add opendrs -- npx -y @error-path/opendrs mcp
 
 Other clients take the same command: `{"command": "npx", "args": ["-y", "@error-path/opendrs", "mcp"]}`.
 
+The repository also has a `Dockerfile` that runs the MCP server over stdio. Mount the repository to
+score at `/repo`: `docker build -t opendrs . && docker run -i --rm -v "$PWD:/repo" opendrs`.
+
 The agent skill in [`skills/opendrs/SKILL.md`](skills/opendrs/SKILL.md) tells an agent to run
 `opendrs score` before opening a PR and to split changes with a large blast radius.
 
