@@ -1,6 +1,6 @@
 import type { ScoringContext } from "../domain/types.js";
 import { git } from "../git/exec.js";
-import { code } from "../report/escape.js";
+import { code, untrusted } from "../report/escape.js";
 import type { BlameHit, HunkCandidate } from "./rank.js";
 
 const BLAME_TIMEOUT_MS = 5_000;
@@ -25,7 +25,8 @@ export async function blameFixes(ctx: ScoringContext, candidates: HunkCandidate[
       const range = `${c.hunk.oldStart},${c.hunk.oldStart + c.hunk.oldLines - 1}`;
       out = await git(ctx.repoDir, ["blame", "--porcelain", "-L", range, ctx.diff.base, "--", oldPath], { timeoutMs: BLAME_TIMEOUT_MS });
     } catch (e) {
-      notes.push(`blame unavailable for ${code(oldPath)}: ${e instanceof Error ? e.message : String(e)}`);
+      // git's message echoes the path, so it is escaped like any other untrusted text; notes render as they are.
+      notes.push(`blame unavailable for ${code(oldPath)}: ${untrusted(e instanceof Error ? e.message : String(e))}`);
       continue;
     }
     const seen = new Set<string>();

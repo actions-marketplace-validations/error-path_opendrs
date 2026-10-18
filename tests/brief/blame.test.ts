@@ -79,11 +79,15 @@ describe("blameFixes", () => {
     repo.commit({ "a.ts": "1\n2\n" }, "base");
     repo.commit({ "a.ts": "1\nX\n" }, "change");
     const ctx = await ctxFor(repo);
-    const bogus = candidateHunks(ctx).map((c) => ({ ...c, file: { ...c.file, path: "does/not/exist.ts", oldPath: "does/not/exist.ts" } }));
+    // A hostile path: the note names it as inline code and git's error text (which echoes it) is cell-escaped, on one line.
+    const nasty = "does/`not`\n<exist> @octocat.ts";
+    const bogus = candidateHunks(ctx).map((c) => ({ ...c, file: { ...c.file, path: nasty, oldPath: nasty } }));
     const { hits, notes } = await blameFixes(ctx, bogus);
     expect(hits.size).toBe(0);
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatch(/^blame unavailable for `does\/not\/exist\.ts`/);
+    expect(notes[0]).toMatch(/^blame unavailable for `does\/ˋnotˋ <exist> @octocat\.ts`: git blame failed: /);
+    expect(notes[0]).not.toContain("\n");
+    expect(notes[0]!.slice(notes[0]!.indexOf(": ") + 2)).toContain("does/\\`not\\` &lt;exist&gt; @​octocat.ts");
     repo.cleanup();
   });
 });
