@@ -5,6 +5,7 @@ import { defaultConfig } from "../../src/domain/config.js";
 import type { DependencyGraph } from "../../src/domain/types.js";
 import { makeContext } from "../../src/engine.js";
 import { loadDiff } from "../../src/git/diff.js";
+import { buildDiffText } from "../../src/llm/prompt.js";
 import { fakeResult } from "../cli/helpers.js";
 import { makeRepo } from "../helpers/repo.js";
 import { fakeHistory, NOW } from "../policy/fakes.js";
@@ -21,6 +22,23 @@ describe("candidateHunks", () => {
     expect(candidates).toHaveLength(1);
     expect(candidates[0]!.id).toBe(1);
     expect(candidates[0]!.file.path).toBe("a.ts");
+    repo.cleanup();
+  });
+});
+
+describe("candidateHunks", () => {
+  it("keeps buildDiffText's ids when a file git diffed as text is flagged binary by its blob (a NUL past git's first 8000 bytes)", async () => {
+    const repo = makeRepo();
+    const big = "a\n".repeat(5000);
+    repo.commit({ "bin.dat": big, "x.ts": "x\n" }, "base");
+    repo.commit({ "bin.dat": `${big}b\nc\n\0\n`, "x.ts": "y\n" }, "change");
+    const config = defaultConfig();
+    const diff = await loadDiff(repo.dir, "HEAD~1", "HEAD", config);
+    expect(diff.files.find((f) => f.path === "bin.dat")).toMatchObject({ binary: true });
+    const refs = buildDiffText(diff, Infinity).hunks;
+    const candidates = candidateHunks(makeContext(repo.dir, diff, config, fakeHistory([]), undefined));
+    expect(candidates.map((c) => c.file.path)).toEqual(["x.ts"]);
+    for (const c of candidates) expect(refs.find((r) => r.id === c.id)).toMatchObject({ file: c.file.path, line: c.hunk.newStart || c.hunk.oldStart });
     repo.cleanup();
   });
 });

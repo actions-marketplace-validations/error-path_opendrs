@@ -52,8 +52,12 @@ export function candidateHunks(ctx: ScoringContext): HunkCandidate[] {
   const out: HunkCandidate[] = [];
   let id = 0;
   for (const file of orderedFiles(ctx.diff)) {
-    if (file.binary) continue;
-    file.hunks.forEach((hunk, index) => out.push({ id: ++id, file, hunk, index }));
+    // A file git diffed as text but the blob check flagged binary keeps its hunks, and buildDiffText
+    // numbers them, so they count here too; they are only not ranked.
+    for (const [index, hunk] of file.hunks.entries()) {
+      id++;
+      if (!file.binary) out.push({ id, file, hunk, index });
+    }
   }
   return out;
 }
