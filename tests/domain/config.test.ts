@@ -370,3 +370,12 @@ describe("autoApprove.landingDelayMinutes and deferredReview", () => {
     expect(() => parseConfig({ autoApprove: { deferredReview: { enabled: true, below: 0.45, sources: ["bot"] } } })).not.toThrow();
   });
 });
+
+describe("brief", () => {
+  it("defaults brief.maxTokens to 2500 and caps it at 6000", () => {
+    expect(defaultConfig().brief.maxTokens).toBe(2500);
+    expect(configError({ brief: { maxTokens: 7000 } })).toMatch(/brief.*maxTokens/i);
+    expect(configError({ brief: { maxTokens: 0 } })).toMatch(/brief.*maxTokens/i);
+    expect(parseConfig({ brief: { maxTokens: 500 } }).brief.maxTokens).toBe(500);
+  });
+});

@@ -298,6 +298,12 @@ export const configSchema = z.object({
     .prefault({}),
   /** Path to calibrated model JSON, relative to repo root. Used when it exists. */
   model: z.string().default(".opendrs/model.json"),
+  brief: z
+    .object({
+      /** Token budget for the review brief's Markdown (characters / 3.5); the hard ceiling is 6000. */
+      maxTokens: z.number().int().positive().max(6_000).default(2_500),
+    })
+    .prefault({}),
   freezes: z.array(freezeSchema).default([]),
   sources: z
     .object({
