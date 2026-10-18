@@ -245,6 +245,18 @@ describe("the review brief", () => {
     expect(t.gh.comments).toHaveLength(1);
   });
 
+  it("warns and leaves brief-file empty, but keeps the brief output, when the brief file cannot be written", async () => {
+    const t = await run({
+      result: { ...result(0.1, "green", "auto-approve"), brief: BRIEF },
+      env: { RUNNER_TEMP: join(tmpdir(), "opendrs-does-not-exist", "nested") },
+    });
+    await t.promise;
+    expect(t.log()).toContain("::warning::Could not write the brief file");
+    expect(t.output()).toMatch(/^brief-file<<(\S+)\n\n\1$/m);
+    expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*opendrs review brief v1[\s\S]*\n\1$/m);
+    expect(t.gh.comments).toHaveLength(1);
+  });
+
   it("is not requested, and its outputs are empty, when the brief input is false", async () => {
     const t = await run({ inputs: { brief: false }, result: result(0.1, "green", "auto-approve") });
     await t.promise;

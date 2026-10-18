@@ -267,8 +267,13 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     io.setOutput("brief", renderBriefMarkdown(result.brief));
     const dir = d.env.RUNNER_TEMP ?? tmpdir();
     const file = join(dir, `opendrs-brief-${pr.number}.json`);
-    await writeFile(file, JSON.stringify(result.brief));
-    io.setOutput("brief-file", file);
+    try {
+      await writeFile(file, JSON.stringify(result.brief));
+      io.setOutput("brief-file", file);
+    } catch (e) {
+      io.warning(`Could not write the brief file (${e instanceof Error ? e.message : String(e)}); the \`brief-file\` output is empty. The \`brief\` output still has the full brief.`);
+      io.setOutput("brief-file", "");
+    }
   } else {
     io.setOutput("brief", "");
     io.setOutput("brief-file", "");
