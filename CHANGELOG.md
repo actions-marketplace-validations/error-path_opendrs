@@ -2,6 +2,20 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- `calibrate` refits its chosen setting on every labelled commit. It still chooses the penalty,
+  decides whether to keep the priors, and measures its held-out `metrics` on an 80 / 20 time split.
+  Earlier versions saved the oldest-80 % fit, which never saw the newest fifth of the history. On
+  ApacheJIT, pooled calibrated AUC goes from 0.819 to 0.823 (Kamei LR: 0.821), and recall@10/30 %
+  from 29.1 / 66.1 % to 29.7 / 66.8 %. When the priors are kept, nothing changes.
+- `trainedOn` in the model file now covers every commit the saved weights were fitted on.
+  Right after `calibrate`, `backtest` has no newer commits to test on, so it shows calibrate's
+  recorded held-out evaluation as a `calibrated (recorded)` row (`recorded` in `--json`), with a note.
+- Bench: `bench/apachejit/run.ts --cached-only` re-fits from the row cache without cloning or
+  replaying. `bench/apachejit/fit-experiment.ts` compares fit variants on the cached rows.
+- Research note: [how AI code reviewers judge PR risk](docs/research/2026-10-18-review-risk-heuristics.md).
+
 ## 0.2.0 - 2026-10-18
 
 The roadmap release: Meta's RADAR funnel and the rest of the DRS lineage. Every new policy is off

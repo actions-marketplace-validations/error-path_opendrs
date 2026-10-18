@@ -52,6 +52,18 @@ their fixes still label older commits. Both commands report how many were left o
 Override it for one run with `--label-horizon-days <n>`. Set it to `0` to use every commit, as
 earlier versions did. Raise it when your bugs typically surface slowly (for example infrequent releases).
 
+### What `calibrate` fits on
+
+`calibrate` decides everything on the oldest 80 % of the labelled commits. It picks the penalty
+by a second time split inside them, and keeps the default priors if the fit does not rank that
+split's newest commits better. It then scores that oldest-80 % fit on the newest 20 %. Those are
+the held-out numbers it prints and records as `metrics` in the model file.
+
+The weights it writes are the same setting refitted on every labelled commit, so the newest fifth
+of your history is not thrown away. `trainedOn` in the model file covers that whole window. When the
+priors are kept, nothing is refitted: the model file holds the priors and `trainedOn` covers the
+oldest 80 %, as before.
+
 ## `.opendrs/incidents.jsonl`
 
 One JSON object per line. Each object names the change that caused an incident, the change that
@@ -102,16 +114,26 @@ labelled positive.
 | Model | AUC | Caught at 5 % | at 10 % | at 30 % | at 50 % | F1 |
 |---|---:|---:|---:|---:|---:|---:|
 | opendrs, default priors | 0.771 | 13.6 % | 24.9 % | 59.6 % | 80.0 % | 0.473 |
-| opendrs, calibrated | 0.819 | 15.5 % | 29.1 % | 66.1 % | 85.3 % | 0.559 |
+| opendrs, calibrated | 0.823 | 15.7 % | 29.7 % | 66.8 % | 85.5 % | 0.568 |
 | Kamei LR (dataset metrics) | 0.821 | 15.8 % | 29.6 % | 66.2 % | 85.4 % | 0.554 |
 | DRS-OSS (published, other split) | 0.895 | 31.5 % | 50.3 % | 86.4 % | — | 0.641 |
 
-- **Calibration helps.** Fitting the weights raised AUC from 0.771 to 0.819 pooled, and in 13 of
-  the 14 projects with positives (hadoop-hdfs, 0.866 → 0.851, is the exception).
-- **opendrs ties the classic JIT metrics; it does not beat them.** Calibrated opendrs and the
-  Kamei regression are within 0.002 AUC pooled. Per project, opendrs is ahead in 4 of 14
-  (activemq, kafka, hadoop-mapreduce, zeppelin) and behind in the other 10, by up to 0.09
-  (zookeeper). Note that opendrs computes its signals from git alone, with no issue tracker.
+- **Calibration helps.** Fitting the weights raised AUC from 0.771 to 0.823 pooled, and in all 14
+  projects with positives (groovy only barely, 0.605 → 0.609).
+- **opendrs matches the classic JIT metrics pooled.** Calibrated opendrs reaches 0.823 AUC and
+  catches 29.7 % / 66.8 % of buggy commits in its riskiest 10 % / 30 %. The Kamei regression
+  reaches 0.821, 29.6 % and 66.2 %. That is a tie within noise, not a win.
+- **Per project, opendrs is ahead in 4 of 14 and behind in 10.** It leads on activemq, kafka,
+  hadoop-mapreduce and zeppelin. It trails by up to 0.15 AUC on groovy (0.609 vs 0.760) and 0.09
+  on zookeeper. Note that opendrs computes its signals from git alone, with no issue tracker.
+- **Refitting on all training commits closed the pooled gap.** Earlier versions fitted the saved
+  weights on the oldest 80 % only and scored 0.819. The rest of the fit is unchanged, so the gain
+  comes from the newest training years alone
+  ([`bench/apachejit/fit-experiment.md`](../bench/apachejit/fit-experiment.md)).
+- **The refit is not a win everywhere.** Most projects moved up or stayed level, for example
+  hadoop-hdfs 0.851 → 0.882 and hadoop-mapreduce 0.867 → 0.888. activemq fell 0.863 → 0.843 and
+  groovy fell 0.692 → 0.609. For those two, adding the newest training years made the test-year
+  ranking worse.
 - **A model that reads the diff ranks much better.** DRS-OSS catches 86 % of buggy commits in its
   riskiest 30 %, against 66 % here. That gap is what an LLM signal such as `llm.semantic` would have to
   close, and this benchmark is how to measure it.
@@ -121,6 +143,8 @@ The full report, with per-project numbers, coverage and caveats, is in
 explains how to reproduce it.
 
 ### With the structured LLM judge
+
+This sample was fitted before the refit described above, and has not been re-run since.
 
 A second run sampled 800 training and 800 test commits (excluding `apache/hadoop`) and had Claude
 Sonnet 5 judge each one with opendrs's prompt (about $55 in API calls). The first run's judge failed on 36
@@ -171,8 +195,11 @@ and windows; read them as rough. `backtest` evaluates the calibrated model only 
 than its training window (`trainedOn.to` in the model file), so it never scores a commit it was
 trained on. It also reports the default priors on those same held-out commits; compare those two
 rows, not the calibrated row with the all-commits default row. When no replayed commit is newer
-than the training window (for example on a checkout older than the one the model was fitted on),
-the calibrated model has no held-out rows and `backtest` says so.
+than the training window, the calibrated model has no held-out rows of its own. That is the usual
+case right after `calibrate`, because the model is refitted on every labelled commit. `backtest`
+then shows a `calibrated (recorded)` row with calibrate's own held-out evaluation (the oldest-80 %
+fit scored on the newest 20 %) and says so in a note. Once newer commits have landed and their
+labels have matured past the label horizon, `backtest` scores the saved model on them instead.
 
 **Meta's numbers.** `backtest` prints Meta's published LR baseline (18.7 % / 27.9 % / 84.6 % of
 SEVs captured at 5 / 10 / 50 % gated) for orientation. Those come from Meta's own code and SEV
