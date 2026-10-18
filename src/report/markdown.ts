@@ -1,4 +1,7 @@
 import type { Authorship, Contribution, Decision, LlmJudgement, ScoreResult, Tier } from "../domain/types.js";
+import { cell, code, untrusted } from "./escape.js";
+
+export { cell };
 
 const MARKER = "<!-- opendrs -->";
 const PROJECT_URL = "https://github.com/error-path/opendrs";
@@ -15,19 +18,6 @@ const DECISION_TEXT: Record<Decision, string> = {
   "human-review": "human review",
 };
 
-/** Inline text for a table cell or list item: one line, no raw HTML, links, code spans or table breakouts. */
-export const cell = (text: string) =>
-  text
-    .replace(/\s+/g, " ")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/[\\|`[\]]/g, "\\$&")
-    .trim();
-/** Untrusted text as inline code, where HTML, links and mentions are inert; only a backtick could end it. */
-const code = (text: string) => `\`${text.replace(/\s+/g, " ").replace(/`/g, "ˋ").trim()}\``;
-/** LLM output is shaped by the (untrusted) diff, so also stop it from @-mentioning people. */
-const untrusted = (text: string) => cell(text).replace(/@(?=\w)/g, "@\u200b");
 /** Terminal text: drop control characters so a summary cannot inject escape sequences. */
 const plain = (text: string) => text.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim();
 
