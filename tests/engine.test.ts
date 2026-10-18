@@ -105,3 +105,24 @@ describe("scoreDiff source", () => {
     });
   });
 });
+
+describe("scoreDiff brief option", () => {
+  it("omits .brief by default, and attaches a v1 ReviewBrief when opts.brief is set, without changing the score", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    repo.commit({ "a.ts": "2\n" }, "change");
+    const config = defaultConfig();
+    const plain = await scoreDiff({ repoDir: repo.dir, base: "HEAD~1", head: "HEAD", config, llm: null, graph: null });
+    expect(plain.brief).toBeUndefined();
+    expect("brief" in plain).toBe(false);
+
+    const withBrief = await scoreDiff({ repoDir: repo.dir, base: "HEAD~1", head: "HEAD", config, llm: null, graph: null, brief: { maxTokens: 500 } });
+    expect(withBrief.brief?.version).toBe(1);
+    expect(withBrief.brief?.budget.maxTokens).toBe(500);
+    expect(withBrief.score).toBe(plain.score);
+
+    const fromConfig = await scoreDiff({ repoDir: repo.dir, base: "HEAD~1", head: "HEAD", config: parseConfig({ brief: { maxTokens: 900 } }), llm: null, graph: null, brief: {} });
+    expect(fromConfig.brief?.budget.maxTokens).toBe(900);
+    repo.cleanup();
+  });
+});
