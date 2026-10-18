@@ -236,11 +236,19 @@ export type Tier = "green" | "yellow" | "red";
  */
 export type Decision = "auto-approve" | "deferred-review" | "waiting-ai-review" | "human-review";
 
+/** The gate rules that can fire, by id (see policy/gate.ts). */
+export type PolicyRule =
+  | "paths.block" | "unread-files" | "tests.deleted" | "content.block" | "size-cap" | "tier"
+  | "freeze" | "source" | "submodule" | "control-chars" | "llm-failed" | "llm.requireSafe"
+  | "unknowns" | "draft" | "changes-requested" | "ai-review" | "sample";
+
 export interface PolicyOutcome {
   tier: Tier;
   decision: Decision;
   /** Why the decision was made, one entry per rule that fired (first is decisive). */
   reasons: string[];
+  /** The rule-tagged subset of `reasons`: every fired rule, without the decisive line or notes. */
+  rules: Array<{ rule: PolicyRule; reason: string }>;
   hardBlocked: boolean;
   sampled: boolean;
   mergeMethod: "queue" | "auto-merge" | "none";
@@ -250,6 +258,33 @@ export interface PolicyOutcome {
    * human veto. The largest of autoApprove.landingDelayMinutes and the source's own setting.
    */
   landingDelayMinutes: number;
+}
+
+/** One reason a file or hunk ranks where it does in the review brief. */
+export interface BriefReason {
+  kind: "fix-blame" | "fix-history" | "incident" | "exports" | "dependents" | "critical" | "no-tests" | "new-author" | "llm";
+  /** Rendered sentence; untrusted parts already escaped. */
+  text: string;
+  /** Raw untrusted fragment (commit subject, incident note, judge reason), clipped to 120 chars. */
+  quote?: string;
+  sha?: string;
+}
+
+/** The review brief (docs/specs/2026-10-18-review-brief-design.md §6.1). Fields are only added inside version 1. */
+export interface ReviewBrief {
+  version: 1;
+  verdict: { tier: Tier; score: number; decision: Decision; why: string };
+  reviewFirst: Array<{
+    file: string;
+    reasons: BriefReason[];
+    hunks: Array<{ id: number; oldStart: number; newStart: number; newLines: number; score: number; reasons: BriefReason[] }>;
+  }>;
+  checks: Array<{ file: string; line?: number; question: string; quotes: string[]; evidence: string[] }>;
+  skim: Array<{ file: string; category: "ignored" | "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
+  human: Array<{ rule: PolicyRule; reason: string }>;
+  notRanked: { hunks: number; files: number };
+  budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number } };
+  notes: string[];
 }
 
 export interface ScoreResult {
@@ -264,6 +299,8 @@ export interface ScoreResult {
   diff: { base: string; head: string; files: number; added: number; deleted: number };
   model: "default" | "calibrated";
   version: string;
+  /** Present only when scoreDiff was asked for it (opts.brief). */
+  brief?: ReviewBrief;
 }
 
 export interface BacktestMetrics {

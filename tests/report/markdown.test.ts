@@ -40,6 +40,7 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
       tier: "yellow",
       decision: "human-review",
       reasons: ["tier yellow: score 0.46 ≥ green threshold 0.30", "unknown blast.dependents could raise the score to 0.55 (yellow)"],
+      rules: [],
       hardBlocked: false,
       sampled: false,
       mergeMethod: "none",

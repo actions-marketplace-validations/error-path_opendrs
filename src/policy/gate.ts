@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { changedLines } from "../git/diff.js";
 import { matchAny } from "../git/glob.js";
-import type { Authorship, HistoryIndex, LlmJudgement, ModelWeights, PolicyOutcome, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
+import type { Authorship, HistoryIndex, LlmJudgement, ModelWeights, PolicyOutcome, PolicyRule, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { featureValues, sigmoid } from "../model/logistic.js";
 import { suggestReviewers } from "./reviewers.js";
@@ -85,6 +85,11 @@ export function decide(input: GateInput): PolicyOutcome {
   const thresholds = resolveThresholds(config, model, notes);
   const tier = tierOf(input.score, thresholds);
   const fired: Array<{ decision: Decision; reason: string }> = [];
+  const rules: Array<{ rule: PolicyRule; reason: string }> = [];
+  const fire = (decision: Decision, reason: string, rule?: PolicyRule) => {
+    fired.push({ decision, reason });
+    if (rule) rules.push({ rule, reason });
+  };
 
   // 1. hard block
   const blocked = diff.files
@@ -94,36 +99,36 @@ export function decide(input: GateInput): PolicyOutcome {
   const hardBlocked = blocked.length > 0 || blockedSignal !== undefined;
   if (hardBlocked) {
     const what = blocked.length > 0 ? `${list(blocked)} ${blocked.length === 1 ? "matches" : "match"} paths.block` : blockedSignal!.summary;
-    fired.push({ decision: "human-review", reason: `hard block: ${what}` });
+    fire("human-review", `hard block: ${what}`, "paths.block");
   }
 
   // 1b. ignored or binary files: scored as low risk, but nothing reads their contents, so a human must
   const unread = diff.files.filter((f) => f.ignored || f.binary).map((f) => f.path);
   if (unread.length > 0) {
-    fired.push({ decision: "human-review", reason: `ignored or binary files are never auto-approved: ${list(unread)}` });
+    fire("human-review", `ignored or binary files are never auto-approved: ${list(unread)}`, "unread-files");
   }
   // Control characters in a path are never legitimate and are how log and glob tricks start.
   const oddPaths = diff.files.flatMap((f) => [f.path, f.oldPath ?? ""]).filter((p) => /[\u0000-\u001f\u007f]/.test(p));
   if (oddPaths.length > 0) {
-    fired.push({ decision: "human-review", reason: `paths with control characters are never auto-approved: ${list(oddPaths.map((p) => JSON.stringify(p)))}` });
+    fire("human-review", `paths with control characters are never auto-approved: ${list(oddPaths.map((p) => JSON.stringify(p)))}`, "control-chars");
   }
   // A moved submodule pointer pulls in code the diff does not show.
   const submodules = diff.files.filter((f) => f.submodule).map((f) => f.path);
   if (submodules.length > 0) {
-    fired.push({ decision: "human-review", reason: `submodule changes are never auto-approved: ${list(submodules)}` });
+    fire("human-review", `submodule changes are never auto-approved: ${list(submodules)}`, "submodule");
   }
   // Removing tests removes the evidence a change is safe, and a calibrated model may not weigh it.
   const testsDeleted = input.signals.find((s) => s.id === "tests.deleted" && s.value >= 1);
-  if (testsDeleted) fired.push({ decision: "human-review", reason: `test deletion: ${testsDeleted.summary}` });
+  if (testsDeleted) fire("human-review", `test deletion: ${testsDeleted.summary}`, "tests.deleted");
   // Blocklisted code phrases on added lines (Meta's RADAR never auto-lands these).
   for (const [pattern, hits] of contentHits(diff, config.content.block)) {
-    fired.push({ decision: "human-review", reason: `content.block /${pattern}/ matched ${list(hits)}` });
+    fire("human-review", `content.block /${pattern}/ matched ${list(hits)}`, "content.block");
   }
 
   // 2. size cap (a binary file counts as one line)
   const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
   if (changedLines > auto.maxChangedLines) {
-    fired.push({ decision: "human-review", reason: `${changedLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` });
+    fire("human-review", `${changedLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})`, "size-cap");
   }
 
   // Commit text can raise the kind (a trailer makes it "agent") but never lower it, so the policy of
@@ -146,27 +151,21 @@ export function decide(input: GateInput): PolicyOutcome {
     input.score < deferredBelow &&
     (kinds.length > 0 ? kinds : ["human" as const]).every((k) => deferredReview.sources.includes(k));
   if (tier !== "green" && !deferrable) {
-    fired.push({
-      decision: "human-review",
-      reason: `tier ${tier}: score ${input.score.toFixed(2)} ≥ green threshold ${thresholds.green.toFixed(2)}`,
-    });
+    fire("human-review", `tier ${tier}: score ${input.score.toFixed(2)} ≥ green threshold ${thresholds.green.toFixed(2)}`, "tier");
   }
 
   // 3b. freeze windows: suspend auto-approval, or hold it to a stricter green; the tier stays
   const now = input.now ?? Date.now();
   for (const f of config.freezes.filter((w) => freezeActive(w, now))) {
     if (f.green === undefined) {
-      fired.push({ decision: "human-review", reason: `freeze "${f.name}": auto-approval suspended` });
+      fire("human-review", `freeze "${f.name}": auto-approval suspended`, "freeze");
       continue;
     }
     const green = config.thresholds.mode === "absolute" ? f.green : percentileScore(model.percentiles, f.green);
     if (green === undefined) {
-      fired.push({
-        decision: "human-review",
-        reason: `freeze "${f.name}": percentile green ${f.green} needs a calibrated model; auto-approval suspended`,
-      });
+      fire("human-review", `freeze "${f.name}": percentile green ${f.green} needs a calibrated model; auto-approval suspended`, "freeze");
     } else if (input.score >= green) {
-      fired.push({ decision: "human-review", reason: `freeze "${f.name}": score ${input.score.toFixed(2)} ≥ freeze green ${green.toFixed(2)}` });
+      fire("human-review", `freeze "${f.name}": score ${input.score.toFixed(2)} ≥ freeze green ${green.toFixed(2)}`, "freeze");
     }
   }
 
@@ -180,12 +179,9 @@ export function decide(input: GateInput): PolicyOutcome {
     if (source.green !== undefined) {
       const green = config.thresholds.mode === "absolute" ? source.green : percentileScore(model.percentiles, source.green);
       if (green === undefined) {
-        fired.push({
-          decision: "human-review",
-          reason: `source ${kind}: percentile green ${source.green} needs a calibrated model; auto-approval suspended`,
-        });
+        fire("human-review", `source ${kind}: percentile green ${source.green} needs a calibrated model; auto-approval suspended`, "source");
       } else if (input.score >= green) {
-        fired.push({ decision: "human-review", reason: `source ${kind}: score ${input.score.toFixed(2)} ≥ source green ${green.toFixed(2)}` });
+        fire("human-review", `source ${kind}: score ${input.score.toFixed(2)} ≥ source green ${green.toFixed(2)}`, "source");
       }
     }
     // Landed commits of this source in the last `ms`: in the index, at or before now, not in this PR.
@@ -193,49 +189,46 @@ export function decide(input: GateInput): PolicyOutcome {
       input.history.commits.filter((c) => c.source === kind && !inPr.has(c.sha) && c.time * 1000 > now - ms && c.time * 1000 <= now);
     if (source.dailyCap !== undefined) {
       const n = landed(DAY_MS).length;
-      if (n >= source.dailyCap) fired.push({ decision: "human-review", reason: `source ${kind}: daily cap reached (${n} landed in 24h)` });
+      if (n >= source.dailyCap) fire("human-review", `source ${kind}: daily cap reached (${n} landed in 24h)`, "source");
     }
     if (source.trackRecord) {
       const { days, minCommits, maxRevertRate } = source.trackRecord;
       const recent = landed(days * DAY_MS);
       if (recent.length < minCommits) {
-        fired.push({ decision: "human-review", reason: `source ${kind}: track record too short (${recent.length} of ${minCommits} landed commits in ${days} days)` });
+        fire("human-review", `source ${kind}: track record too short (${recent.length} of ${minCommits} landed commits in ${days} days)`, "source");
       } else if (recent.length > 0) {
         const n = recent.filter((c) => reverted.some((s) => c.sha.startsWith(s))).length;
         const rate = n / recent.length;
         if (rate > maxRevertRate) {
           const pct = (x: number) => `${Math.round(x * 100)}%`;
-          fired.push({
-            decision: "human-review",
-            reason: `source ${kind}: ${n} of ${recent.length} landed commits in ${days} days reverted (${pct(rate)}) > ${pct(maxRevertRate)}`,
-          });
+          fire("human-review", `source ${kind}: ${n} of ${recent.length} landed commits in ${days} days reverted (${pct(rate)}) > ${pct(maxRevertRate)}`, "source");
         }
       }
     }
   }
 
   // 4. LLM failure, or an unknown whose plausible worst case changes the tier
-  if (input.llmFailed) fired.push({ decision: "human-review", reason: "LLM judge failed; its absence counts as risk" });
+  if (input.llmFailed) fire("human-review", "LLM judge failed; its absence counts as risk", "llm-failed");
   // 4a. requireSafe (RADAR §2.8): every hunk the judge saw must be in a safe category at or above
   // minConfidence, and it must have seen and classified all of them. The judge can only block here.
   // A source's own requireSafe (3c) turns the same rule on for that source.
   const safeKind = kinds.find((k) => config.sources[k].requireSafe);
   const requireSafe = config.llm.requireSafe ? "llm.requireSafe" : safeKind ? `sources.${safeKind}.requireSafe` : undefined;
   if (requireSafe && !input.llm && !input.llmFailed) {
-    fired.push({ decision: "human-review", reason: `LLM judge did not run; ${requireSafe} needs its verdict` });
+    fire("human-review", `LLM judge did not run; ${requireSafe} needs its verdict`, "llm.requireSafe");
   }
   if (requireSafe && input.llm) {
     const { truncated, unclassified, hunks } = input.llm;
-    if (truncated) fired.push({ decision: "human-review", reason: "LLM judge saw a truncated diff" });
+    if (truncated) fire("human-review", "LLM judge saw a truncated diff", "llm.requireSafe");
     if (unclassified.length > 0) {
       const where = unclassified.map((h) => `${h.file}:${h.line}`);
-      fired.push({ decision: "human-review", reason: `LLM judge did not classify ${unclassified.length} ${unclassified.length === 1 ? "hunk" : "hunks"}: ${list(where)}` });
+      fire("human-review", `LLM judge did not classify ${unclassified.length} ${unclassified.length === 1 ? "hunk" : "hunks"}: ${list(where)}`, "llm.requireSafe");
     }
     const unsafe = hunks.filter((h) => !h.safe || h.confidence < config.llm.minConfidence);
     if (unsafe.length > 0) {
       const named = unsafe.slice(0, 3).map((h) => `${h.file}:${h.line} ${h.category} (confidence ${h.confidence})`);
       const rest = unsafe.length > 3 ? ` and ${unsafe.length - 3} more` : "";
-      fired.push({ decision: "human-review", reason: `LLM judge: not all hunks safe: ${named.join(", ")}${rest}` });
+      fire("human-review", `LLM judge: not all hunks safe: ${named.join(", ")}${rest}`, "llm.requireSafe");
     }
   }
   // Unknowns can all be wrong at once, so their worst cases are summed before checking the tier.
@@ -246,7 +239,7 @@ export function decide(input: GateInput): PolicyOutcome {
     if (s.status !== "unknown" || weight === 0) continue;
     const range = rangeOf(s.id);
     if (!range) {
-      fired.push({ decision: "human-review", reason: `unknown ${s.id} has no known plausible range; treated as risk` });
+      fire("human-review", `unknown ${s.id} has no known plausible range; treated as risk`, "unknowns");
       continue;
     }
     const value = used.get(s.id)!;
@@ -265,30 +258,30 @@ export function decide(input: GateInput): PolicyOutcome {
       lifts.length === 1
         ? `unknown ${lifts[0]!.id} could raise the score to ${worst.toFixed(2)} (${worstTier})`
         : `unknown signals could together raise the score to ${worst.toFixed(2)} (${worstTier}); alone: ${alone}`;
-    fired.push({ decision: "human-review", reason });
+    fire("human-review", reason, "unknowns");
   }
 
   // 4b. PR state: a draft is work in progress, and a change request is an open objection
-  if (input.pr?.draft) fired.push({ decision: "human-review", reason: "draft PR: never auto-approved while in draft" });
+  if (input.pr?.draft) fire("human-review", "draft PR: never auto-approved while in draft", "draft");
   const objectors = input.pr?.changesRequestedBy ?? [];
   if (objectors.length > 0) {
-    fired.push({ decision: "human-review", reason: `changes requested by ${objectors.map((l) => `@${l}`).join(", ")}: never auto-approved until resolved` });
+    fire("human-review", `changes requested by ${objectors.map((l) => `@${l}`).join(", ")}: never auto-approved until resolved`, "changes-requested");
   }
 
   // 5. AI review: check runs on the head commit only (labels are not tied to a commit)
   const checks = auto.requireAiReview.checks.map((c) => (typeof c === "string" ? c : c.name));
   if (checks.length > 0) {
     if (!input.pr) {
-      fired.push({ decision: "waiting-ai-review", reason: `AI review status unknown outside CI (requires check ${checks.join(", ")})` });
+      fire("waiting-ai-review", `AI review status unknown outside CI (requires check ${checks.join(", ")})`, "ai-review");
     } else {
       const missing = checks.filter((c) => !input.pr!.successfulChecks.includes(c));
-      if (missing.length > 0) fired.push({ decision: "waiting-ai-review", reason: `AI review pending: missing check ${missing.join(", ")}` });
+      if (missing.length > 0) fire("waiting-ai-review", `AI review pending: missing check ${missing.join(", ")}`, "ai-review");
     }
   }
 
   // 6. drift sample
   const sampled = sampleValue(input.pr?.samplingKey ?? diff.head) < auto.sampleRate;
-  if (sampled) fired.push({ decision: "human-review", reason: `sampled for human review (${Math.round(auto.sampleRate * 100)}% drift check)` });
+  if (sampled) fire("human-review", `sampled for human review (${Math.round(auto.sampleRate * 100)}% drift check)`, "sample");
 
   // 7. auto-approve, or deferred review when only the tier rule stood in the way
   const decision: Decision = fired[0]?.decision ?? (deferrable ? "deferred-review" : "auto-approve");
@@ -314,6 +307,7 @@ export function decide(input: GateInput): PolicyOutcome {
     tier,
     decision,
     reasons: [...fired.map((f) => f.reason), ...notes],
+    rules,
     hardBlocked,
     sampled,
     mergeMethod: lands ? auto.mergeMethod : "none",

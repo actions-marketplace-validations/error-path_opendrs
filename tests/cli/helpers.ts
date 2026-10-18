@@ -19,6 +19,7 @@ export function fakeResult(score: number, tier: Tier = "green", decision: Decisi
       tier,
       decision,
       reasons: [decision === "auto-approve" ? "low risk" : "tier " + tier],
+      rules: [],
       hardBlocked: false,
       sampled: false,
       mergeMethod: "queue",
