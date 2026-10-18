@@ -12,6 +12,11 @@ export interface BacktestReport {
   calibrated?: BacktestMetrics;
   /** The default priors on the same held-out commits as `calibrated`, for a like-for-like comparison. */
   defaultOnHeldOut?: BacktestMetrics;
+  /**
+   * When no replayed commit is newer than the model's training window: calibrate's own held-out
+   * evaluation (`model.metrics`), from its fit on the oldest 80 % scored on the newest 20 %.
+   */
+  recorded?: BacktestMetrics;
   /** (share gated, share of positives captured) points for the default model, 0..1 in 5 % steps. */
   curve: Array<[number, number]>;
   /** Caveats a reader of the numbers should know. */
@@ -43,7 +48,13 @@ export function backtestRows(rows: ReplayRow[], model?: ModelWeights): BacktestR
   if (model) {
     const trainedTo = model.trainedOn ? Date.parse(model.trainedOn.to) / 1000 : undefined;
     const heldOut = trainedTo === undefined ? timeSplit(rows).test : rows.filter((r) => r.time > trainedTo);
-    if (heldOut.length === 0) {
+    if (heldOut.length === 0 && model.metrics) {
+      report.recorded = model.metrics;
+      report.notes.push(
+        `No replayed commit is newer than the calibrated model's training window (up to ${model.trainedOn?.to}), ` +
+          "so the calibrated row shows calibrate's own held-out evaluation: a fit on the oldest 80 % of that window, scored on the newest 20 %, before the refit on every commit.",
+      );
+    } else if (heldOut.length === 0) {
       report.notes.push(
         `No replayed commit is newer than the calibrated model's training window (up to ${model.trainedOn?.to}), so it has no held-out metrics.`,
       );
