@@ -117,7 +117,7 @@ async function run(o: Options = {}) {
     },
   };
   const client = new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" });
-  const inputs: ActionInputs = { token: "t", baseConfig: true, comment: true, labels: true, ...o.inputs };
+  const inputs: ActionInputs = { token: "t", baseConfig: true, comment: true, labels: true, brief: true, ...o.inputs };
   const promise = runAction({ repoDir: repo.dir, event, inputs, client, io, env });
   return {
     promise,
@@ -206,8 +206,47 @@ describe("scoring", () => {
     const io = createWorkflowIO({}, () => {});
     const client = new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" });
     await expect(
-      runAction({ repoDir: repo.dir, event: { push: {} }, inputs: { token: "t", baseConfig: true, comment: true, labels: true }, client, io, env: {} }),
+      runAction({ repoDir: repo.dir, event: { push: {} }, inputs: { token: "t", baseConfig: true, comment: true, labels: true, brief: true }, client, io, env: {} }),
     ).rejects.toBeInstanceOf(OpendrsError);
+  });
+});
+
+const BRIEF: NonNullable<ScoreResult["brief"]> = {
+  version: 1,
+  verdict: { tier: "green", score: 0.1, decision: "auto-approve", why: "ok" },
+  reviewFirst: [], checks: [], skim: [], human: [], notRanked: { hunks: 0, files: 0 },
+  budget: { maxTokens: 2500, estimatedTokens: 5, truncated: false, omitted: { files: 0, hunks: 0, checks: 0 } },
+  notes: [],
+};
+
+describe("the review brief", () => {
+  it("is requested from scoreDiff by default, and its outputs are set", async () => {
+    const t = await run({ result: { ...result(0.1, "green", "auto-approve"), brief: BRIEF } });
+    await t.promise;
+    expect(t.scoreArgs().brief).toMatchObject({ maxTokens: expect.any(Number) });
+    expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*opendrs review brief v1[\s\S]*\n\1$/m);
+    expect(t.output()).toMatch(/^brief-file<<(\S+)\n\S+\.json\n\1$/m);
+  });
+
+  it("is not requested, and its outputs are empty, when the brief input is false", async () => {
+    const t = await run({ inputs: { brief: false }, result: result(0.1, "green", "auto-approve") });
+    await t.promise;
+    expect(t.scoreArgs().brief).toBeUndefined();
+    expect(t.output()).toMatch(/^brief<<(\S+)\n\n\1$/m);
+    expect(t.output()).toMatch(/^brief-file<<(\S+)\n\n\1$/m);
+  });
+
+  it("replaces the brief block with an omission notice when the assembled comment would exceed 60,000 characters, keeping the full brief in the output", async () => {
+    // The real renderMarkdown (not the fixed-string mock the rest of this file uses) so the comment
+    // actually embeds the brief's own Markdown, including the oversized note that forces the cap.
+    const { renderMarkdown: real } = await vi.importActual<typeof import("../../src/report/markdown.js")>("../../src/report/markdown.js");
+    vi.mocked(renderMarkdown).mockImplementationOnce(real);
+    const huge: NonNullable<ScoreResult["brief"]> = { ...BRIEF, notes: ["x".repeat(70_000)] };
+    const t = await run({ result: { ...result(0.5, "yellow", "human-review"), brief: huge } });
+    await t.promise;
+    expect(t.gh.comments[0]!.body.length).toBeLessThanOrEqual(60_000);
+    expect(t.gh.comments[0]!.body).toContain("brief omitted: too large for a comment; see the `brief` output");
+    expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*x{100}[\s\S]*\n\1$/m); // the full brief is still in the output, uncapped
   });
 });
 

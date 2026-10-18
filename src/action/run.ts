@@ -1,3 +1,7 @@
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { renderBriefMarkdown } from "../brief/render.js";
 import { CONFIG_FILE, defaultConfig, loadConfig, parseConfigText, type OpendrsConfig } from "../domain/config.js";
 import type { Decision, ModelWeights, Tier } from "../domain/types.js";
 import { OpendrsError } from "../domain/types.js";
@@ -250,6 +254,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
         draft: pr.draft,
         changesRequestedBy,
       },
+      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens } : undefined,
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -258,6 +263,16 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   io.setOutput("score", result.score.toFixed(4));
   io.setOutput("tier", result.tier);
   io.setOutput("decision", result.policy.decision);
+  if (result.brief) {
+    io.setOutput("brief", renderBriefMarkdown(result.brief));
+    const dir = d.env.RUNNER_TEMP ?? tmpdir();
+    const file = join(dir, `opendrs-brief-${pr.number}.json`);
+    await writeFile(file, JSON.stringify(result.brief));
+    io.setOutput("brief-file", file);
+  } else {
+    io.setOutput("brief", "");
+    io.setOutput("brief-file", "");
+  }
 
   // A push during scoring: the comment, labels and reviewer request belong to the run for the new head.
   const current = await client.pullHeadSha(pr.number);
@@ -291,12 +306,15 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
   const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
+  const capped = body.length > 60_000 && result.brief
+    ? body.replace(/~~~~opendrs-brief[\s\S]*?~~~~/, "brief omitted: too large for a comment; see the `brief` output")
+    : body;
 
   if (comments) {
     await unlessForbidden(
       async () => {
-        if (mine) await client.updateComment(mine.id, body);
-        else await client.createComment(pr.number, body);
+        if (mine) await client.updateComment(mine.id, capped);
+        else await client.createComment(pr.number, capped);
       },
       () => io.warning(COMMENT_FORBIDDEN),
     );
@@ -323,6 +341,6 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     );
   }
 
-  io.summary(body);
+  io.summary(capped);
   return { score: result.score, tier: result.tier, decision: result.policy.decision, approved: approval.approved };
 }
