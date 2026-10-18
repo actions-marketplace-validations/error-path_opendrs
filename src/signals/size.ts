@@ -56,7 +56,7 @@ const DIRECTIVE =
  * code on or off, directives change the build, and `#` is code in CSS or C#. Unknown languages
  * (`other`, docs) have no trusted comment syntax.
  */
-function inert(line: string, family: LanguageFamily): boolean {
+export function inert(line: string, family: LanguageFamily): boolean {
   const t = line.trim();
   if (t === "") return true;
   let body: string | undefined;
