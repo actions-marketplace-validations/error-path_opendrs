@@ -1,0 +1,56 @@
+import { parseArgs } from "node:util";
+import { renderBriefMarkdown } from "../../brief/render.js";
+import { loadConfig } from "../../domain/config.js";
+import { OpendrsError } from "../../domain/types.js";
+import { scoreDiff } from "../../engine.js";
+import { parsePositiveInt } from "../args.js";
+import { defaultBase, repoRoot } from "../repo.js";
+import type { Command } from "../types.js";
+
+export const briefCommand: Command = {
+  name: "brief",
+  summary: "Build the review brief for the diff between two refs",
+  help: `Usage: opendrs brief [options]
+
+Build a token-budgeted review brief for the change from the merge-base of <base>
+and <head> to <head>: where to look first, what to check, what is safe to skim
+and what still needs a human. It never gates: the exit code is 0 unless it fails.
+
+Options:
+  --base <ref>         Base ref (default: origin/HEAD's target, else main, else master)
+  --head <ref>         Head ref (default: HEAD)
+  --json               Print the full ReviewBrief as JSON
+  --max-tokens <n>     Override brief.maxTokens (default 2500, max 6000)
+  --no-llm             Skip the LLM judge even when llm.enabled is true
+
+Exit codes: 0 ok, 2 error.`,
+
+  async run(args, io) {
+    const { values } = parseArgs({
+      args,
+      options: {
+        base: { type: "string" },
+        head: { type: "string" },
+        json: { type: "boolean" },
+        "max-tokens": { type: "string" },
+        "no-llm": { type: "boolean" },
+      },
+    });
+    const maxTokens = parsePositiveInt("--max-tokens", values["max-tokens"]);
+
+    const repoDir = await repoRoot(io.cwd);
+    const config = await loadConfig(repoDir);
+    const result = await scoreDiff({
+      repoDir,
+      config,
+      base: values.base ?? (await defaultBase(repoDir)),
+      head: values.head ?? "HEAD",
+      llm: values["no-llm"] ? null : undefined,
+      brief: { maxTokens },
+    });
+    if (!result.brief) throw new OpendrsError("internal error: scoreDiff did not build a brief", "io");
+
+    io.out(values.json ? JSON.stringify(result.brief, null, 2) : renderBriefMarkdown(result.brief));
+    return 0;
+  },
+};
