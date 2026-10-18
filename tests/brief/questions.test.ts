@@ -29,7 +29,7 @@ describe("checkQuestions", () => {
   it("asks an incident question when an incident names the file or its folder", () => {
     const f = fileWith([]);
     const [q] = checkQuestions([f], ctx(), [{ paths: ["src"], note: "queue stalled" }]);
-    expect(q!.question).toBe("Incident «queue stalled» involved `src/a.ts`. Could this change fail the same way?");
+    expect(q!.question).toBe("An incident «queue stalled» involved `src/a.ts`. Could this change fail the same way?");
     expect(q!.quotes).toEqual(["queue stalled"]);
     expect(checkQuestions([f], ctx(), [{ paths: ["srcx"], note: "other" }])).toEqual([]);
     expect(checkQuestions([f], ctx(), [{ paths: ["src/a.ts"] }])).toEqual([]); // no note: nothing to ask

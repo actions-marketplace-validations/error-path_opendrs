@@ -210,7 +210,7 @@ known. Priority follows the list below. The total is capped at 6, with at most 2
 
 1. **Fix regression.** For each blame hit or recent fix commit in a focus file: "Fix `a1b2c3d`
    «subject» changed these lines on 2026-09-01. Does this change bring that problem back?"
-2. **Incident.** "Incident «note» involved `path`. Could this change fail the same way?"
+2. **Incident.** "An incident «note» involved `path`. Could this change fail the same way?"
 3. **Callers.** For an exported declaration change with dependents: "`decl` changed and 37 files
    import `path`. Are all callers compatible (arguments, return values, thrown errors)?" It names
    up to 3 direct dependents.
@@ -324,8 +324,12 @@ There are at most 3 bullets, each one line:
 
 1. "**Review first:** `Queue.java` [hunk 4, 7]: last changed by a fix; exports changed (37
    dependents)".
-2. The top check question, shortened.
+2. The top check question with its «quoted» fragments removed: "**Check:** Fix `a1b2c3d` changed
+   these lines. Does this change bring that problem back?"
 3. If any rule fired, "**Needs a human:** …". Otherwise the second-ranked file.
+
+The bullets carry counts and categories only. A commit subject, incident note or judge reason
+appears nowhere in them, only inside the fenced brief, after the §7 pipeline.
 
 ## 7. Trust boundary
 
@@ -399,7 +403,7 @@ opendrs brief [--base <ref>] [--head <ref>] [--json] [--max-tokens <n>] [--no-ll
 
 **Review focus**
 - **Review first:** `Queue.java` [hunk 4, 7]: last changed by a fix; exports changed (37 dependents)
-- **Check:** fix `a1b2c3d` «Fix NPE in Queue.poll» changed these lines; does this bring it back?
+- **Check:** Fix `a1b2c3d` changed these lines. Does this change bring that problem back?
 - **Needs a human:** `broker/migrations/V12.sql` matches paths.block
 
 <details><summary>Review brief for AI reviewers (opendrs)</summary>

@@ -48,7 +48,7 @@ export function checkQuestions(ranked: RankedFile[], ctx: ScoringContext, incide
 
     const incident = incidentFor(f.file, incidents);
     if (incident?.note) {
-      add({ file: f.file, question: `Incident ${quoteUntrusted(incident.note)} involved ${path}. Could this change fail the same way?`, quotes: [incident.note], evidence: [] });
+      add({ file: f.file, question: `An incident ${quoteUntrusted(incident.note)} involved ${path}. Could this change fail the same way?`, quotes: [incident.note], evidence: [] });
     }
 
     const exports = reasons.find((r) => r.kind === "exports");

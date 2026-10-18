@@ -60,7 +60,7 @@ describe("buildBrief", () => {
     repo.commit({ "a.ts": "1\nX\n", ".opendrs/incidents.jsonl": '{"paths":["a.ts"],"note":"queue stalled"}\n' }, "change");
     const ctx = await ctxFor(repo, "HEAD~1");
     const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
-    expect(brief.checks.some((c) => c.question.startsWith("Incident"))).toBe(false);
+    expect(brief.checks.some((c) => c.question.startsWith("An incident"))).toBe(false);
     expect(brief.notes).toEqual([]);
     repo.cleanup();
   });
