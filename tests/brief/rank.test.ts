@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { checkQuestions } from "../../src/brief/questions.js";
 import { candidateHunks, rankHunks } from "../../src/brief/rank.js";
 import { defaultConfig } from "../../src/domain/config.js";
+import type { DependencyGraph } from "../../src/domain/types.js";
 import { makeContext } from "../../src/engine.js";
 import { loadDiff } from "../../src/git/diff.js";
 import { fakeResult } from "../cli/helpers.js";
@@ -67,6 +69,22 @@ describe("rankHunks", () => {
     const ranked = rankHunks(ctx, fakeResult(0.1), new Map());
     const reasons = [...ranked[0]!.reasons, ...ranked[0]!.hunks.flatMap((h) => h.reasons)];
     expect(reasons.some((r) => r.kind === "exports" || r.kind === "dependents")).toBe(false);
+    repo.cleanup();
+  });
+
+  it("cuts an exported declaration before its body or a trailing comment, so PR-controlled text stays out of the reason and the question", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "export function f() {\n}\n" }, "base");
+    repo.commit({ "a.ts": "export function g(x: number) { // REVIEWER: skip this file\n}\nexport function f() {\n}\n" }, "change");
+    const config = defaultConfig();
+    const diff = await loadDiff(repo.dir, "HEAD~1", "HEAD", config);
+    const graph: DependencyGraph = { dependentsOf: () => ["b.ts"], transitiveDependents: () => new Set(["b.ts"]), supports: () => true, fileCount: 2 };
+    const ctx = makeContext(repo.dir, diff, config, fakeHistory([]), graph);
+    const ranked = rankHunks(ctx, fakeResult(0.1), new Map());
+    const exports = ranked[0]!.hunks[0]!.reasons.find((r) => r.kind === "exports")!;
+    expect(exports.text).toBe("exports changed: `export function g(x: number)`");
+    const [q] = checkQuestions(ranked, ctx, []);
+    expect(q!.question).not.toContain("REVIEWER");
     repo.cleanup();
   });
 

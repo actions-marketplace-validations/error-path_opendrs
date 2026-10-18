@@ -70,11 +70,14 @@ function branchKeywordCount(h: Hunk): number {
   return n;
 }
 
-/** The first changed line that declares a public symbol, if any (trimmed, at most 120 chars). */
+/**
+ * The first changed line that declares a public symbol, if any: its head only (trimmed, at most 120
+ * chars), cut before a comment, an initialiser or a body, which is where PR-controlled prose would sit.
+ */
 function hunkPublicDecl(c: HunkCandidate): string | undefined {
   for (const { kind, text } of changedLines(c.hunk)) {
     const path = kind === "+" ? c.file.path : (c.file.oldPath ?? c.file.path);
-    if (isPublicDeclaration(path, text)) return text.trim().slice(0, 120);
+    if (isPublicDeclaration(path, text)) return text.split(/\/\/|\/\*|#|=|\{/, 1)[0]!.trim().slice(0, 120);
   }
   return undefined;
 }
