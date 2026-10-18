@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { defaultConfig } from "../../src/domain/config.js";
 import type { Incident, LabelledCommit } from "../../src/domain/types.js";
 import { buildHistoryIndex } from "../../src/git/history.js";
-import { labelCommits, loadIncidents } from "../../src/model/label.js";
+import { blameFix, blamedLinesBySha, labelCommits, loadIncidents } from "../../src/model/label.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
 
 async function label(repo: TestRepo, given?: Incident[]) {
@@ -155,5 +155,43 @@ describe("labelCommits", () => {
     repo.git("revert", "--no-edit", bad);
     const { of } = await label(repo);
     expect(of(bad)).toEqual({ sha: bad, label: 1, source: "revert" });
+  });
+});
+
+describe("blameFix (exported, returns path+line)", () => {
+  it("returns the blamed sha, path and line of the buggy commit's own version of the file", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    const buggy = repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    const fix = repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const hits = await blameFix(repo.dir, fix, defaultConfig().paths.ignore);
+    expect(hits).toEqual([{ sha: buggy, path: "a.ts", line: 2 }]);
+    repo.cleanup();
+  });
+});
+
+describe("blamedLinesBySha", () => {
+  it("maps a buggy commit to the lines a later fix blamed on it", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    const buggy = repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const config = defaultConfig();
+    const history = await buildHistoryIndex(repo.dir, "HEAD", config);
+    const map = await blamedLinesBySha(repo.dir, history, config);
+    expect(map.get(buggy)).toEqual([{ sha: buggy, path: "a.ts", line: 2 }]);
+    repo.cleanup();
+  });
+
+  it("does not change labelCommits' own behaviour", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n" }, "base");
+    const buggy = repo.commit({ "a.ts": "1\nBUG\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n" }, "fix: the bug");
+    const config = defaultConfig();
+    const history = await buildHistoryIndex(repo.dir, "HEAD", config);
+    const labelled = await labelCommits(repo.dir, history, config, []);
+    expect(labelled.find((l) => l.sha === buggy)).toMatchObject({ label: 1, source: "szz" });
+    repo.cleanup();
   });
 });
