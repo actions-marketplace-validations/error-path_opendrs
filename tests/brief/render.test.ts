@@ -78,6 +78,12 @@ describe("renderBriefMarkdown", () => {
     expect(md.endsWith("\nNote: history is incomplete\n")).toBe(true);
   });
 
+  it("strips a bidi override from a file path", () => {
+    const md = renderBriefMarkdown(brief({ reviewFirst: [{ file: "src/a\u202eb.ts", reasons: [], hunks: [] }] }));
+    expect(md).not.toContain("\u202e");
+    expect(md).toContain("`src/ab.ts`");
+  });
+
   it("renders a file path as inline code, never inside «»", () => {
     const md = renderBriefMarkdown(brief());
     expect(md).toContain("`Queue.java`");
@@ -98,11 +104,12 @@ describe("renderBriefMarkdown", () => {
     expect(md).not.toMatch(/\n::|\r|```/);
     expect(md.split("\n").some((l) => /^\s{0,3}~~~/.test(l))).toBe(false);
     // Free text (a gate reason, the verdict's why) is cell-escaped with mentions defused.
-    const escaped = "x ::stop::p \\| \\`y\\` &lt;img src=x&gt; @​octocat ~~~~ \\`\\`\\`";
+    const escaped = "x ::stop::p \\| \\`y\\` &lt;img src=x&gt; @​octocat ~~‌~~ \\`\\`\\`";
     expect(md).toContain(`- paths.block: hard block: ${escaped} matches paths.block`);
     expect(md).toContain(`· human-review · ${escaped}\n`);
-    // A path is one inline code span, never at the start of a line: a backtick cannot end it and HTML inside it is literal.
-    const span = "`x ::stop::p | ˋyˋ <img src=x> @octocat ~~~~ ˋˋˋ`";
+    // A path is one inline code span, never at the start of a line: a backtick cannot end it, HTML inside it is literal,
+    // and a tilde run is broken so it cannot close the comment's ~~~~ fence either.
+    const span = "`x ::stop::p | ˋyˋ <img src=x> @octocat ~~‌~~ ˋˋˋ`";
     expect(md).toContain(`1. ${span}\n`);
     expect(md).toContain(`- ${span} L3: q`);
     expect(md).toContain(`- ${span} (docs)`);

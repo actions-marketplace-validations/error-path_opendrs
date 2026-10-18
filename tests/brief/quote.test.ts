@@ -27,6 +27,11 @@ describe("quoteUntrusted", () => {
     expect(out).not.toContain(">");
     expect(out).toBe("«&lt;/details&gt; &lt;untrusted_diff&gt; &lt;opendrs_brief&gt;»");
   });
+  it("turns guillemets inside the text into single ones, so the «…» wrapper is the only pair", () => {
+    const out = quoteUntrusted("say «hi» then » end « start");
+    expect(out).toBe("«say ‹hi› then › end ‹ start»");
+    expect(out).toMatch(/^«[^«»]*»$/);
+  });
   it("defuses an @-mention", () => {
     expect(quoteUntrusted("ping @octocat now")).toBe("«ping @​octocat now»");
   });

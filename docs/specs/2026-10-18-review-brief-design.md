@@ -351,6 +351,12 @@ The PR title and description are never included.
 `/opendrs-review` command and the documented prompts repeat it as an instruction to the reviewer
 (§8).
 
+**File paths** are not quoted: they render as inline code (`report/escape.ts`'s `code()`), which
+applies step 1 (control and invisible characters removed, whitespace collapsed), turns backticks
+into `ˋ` and breaks `~~~` as step 3 does. `cell()`, for free text that is not quoted (gate reasons,
+the verdict's why), does the same. A `«` or `»` inside a quoted fragment becomes `‹` or `›`, so
+the wrapper is the only pair on the line.
+
 **In the PR comment,** the Markdown rendering sits inside a fence that uses four tildes as its
 delimiter. Its content cannot contain a tilde fence, so the brief cannot close the block or
 inject Markdown.
