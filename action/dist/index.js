@@ -27665,8 +27665,8 @@ var configSchema = external_exports.object({
   /** Path to calibrated model JSON, relative to repo root. Used when it exists. */
   model: external_exports.string().default(".opendrs/model.json"),
   brief: external_exports.object({
-    /** Token budget for the review brief's Markdown (characters / 3.5); the hard ceiling is 6000. */
-    maxTokens: external_exports.number().int().positive().max(6e3).default(2500)
+    /** Token budget for the review brief's Markdown (characters / 3.5); 300 is roughly the cost of the mandatory sections alone, the hard ceiling is 6000. */
+    maxTokens: external_exports.number().int().min(300, "brief.maxTokens must be at least 300 (the mandatory sections alone cost roughly that many tokens)").max(6e3).default(2500)
   }).prefault({}),
   freezes: external_exports.array(freezeSchema).default([]),
   sources: external_exports.object({
@@ -28197,12 +28197,12 @@ async function blameFixes(ctx, candidates) {
     candidates.map((c, i) => ({ c, i })),
     BLAME_CONCURRENCY,
     async ({ c, i }) => {
-      if (c.hunk.oldLines === 0) return;
+      const ranges = deletedRanges(c.hunk);
+      if (ranges.length === 0) return;
       const oldPath = c.file.oldPath ?? c.file.path;
       let out;
       try {
-        const range = `${c.hunk.oldStart},${c.hunk.oldStart + c.hunk.oldLines - 1}`;
-        out = await git(ctx.repoDir, ["blame", "--porcelain", "-L", range, ctx.diff.base, "--", oldPath], { timeoutMs: BLAME_TIMEOUT_MS });
+        out = await git(ctx.repoDir, ["blame", "--porcelain", ...ranges.flatMap(([a, b]) => ["-L", `${a},${b}`]), ctx.diff.base, "--", oldPath], { timeoutMs: BLAME_TIMEOUT_MS });
       } catch (e) {
         notes[i] = `blame unavailable for ${code(oldPath)}: ${untrusted(e instanceof Error ? e.message : String(e))}`;
         return;
@@ -28220,6 +28220,16 @@ async function blameFixes(ctx, candidates) {
     }
   );
   return { hits, notes: notes.filter((n) => n !== void 0) };
+}
+function deletedRanges(hunk) {
+  const ranges = [];
+  for (const { kind, line: line2 } of changedLines(hunk)) {
+    if (kind !== "-") continue;
+    const last = ranges.at(-1);
+    if (last && last[1] === line2 - 1) last[1] = line2;
+    else ranges.push([line2, line2]);
+  }
+  return ranges;
 }
 
 // src/brief/budget.ts
@@ -28244,6 +28254,7 @@ function fill(brief, maxTokens, reserveFooter) {
     notes: [],
     budget: { maxTokens, estimatedTokens: 0, truncated: reserveFooter, omitted: reserveFooter ? footer : omitted }
   };
+  const tooSmallForMandatory = estimateTokens(renderBriefMarkdown(cur)) > maxTokens;
   const tryAdd = (next) => {
     if (estimateTokens(renderBriefMarkdown(next)) > maxTokens) return false;
     cur = next;
@@ -28264,8 +28275,9 @@ function fill(brief, maxTokens, reserveFooter) {
   tryAdd({ ...cur, skim: brief.skim });
   for (const n of notes) if (!tryAdd({ ...cur, notes: [...cur.notes, n] })) omitted.notes++;
   omitted.notes += brief.notes.length - notes.length;
-  const truncated = omitted.files > 0 || omitted.hunks > 0 || omitted.checks > 0 || omitted.notes > 0;
-  const out = { ...cur, budget: { maxTokens, estimatedTokens: 0, truncated, omitted } };
+  const truncated = tooSmallForMandatory || omitted.files > 0 || omitted.hunks > 0 || omitted.checks > 0 || omitted.notes > 0;
+  const curNotes = tooSmallForMandatory ? [...cur.notes, `budget of ${maxTokens} tokens is too small to fit even the mandatory sections; this brief is over budget`] : cur.notes;
+  const out = { ...cur, notes: curNotes, budget: { maxTokens, estimatedTokens: 0, truncated, omitted } };
   return { ...out, budget: { ...out.budget, estimatedTokens: estimateTokens(renderBriefMarkdown(out)) } };
 }
 
