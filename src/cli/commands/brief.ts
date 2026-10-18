@@ -7,6 +7,9 @@ import { parsePositiveInt } from "../args.js";
 import { defaultBase, repoRoot } from "../repo.js";
 import type { Command } from "../types.js";
 
+/** Below this, the mandatory sections (verdict, needs a human, not ranked) alone cost roughly that many tokens. */
+const MIN_MAX_TOKENS = 300;
+
 export const briefCommand: Command = {
   name: "brief",
   summary: "Build the review brief for the diff between two refs",
@@ -20,7 +23,7 @@ Options:
   --base <ref>         Base ref (default: origin/HEAD's target, else main, else master)
   --head <ref>         Head ref (default: HEAD)
   --json               Print the full ReviewBrief as JSON
-  --max-tokens <n>     Override brief.maxTokens (default 2500, max 6000)
+  --max-tokens <n>     Override brief.maxTokens (default 2500, min 300, max 6000)
   --no-llm             Skip the LLM judge even when llm.enabled is true
 
 Exit codes: 0 ok, 2 error.`,
@@ -37,6 +40,9 @@ Exit codes: 0 ok, 2 error.`,
       },
     });
     const maxTokens = parsePositiveInt("--max-tokens", values["max-tokens"]);
+    if (maxTokens !== undefined && maxTokens < MIN_MAX_TOKENS) {
+      throw new OpendrsError(`--max-tokens must be at least ${MIN_MAX_TOKENS}, got '${values["max-tokens"]}'`, "usage");
+    }
 
     const repoDir = await repoRoot(io.cwd);
     const config = await loadConfig(repoDir);

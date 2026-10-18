@@ -32,6 +32,9 @@ function fill(brief: ReviewBrief, maxTokens: number, reserveFooter: boolean): Re
     notes: [],
     budget: { maxTokens, estimatedTokens: 0, truncated: reserveFooter, omitted: reserveFooter ? footer : omitted },
   };
+  // The mandatory sections (verdict, needs a human, not ranked) are never cut, so they can still
+  // outgrow a very small budget on their own, before anything optional is even considered.
+  const tooSmallForMandatory = estimateTokens(renderBriefMarkdown(cur)) > maxTokens;
   const tryAdd = (next: ReviewBrief): boolean => {
     if (estimateTokens(renderBriefMarkdown(next)) > maxTokens) return false;
     cur = next;
@@ -54,7 +57,10 @@ function fill(brief: ReviewBrief, maxTokens: number, reserveFooter: boolean): Re
   for (const n of notes) if (!tryAdd({ ...cur, notes: [...cur.notes, n] })) omitted.notes++;
   omitted.notes += brief.notes.length - notes.length;
 
-  const truncated = omitted.files > 0 || omitted.hunks > 0 || omitted.checks > 0 || omitted.notes > 0;
-  const out: ReviewBrief = { ...cur, budget: { maxTokens, estimatedTokens: 0, truncated, omitted } };
+  const truncated = tooSmallForMandatory || omitted.files > 0 || omitted.hunks > 0 || omitted.checks > 0 || omitted.notes > 0;
+  const curNotes = tooSmallForMandatory
+    ? [...cur.notes, `budget of ${maxTokens} tokens is too small to fit even the mandatory sections; this brief is over budget`]
+    : cur.notes;
+  const out: ReviewBrief = { ...cur, notes: curNotes, budget: { maxTokens, estimatedTokens: 0, truncated, omitted } };
   return { ...out, budget: { ...out.budget, estimatedTokens: estimateTokens(renderBriefMarkdown(out)) } };
 }

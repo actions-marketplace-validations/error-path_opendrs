@@ -33,8 +33,10 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - New `opendrs brief` CLI command and `review_brief` MCP tool: the same token-budgeted review
   brief (where to look first, what to check, what is safe to skim, what still needs a human), for
   a terminal or an agent instead of the Action. `opendrs backtest --brief` reports its (free,
-  report-only) focus hit rate. Budget is `brief.maxTokens` in `.opendrs.yml` (default 2500, max
-  6000; see [docs/configuration.md](docs/configuration.md)).
+  report-only) focus hit rate. Budget is `brief.maxTokens` in `.opendrs.yml` (default 2500, min
+  300, max 6000; see [docs/configuration.md](docs/configuration.md)). A budget below 300 — too
+  small for the brief's mandatory sections — is rejected with a clear error from the config,
+  `--max-tokens` and the MCP tool's `maxTokens` alike.
 
 ## 0.2.0 - 2026-10-18
 

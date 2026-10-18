@@ -78,7 +78,7 @@ records the alternatives, so the user can overrule it.
 | D2 | Where the code lives | New module `src/brief/`. A pure `buildBrief(result, ctx, options)` and separate renderers. `scoreDiff` gains an option to also return the brief | Inline in `scoreDiff`; a separate pipeline that re-reads git | Reuses the scoring context (diff, history, graph) without recomputing, and keeps the scoring path untouched |
 | D3 | Unit of focus | Hunks, grouped under files | Files only; individual lines | Meta's result is about hunks. Hunks are what a reviewer reads, and the judge already numbers them |
 | D4 | Hunk ranking | A documented heuristic score (§5.3) from file risk at rest, the change's own features, `git blame` hits on past fix commits, and the judge's risk category when present | Reuse the logistic model per hunk; train a hunk ranker | No hunk labels exist to fit a model to. The heuristic is transparent and can be tuned later by the focus-hit-rate metric (§10.2) |
-| D5 | Tokens | Estimated as characters ÷ 3.5, the same rule as the LLM bench. Default budget 2,500, set with `brief.maxTokens` and `--max-tokens`. A hard ceiling of 6,000 | A real tokenizer dependency; budgeting characters | No new dependency, and good enough for a cap. The ceiling bounds PR-comment size |
+| D5 | Tokens | Estimated as characters ÷ 3.5, the same rule as the LLM bench. Default budget 2,500, set with `brief.maxTokens`, `--max-tokens` and the MCP tool's `maxTokens`. A floor of 300 (roughly the mandatory sections' own cost) and a hard ceiling of 6,000 | A real tokenizer dependency; budgeting characters; no floor | No new dependency, and good enough for a cap. The ceiling bounds PR-comment size. The floor rejects a budget too small for the sections `fitBudget` never cuts, instead of silently rendering over it |
 | D6 | The format an LLM reads | Markdown with fixed section headings and stable item markers (§6.2) | JSON in the prompt; XML | Markdown costs fewer tokens than JSON and reads naturally to LLMs and humans. JSON stays the machine format for tools and the Action output |
 | D7 | The brief in the PR comment | A fenced block with info string `opendrs-brief`, inside `<details><summary>Review brief for AI reviewers</summary>` | A hidden `<!-- -->` HTML comment; plain visible text; JSON in a fence | claude-code-action strips HTML comments before Claude sees them (its `sanitizer.ts`), but keeps `<details>` content. A fence renders as inert text, so untrusted strings cannot become links or mentions. A collapsed section keeps the comment short for humans |
 | D8 | Comment layout | The marker and the heading line stay as they are. Then "**Review focus**" (at most 3 bullets). Then the brief's `<details>`. Then the old score table, unknowns, policy and LLM block moved into `<details><summary>Score details</summary>` | A separate second comment for the brief; keeping the table on top | One comment means one marker, and the eligibility-time logic keeps working. Humans see the focus first |
@@ -334,6 +334,11 @@ Quoted («…») and backticked text is from commit messages, incident notes, fi
   ranked, Review first (file by file, hunk by hunk), Check specifically, Safe to skim, and last the
   notes (at most 5, each clipped to 200 characters). When the budget runs out, the rest is counted
   in `budget.omitted`, and a closing line says so.
+- **The mandatory sections** (verdict, Needs a human, Not ranked, plus the footer) are never cut.
+  `brief.maxTokens` has a floor of 300 so a configured budget cannot be smaller than they typically
+  cost, but a brief whose mandatory sections are unusually large can still exceed even a 300-token
+  budget; `fitBudget` then sets `budget.truncated` and adds a note saying so, rather than silently
+  rendering over the limit.
 
 ### 6.3 The human bullets at the top of the PR comment
 
@@ -395,7 +400,7 @@ opendrs brief [--base <ref>] [--head <ref>] [--json] [--max-tokens <n>] [--no-ll
 
 - **Defaults.** `--base` and `--head` default the same way as `score`. The default output is the
   Markdown rendering (§6.2), and `--json` prints `ReviewBrief`.
-- **Budget.** `--max-tokens` overrides `brief.maxTokens` (default 2,500, maximum 6,000).
+- **Budget.** `--max-tokens` overrides `brief.maxTokens` (default 2,500, minimum 300, maximum 6,000).
 - **Exit code.** Always 0 when the brief was built. It is informational, not a gate; `score`
   keeps the gate's exit codes.
 - **The judge** runs only when `llm.enabled` is set, as for `score`. `--no-llm` skips it.

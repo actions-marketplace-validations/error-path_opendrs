@@ -42,12 +42,19 @@ describe("opendrs brief", () => {
   it("--max-tokens overrides config.brief.maxTokens and rejects a bad value", async () => {
     repo = repoWithFix();
     const { io, stdout } = testIo(repo.dir);
-    await runCli(["brief", "--base", "main", "--json", "--max-tokens", "100"], io);
-    expect(JSON.parse(stdout()).budget.maxTokens).toBe(100);
+    await runCli(["brief", "--base", "main", "--json", "--max-tokens", "500"], io);
+    expect(JSON.parse(stdout()).budget.maxTokens).toBe(500);
 
     const bad = testIo(repo.dir);
     expect(await runCli(["brief", "--base", "main", "--max-tokens", "lots"], bad.io)).toBe(2);
     expect(bad.stderr()).toContain("--max-tokens must be a positive integer");
+  });
+
+  it("--max-tokens rejects a value too small to fit the brief's mandatory sections", async () => {
+    repo = repoWithFix();
+    const { io, stderr } = testIo(repo.dir);
+    expect(await runCli(["brief", "--base", "main", "--max-tokens", "100"], io)).toBe(2);
+    expect(stderr()).toContain("--max-tokens must be at least 300");
   });
 
   it("--no-llm is accepted and still exits 0", async () => {

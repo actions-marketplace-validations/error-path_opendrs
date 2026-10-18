@@ -112,4 +112,11 @@ describe("fitBudget", () => {
     expect(fitBudget(b, 40).skim).toEqual({ counts: {} });
     expect(fitBudget(b, 6000).skim).toEqual({ counts: { docs: 30 } });
   });
+
+  it("flags truncated with a note, instead of silently exceeding, when even the mandatory sections do not fit", () => {
+    const out = fitBudget(bigBrief(), 1);
+    expect(out.budget.truncated).toBe(true);
+    expect(out.notes.some((n) => /too small/i.test(n))).toBe(true);
+    expect(out.budget.estimatedTokens).toBeGreaterThan(1);
+  });
 });

@@ -41,7 +41,12 @@ export function createMcpServer(): McpServer {
         repoDir,
         base: z.string().min(1).optional().describe('Base ref to diff against. Defaults to "origin/HEAD", or "main" when that is not set.'),
         head: z.string().min(1).optional().describe('Head ref to score. Defaults to "HEAD".'),
-        maxTokens: z.number().int().positive().optional().describe("Token budget for the brief (default 2500 or brief.maxTokens in .opendrs.yml, max 6000)."),
+        maxTokens: z
+          .number()
+          .int()
+          .min(300, "maxTokens must be at least 300 (the mandatory sections alone cost roughly that many tokens)")
+          .optional()
+          .describe("Token budget for the brief (default 2500 or brief.maxTokens in .opendrs.yml, min 300, max 6000)."),
       },
       // A loose shape that only satisfies the SDK's structuredContent contract; ReviewBrief's full type lives in domain/types.ts.
       outputSchema: {

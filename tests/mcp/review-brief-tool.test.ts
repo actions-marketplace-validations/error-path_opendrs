@@ -58,4 +58,16 @@ describe("reviewBriefTool", () => {
     expect(r.structuredContent).toEqual(brief());
     expect(JSON.stringify(r.content)).toContain("opendrs review brief v1");
   });
+
+  it("rejects a maxTokens too small to fit the brief's mandatory sections", async () => {
+    vi.mocked(scoreDiff).mockResolvedValue({ brief: brief() } as never);
+    const server = createMcpServer();
+    const client = new Client({ name: "test", version: "0.0.0" });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+
+    const r = await client.callTool({ name: "review_brief", arguments: { repoDir: REPO, maxTokens: 100 } });
+    expect(r.isError).toBe(true);
+    expect(JSON.stringify(r.content)).toMatch(/at least 300/);
+  });
 });

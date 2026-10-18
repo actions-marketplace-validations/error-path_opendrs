@@ -378,4 +378,9 @@ describe("brief", () => {
     expect(configError({ brief: { maxTokens: 0 } })).toMatch(/brief.*maxTokens/i);
     expect(parseConfig({ brief: { maxTokens: 500 } }).brief.maxTokens).toBe(500);
   });
+
+  it("rejects a maxTokens too small to fit the brief's mandatory sections", () => {
+    expect(configError({ brief: { maxTokens: 299 } })).toMatch(/brief\.maxTokens.*at least 300/i);
+    expect(parseConfig({ brief: { maxTokens: 300 } }).brief.maxTokens).toBe(300);
+  });
 });

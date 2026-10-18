@@ -96,7 +96,7 @@ graph:
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
 
 brief:
-  maxTokens: 2500   # token budget for the review brief's Markdown (characters / 3.5); hard ceiling 6000
+  maxTokens: 2500   # token budget for the review brief's Markdown (characters / 3.5); min 300, max 6000
 
 content:
   block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]
