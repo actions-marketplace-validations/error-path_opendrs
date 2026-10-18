@@ -4,6 +4,10 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+- New `/opendrs-review` Claude Code plugin command, a "Brief before you review" section in the
+  agent skill, and [docs/llm-reviewers.md](docs/llm-reviewers.md): recipes for claude-code-action,
+  Cursor Bugbot, CodeRabbit's `path_instructions`, and the generic "paste the brief" pattern for
+  GitHub Copilot and Codex.
 - `calibrate` refits its chosen setting on every labelled commit. It still chooses the penalty,
   decides whether to keep the priors, and measures its held-out `metrics` on an 80 / 20 time split.
   Earlier versions saved the oldest-80 % fit, which never saw the newest fifth of the history. On
