@@ -16,6 +16,7 @@ description: "Every key in .opendrs.yml with its default: thresholds, auto-appro
 | `history` | Lookback window, fix-commit pattern, commit cap and the label horizon that `calibrate` and `backtest` skip |
 | `graph` | The import graph: on or off, depth and file cap |
 | `model` | Where `opendrs calibrate` writes the fitted model; priors are used until it exists |
+| `brief` | Token budget for the review brief's Markdown |
 | `content` | JS regexes matched against each added line (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `freezes` | Windows in which auto-approval is suspended or held to a stricter green (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `sources` | Per-source policy for agent, bot and human PRs; every setting only tightens the gate |
@@ -93,6 +94,9 @@ graph:
   maxFiles: 50000
 
 model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used until it exists
+
+brief:
+  maxTokens: 2500   # token budget for the review brief's Markdown (characters / 3.5); hard ceiling 6000
 
 content:
   block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]

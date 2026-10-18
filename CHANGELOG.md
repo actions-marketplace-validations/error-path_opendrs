@@ -26,9 +26,15 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   section, built deterministically from signals already computed (no extra LLM call). The old
   signal table, unknowns, policy reasons and LLM block move into a collapsed "Score details"
   section — expand it, or read the Action's outputs, if you scrape the table. Set the new `brief`
-  input to `false` for the old layout, byte for byte.
+  input to `false` for the old layout: identical except that control, format (invisible/bidi) and
+  tilde-fence characters in untrusted text are now neutralised.
 - New Action outputs `brief` (the brief as Markdown) and `brief-file` (its JSON, under
   `$RUNNER_TEMP`); both empty when `brief: false`. The brief is also included in the job summary.
+- New `opendrs brief` CLI command and `review_brief` MCP tool: the same token-budgeted review
+  brief (where to look first, what to check, what is safe to skim, what still needs a human), for
+  a terminal or an agent instead of the Action. `opendrs backtest --brief` reports its (free,
+  report-only) focus hit rate. Budget is `brief.maxTokens` in `.opendrs.yml` (default 2500, max
+  6000; see [docs/configuration.md](docs/configuration.md)).
 
 ## 0.2.0 - 2026-10-18
 

@@ -116,7 +116,7 @@ flowchart LR
 | Content blocklist | Regexes on added lines send a PR to a human | off | [Configuration](docs/configuration.md) |
 | Reviewer assignment | One of the top three experts is asked to review risky PRs | on in the Action | [Policy](docs/policy.md) |
 | Hotspots | Rank files by risk at rest | run on demand | [CLI and MCP](docs/cli-and-mcp.md) |
-| Review brief | Ranks hunks to read first, fixed check questions, safe-to-skim list, hard-rule reasons — fed to Claude Code, claude-code-action, Bugbot, CodeRabbit, Copilot and Codex | on | [LLM reviewers](docs/llm-reviewers.md), [CLI and MCP](docs/cli-and-mcp.md) |
+| Review brief | Ranks hunks to read first, fixed check questions, safe-to-skim list, hard-rule reasons — recipes for claude-code-action, Bugbot, CodeRabbit (limited), Copilot and Codex (paste) | on | [LLM reviewers](docs/llm-reviewers.md), [CLI and MCP](docs/cli-and-mcp.md) |
 | Incident feedback | `opendrs feedback` records incidents for calibration | run on demand | [Calibration](docs/calibration.md) |
 
 Every setting lives in `.opendrs.yml`, read from the base branch so a PR cannot loosen its own gate:

@@ -30,8 +30,9 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 **Status.** Pre-registered on 2026-10-18, revised the same day, then amended the same day again
 before any spend (see Amendments, below). No API spend yet: paid LLM tests are paused until the
-user approves Phase 1. The full plan, with the prompt drafts, the context block, the literature
-and the power analysis, is in
+user approves Phase 1. The bench wiring for arm 2 (spec §13 phase 4) is **deferred by decision**:
+it is not built until the user approves the paid experiment. The full plan, with the prompt
+drafts, the context block, the literature and the power analysis, is in
 [the research note, Part 5](research/2026-10-18-review-risk-heuristics.html#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
 
 **Question.** Does an LLM reviewer plus opendrs beat the same LLM alone, by enough to justify any

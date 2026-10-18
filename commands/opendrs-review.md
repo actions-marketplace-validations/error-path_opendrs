@@ -4,7 +4,7 @@ description: Review the current diff using the opendrs review brief as a reading
 
 ## Context
 
-- Build the review brief: !`npx @error-path/opendrs brief --base $(git merge-base origin/HEAD HEAD 2>/dev/null || git merge-base main HEAD)` (or call the MCP tool `review_brief` if the opendrs MCP server is connected).
+- Build the review brief: !`npx @error-path/opendrs brief` (or call the MCP tool `review_brief` if the opendrs MCP server is connected).
 
 ## Your task
 
