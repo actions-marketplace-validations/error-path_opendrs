@@ -1,4 +1,5 @@
-import type { Signal } from "../domain/types.js";
+import type { OpendrsConfig } from "../domain/config.js";
+import type { CommitInfo, HistoryIndex, Signal } from "../domain/types.js";
 import { computeSignals, makeContext } from "../engine.js";
 import { loadDiff } from "../git/diff.js";
 import { git } from "../git/exec.js";
@@ -30,6 +31,26 @@ export const GRAPH_APPROXIMATION_NOTE =
 const CONCURRENCY = 8;
 
 /**
+ * Non-merge commits newest-first, bounded by `since` (a git date filter, applied via `rev-list`)
+ * and `maxCommits`. Shared by replayHistory and backtest's focus-hit measurement so both agree on
+ * which commits are "in the window".
+ */
+export async function windowedCommits(
+  repoDir: string,
+  head: string,
+  history: HistoryIndex,
+  config: OpendrsConfig,
+  opts: { since?: string; maxCommits?: number },
+): Promise<CommitInfo[]> {
+  let commits = history.commits.filter((c) => c.parents.length === 1);
+  if (opts.since) {
+    const inWindow = new Set((await git(repoDir, ["rev-list", `--since=${opts.since}`, head])).split("\n").filter(Boolean));
+    commits = commits.filter((c) => inWindow.has(c.sha));
+  }
+  return commits.slice(0, opts.maxCommits ?? config.history.maxCommits);
+}
+
+/**
  * Walk non-merge commits newest-first (bounded by since/maxCommits) and compute each commit's
  * signals as of its parent: diff parent..sha, history cut at the commit time.
  */
@@ -41,12 +62,7 @@ export async function replayHistory(opts: HistoryRunOptions): Promise<ReplayResu
   // See GRAPH_APPROXIMATION_NOTE; backtest reports carry it.
   const graph = config.graph.enabled ? await buildDependencyGraph(repoDir, head, config).catch(() => undefined) : undefined;
 
-  let commits = history.commits.filter((c) => c.parents.length === 1);
-  if (opts.since) {
-    const inWindow = new Set((await git(repoDir, ["rev-list", `--since=${opts.since}`, head])).split("\n").filter(Boolean));
-    commits = commits.filter((c) => inWindow.has(c.sha));
-  }
-  commits = commits.slice(0, opts.maxCommits ?? config.history.maxCommits);
+  let commits = await windowedCommits(repoDir, head, history, config, opts);
 
   const warnings: string[] = [];
   let labels: Map<string, 0 | 1>;

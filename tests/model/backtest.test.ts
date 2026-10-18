@@ -109,6 +109,33 @@ describe("focusHitRate", () => {
     expect(result.hitRate).toBe(0);
     repo.cleanup();
   });
+
+  it("applies maxCommits to the same newest-first window as replayHistory, before the SZZ filter", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug"); // SZZ-labelled, but outside the 1-commit window
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\nmore\n" }, "unrelated newest change"); // the only commit in the window
+    const config = defaultConfig();
+    // Filtering to SZZ-labelled commits before windowing would still find "introduce bug" here.
+    const result = await focusHitRate({ repoDir: repo.dir, config, maxCommits: 1 });
+    expect(result.commits).toBe(0);
+    repo.cleanup();
+  });
+
+  it("applies since to the same window as replayHistory, before the SZZ filter", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base", undefined, 1_700_000_000);
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug", undefined, 1_700_001_000); // SZZ-labelled, but before `since`
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug", undefined, 1_700_002_000);
+    repo.commit({ "a.ts": "1\nFIXED\n3\nmore\n" }, "unrelated newest change", undefined, 1_700_100_000); // after `since`
+    const config = defaultConfig();
+    const since = new Date(1_700_050_000 * 1000).toISOString();
+    // Ignoring `since` would still find "introduce bug" here.
+    const result = await focusHitRate({ repoDir: repo.dir, config, since });
+    expect(result.commits).toBe(0);
+    repo.cleanup();
+  });
 });
 
 describe("backtest --brief wiring", () => {

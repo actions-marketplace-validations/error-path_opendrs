@@ -12,7 +12,7 @@ import { timeSplit } from "./fit.js";
 import { blamedLinesBySha, labelCommits, loadIncidents } from "./label.js";
 import { scoreSignals } from "./logistic.js";
 import { captureCurve, evaluate } from "./metrics.js";
-import { GRAPH_APPROXIMATION_NOTE, replayHistory, type ReplayRow } from "./replay.js";
+import { GRAPH_APPROXIMATION_NOTE, replayHistory, windowedCommits, type ReplayRow } from "./replay.js";
 import { VERSION } from "../version.js";
 
 export interface BacktestReport {
@@ -53,14 +53,16 @@ export interface FocusHitRate { commits: number; hits: number; hitRate: number; 
  */
 export async function focusHitRate(opts: HistoryRunOptions & { maxTokens?: number }): Promise<FocusHitRate> {
   const { repoDir, config } = opts;
-  const head = (await git(repoDir, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+  const head = (await git(repoDir, ["rev-parse", "--verify", `${opts.head ?? "HEAD"}^{commit}`])).trim();
   const history = await buildHistoryIndex(repoDir, head, config);
   const incidents = await loadIncidents(repoDir);
   const labelled = await labelCommits(repoDir, history, config, incidents);
   const szzShas = new Set(labelled.filter((l) => l.label === 1 && l.source === "szz").map((l) => l.sha));
   const bySha = await blamedLinesBySha(repoDir, history, config);
 
-  const commits = history.commits.filter((c) => szzShas.has(c.sha) && c.parents.length === 1).slice(0, opts.maxCommits ?? config.history.maxCommits);
+  // Same window replayHistory uses (since/maxCommits), applied before the SZZ filter: a commit
+  // outside the window must not be measured just because an older commit inside it is not labelled.
+  const commits = (await windowedCommits(repoDir, head, history, config, opts)).filter((c) => szzShas.has(c.sha));
   let evaluated = 0;
   let hits = 0;
   let shareSum = 0;
