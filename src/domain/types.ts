@@ -287,7 +287,7 @@ export interface ReviewBrief {
     hunks: Array<{ id: number; oldStart: number; newStart: number; newLines: number; score: number; reasons: BriefReason[] }>;
   }>;
   checks: Array<{ file: string; line?: number; question: string; quotes: string[]; evidence: string[] }>;
-  skim: Array<{ file: string; category: "ignored" | "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
+  skim: Array<{ file: string; category: "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
   human: Array<{ rule: PolicyRule; reason: string }>;
   notRanked: { hunks: number; files: number };
   budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number; notes: number } };

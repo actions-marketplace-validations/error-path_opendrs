@@ -20,9 +20,10 @@ function skimEntries(ctx: ScoringContext): SkimEntry[] {
   const testsDeleted = ctx.diff.files.some((f) => isTest(f.path) && (f.status === "deleted" || f.deleted > f.added));
   const entries: SkimEntry[] = [];
   for (const f of ctx.diff.files) {
-    if (f.binary || f.submodule) continue;
-    if (f.ignored) entries.push({ file: f.path, category: "ignored" });
-    else if (languageFamily(f.path) === "docs") entries.push({ file: f.path, category: "docs" });
+    // Ignored and binary files are never read, so they need a human regardless (spec §5.7,
+    // the unread-files rule); they never count as safe to skim too.
+    if (f.binary || f.submodule || f.ignored) continue;
+    if (languageFamily(f.path) === "docs") entries.push({ file: f.path, category: "docs" });
     else if (isTest(f.path)) {
       if (!testsDeleted) entries.push({ file: f.path, category: "tests" });
     } else if (commentOnly(f)) entries.push({ file: f.path, category: "comment-only" });

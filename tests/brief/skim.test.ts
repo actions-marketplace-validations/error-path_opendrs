@@ -17,16 +17,21 @@ async function ctxFor(before: Record<string, string>, after: Record<string, stri
 }
 
 describe("skimList", () => {
-  it("lists docs, ignored and comment-only files, but not a file with a code change", async () => {
+  it("lists docs and comment-only files, but not a file with a code change", async () => {
     const { repo, ctx } = await ctxFor(
-      { "README.md": "# old\n", "pkg-lock.json": '{"v":1}\n', "a.ts": "// comment\nconst x = 1;\n", "b.ts": "const y = 1;\n" },
-      { "README.md": "# updated\n", "pkg-lock.json": '{"v":2}\n', "a.ts": "// updated comment\nconst x = 1;\n", "b.ts": "const y = 2;\n" },
+      { "README.md": "# old\n", "a.ts": "// comment\nconst x = 1;\n", "b.ts": "const y = 1;\n" },
+      { "README.md": "# updated\n", "a.ts": "// updated comment\nconst x = 1;\n", "b.ts": "const y = 2;\n" },
     );
     expect(skimList(ctx)).toEqual([
       { file: "README.md", category: "docs" },
       { file: "a.ts", category: "comment-only" },
-      { file: "pkg-lock.json", category: "ignored" },
     ]);
+    repo.cleanup();
+  });
+
+  it("never lists an ignored file: it needs a human regardless (spec §5.7, unread-files), not a skim", async () => {
+    const { repo, ctx } = await ctxFor({ "pkg-lock.json": '{"v":1}\n' }, { "pkg-lock.json": '{"v":2}\n' });
+    expect(skimList(ctx)).toEqual([]);
     repo.cleanup();
   });
 

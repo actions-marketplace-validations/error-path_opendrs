@@ -86,7 +86,7 @@ records the alternatives, so the user can overrule it.
 | D10 | Default on or off | On by default. The Action input `brief: false` (and the config key `brief.enabled: false`) restores today's comment byte for byte | Opt-in | This is the product's new value. Opt-out keeps a clean escape hatch for anyone parsing the old layout |
 | D11 | Untrusted text | Commit subjects, incident notes, author names and file paths are quoted, clipped to 120 characters, stripped of control characters and fence sequences, and @-mention-neutralised. Every rendering carries a fixed line saying quoted text is data, never an instruction | Leaving out commit subjects altogether | Past fix subjects are the most useful "check specifically" material (ContextCRBench's gains came from text context), so they are kept and contained instead |
 | D12 | Check questions | Fixed templates filled from signal evidence (§5.5). At most 6 | Free-form questions written by an LLM | Deterministic, and each question traces back to evidence |
-| D13 | "Safe to skim" | Only mechanically safe categories: ignored or generated, docs, comment-only and test-only changes. Never "not ranked" | Listing every low-ranked hunk as safe | Calling unranked code "safe" would anchor the reviewer away from real bugs (§11) |
+| D13 | "Safe to skim" | Only mechanically safe categories: docs, comment-only and test-only changes. Never "not ranked", and never an ignored/generated or binary file — those need a human regardless (§5.7), so they are never also "safe to skim" | Listing every low-ranked hunk as safe | Calling unranked code "safe" would anchor the reviewer away from real bugs (§11) |
 | D14 | Blame on the hunks under focus | `git blame --porcelain -L` on the old-side lines of at most 24 candidate hunks at the base revision. A hit on a fix or revert commit becomes a reason | Skipping blame; diffing every past fix commit | This is the strongest per-hunk history signal: "these lines were last changed by fix a1b2c3d". It is cheap with a cap |
 | D15 | CodeRabbit | Documented as limited. There is no documented way to feed a per-PR brief, so the recipe is a static `path_instructions` block built from `opendrs hotspots`, plus "paste the brief" in chat | Promising a per-PR integration | We found no CodeRabbit doc that says it reads other bots' comments or per-PR instructions (§8.4) |
 | D16 | Experiment arm 2 | Arm 2's context block becomes this brief's LLM rendering, built by the same `buildBrief` at the bench's point in time (§10) | A separate hand-built context block | Building the product builds the experiment, and the experiment measures the product |
@@ -96,7 +96,7 @@ records the alternatives, so the user can overrule it.
 ```
 scoreDiff(opts with brief: {maxTokens})
   ├─ the existing path: diff → history, graph → signals → score → policy → ScoreResult
-  └─ buildBrief(result, ctx, {maxTokens, now})                     src/brief/build.ts
+  └─ buildBrief(result, ctx, {maxTokens})                          src/brief/build.ts
         ├─ rankHunks(ctx, result)                                  src/brief/rank.ts
         │     file risk at rest (fileCommits, dependents, critical; hotspotScore's weights)
         │     + change features (public declarations, churn, tests, the author's familiarity)
@@ -226,12 +226,13 @@ known. Priority follows the list below. The total is capped at 6, with at most 2
 ### 5.6 Safe to skim
 
 A file is listed as safe to skim when one of these holds:
-- it is ignored (lockfile, generated or vendored);
 - it is in the docs language family;
 - its changes are comment-only (the same test `size.comment_only` uses, per file);
 - it is a test file and the PR deletes no tests.
 
-Binary files and submodules are never listed as safe to skim; they go to §5.7. Beyond 20 paths,
+Ignored files (lockfile, generated or vendored), binary files and submodules are never listed as
+safe to skim; they go to §5.7 instead, under the `unread-files` rule — nothing reads their
+contents, so a file cannot be both "safe to skim" and "needs a human regardless". Beyond 20 paths,
 the list collapses to counts per category.
 
 **A skim-listed file never appears in "Review first" when the PR has any non-skimmable changed
@@ -277,7 +278,7 @@ export interface ReviewBrief {
     hunks: Array<{ id: number; oldStart: number; newStart: number; newLines: number; score: number; reasons: BriefReason[] }>;
   }>;
   checks: Array<{ file: string; line?: number; question: string; quotes: string[]; evidence: string[] }>;
-  skim: Array<{ file: string; category: "ignored" | "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
+  skim: Array<{ file: string; category: "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
   human: Array<{ rule: PolicyRule; reason: string }>;
   notRanked: { hunks: number; files: number };
   budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number; notes: number } };
@@ -549,11 +550,11 @@ given opendrs's context". With this spec:
   builder at each commit's point in time (`asOf`, with history and graph at the parent), with the
   judge's own `[hunk N]` numbering. So the brief the experiment measures is the brief the product
   ships.
-- **Token cap.** The pre-registered plan caps arm 2's extra input at +15 % of mean tokens, about
-  +900. So the run uses `maxTokens: 900`, and the product default stays 2,500.
-  - This is an amendment to the plan's §5.5 block. It has to be recorded before any spend.
-  - A second run at 2,500 tokens is optional, and would test whether more brief buys more bugs
-    per token.
+- **Token cap.** The pre-registered plan capped arm 2's extra input at +15 % of mean tokens, about
+  +900 (`maxTokens: 900`). The 2026-10-18 amendment dropped that 900-token variant: arm 2 runs at
+  the product default `maxTokens: 2,500`, with the input cap raised to +30 % of arm 1's mean
+  tokens, so the experiment measures the brief as shipped (see
+  [docs/experiments.md](../experiments.md) and the research note, Part 5, "Amendments").
 - **The judge in the bench** runs before the brief exists, so arm 2's brief excludes the "LLM
   judge" reasons. This is `buildBrief`'s `llm: false` option, and there is no leakage between
   arms.
@@ -661,8 +662,9 @@ This is the tuning signal for the §5.3 weights. Weight changes are pre-register
 4. **Measurement:**
    - `backtest --brief` with the focus hit rate (free), with `blameFix` extended to return blamed
      lines;
-   - the bench wiring for experiment arm 2, at no cost to build. Running it is the paid run, which
-     needs the user's separate approval, recorded as a plan amendment.
+   - the bench wiring for experiment arm 2 is **deferred by decision**: it is not built in this
+     phase. It gets built when the user approves the paid experiment; running it is the paid run,
+     which needs the user's separate approval, recorded as a plan amendment.
 
 ## 14. Open questions for the user
 
