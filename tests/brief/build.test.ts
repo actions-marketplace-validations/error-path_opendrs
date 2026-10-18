@@ -129,6 +129,9 @@ describe("buildBrief", () => {
     blocked.policy.rules = [{ rule: "paths.block", reason: "hard block: Makefile matches paths.block" }];
     expect((await buildBrief(blocked, ctx)).verdict.why).toBe("hard block: Makefile matches paths.block");
     expect((await buildBrief(blocked, ctx)).human).toEqual(blocked.policy.rules);
+    // A hard-blocked result from an older caller, with no rules at all, falls back to the policy line.
+    const legacy = { ...blocked, policy: { ...blocked.policy, rules: undefined } };
+    expect((await buildBrief(legacy, ctx)).verdict.why).toBe(blocked.policy.reasons[0]);
 
     const scored = fakeResult(0.4, "yellow", "human-review");
     scored.signals = [{ id: "blast.dependents", value: 3, status: "observed", summary: "37 files depend on the changed files", evidence: [] }];

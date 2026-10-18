@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { needsHuman } from "../../src/brief/human.js";
 import type { PolicyOutcome } from "../../src/domain/types.js";
 
-const policy = (rules: PolicyOutcome["rules"]): PolicyOutcome => ({
+const policy = (rules: NonNullable<PolicyOutcome["rules"]>): PolicyOutcome => ({
   tier: "yellow",
   decision: "human-review",
   reasons: rules.map((r) => r.reason),
@@ -41,5 +41,9 @@ describe("needsHuman", () => {
 
   it("returns an empty array when nothing fired", () => {
     expect(needsHuman(policy([]))).toEqual([]);
+  });
+
+  it("treats a PolicyOutcome without rules (an older caller of the public API) as nothing fired", () => {
+    expect(needsHuman({ ...policy([]), rules: undefined })).toEqual([]);
   });
 });

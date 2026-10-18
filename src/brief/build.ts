@@ -77,7 +77,7 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
 function verdictOf(result: ScoreResult): ReviewBrief["verdict"] {
   const top = result.contributions.find((c) => c.contribution !== 0);
   const why =
-    result.policy.hardBlocked && result.policy.rules[0]
+    result.policy.hardBlocked && result.policy.rules?.[0]
       ? result.policy.rules[0].reason
       : (top && result.signals.find((s) => s.id === top.id)?.summary) || result.policy.reasons[0] || "";
   return { tier: result.tier, score: result.score, decision: result.policy.decision, why };

@@ -780,13 +780,13 @@ describe("rules (tagged subset of reasons, for the brief's needsHuman)", () => {
     expect(blocked.rules).toContainEqual({ rule: "paths.block", reason: blocked.reasons[0] });
 
     const tiered = decide(input({ score: 0.9 }));
-    expect(tiered.rules.map((r) => r.rule)).toContain("tier");
+    expect(tiered.rules!.map((r) => r.rule)).toContain("tier");
 
     const draft = decide(input({ pr: { successfulChecks: [], draft: true } }));
-    expect(draft.rules.map((r) => r.rule)).toContain("draft");
+    expect(draft.rules!.map((r) => r.rule)).toContain("draft");
 
     const sampled = decide(input({ cfg: { autoApprove: { sampleRate: 1 } } }));
-    expect(sampled.rules.map((r) => r.rule)).toContain("sample");
+    expect(sampled.rules!.map((r) => r.rule)).toContain("sample");
   });
 
   it("does not tag the final auto-approve/deferred-review line or dry-run notes", () => {
@@ -797,10 +797,10 @@ describe("rules (tagged subset of reasons, for the brief's needsHuman)", () => {
 
   it("tags every rule id the brief's §5.7 'needs a human' list names", () => {
     const unread = decide(input({ files: [{ ...file("a.bin"), binary: true }] }));
-    expect(unread.rules.map((r) => r.rule)).toContain("unread-files");
+    expect(unread.rules!.map((r) => r.rule)).toContain("unread-files");
     const odd = decide(input({ files: [file("a\u0000b.ts")] }));
-    expect(odd.rules.map((r) => r.rule)).toContain("control-chars");
+    expect(odd.rules!.map((r) => r.rule)).toContain("control-chars");
     const sub = decide(input({ files: [{ ...file("vendor/x"), submodule: true }] }));
-    expect(sub.rules.map((r) => r.rule)).toContain("submodule");
+    expect(sub.rules!.map((r) => r.rule)).toContain("submodule");
   });
 });

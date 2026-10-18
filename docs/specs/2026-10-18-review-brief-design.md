@@ -503,7 +503,9 @@ the review request, then add the four instructions of `/opendrs-review` (steps 2
 
 - **`ScoreResult`** gains an optional `brief`, set only on request. `score --json` output is
   unchanged.
-- **`PolicyOutcome`** gains `rules`. `reasons` is unchanged in content and order.
+- **`PolicyOutcome`** gains `rules`, optional on the exported type so a result built by an older
+  caller still type-checks; readers treat its absence as no rule fired. `reasons` is unchanged in
+  content and order.
 - **The PR comment.**
   - The marker, the heading line, the two `<sub>` lines and the closing **Auto-approval**,
     reviewer and eligibility text stay exactly as they are.

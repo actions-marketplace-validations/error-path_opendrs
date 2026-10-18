@@ -4,5 +4,5 @@ import type { PolicyOutcome, PolicyRule } from "../domain/types.js";
 const HUMAN_RULES = new Set<PolicyRule>(["paths.block", "unread-files", "control-chars", "submodule", "tests.deleted", "content.block", "freeze", "draft", "changes-requested", "source"]);
 
 export function needsHuman(policy: PolicyOutcome): Array<{ rule: PolicyRule; reason: string }> {
-  return policy.rules.filter((r) => HUMAN_RULES.has(r.rule));
+  return (policy.rules ?? []).filter((r) => HUMAN_RULES.has(r.rule));
 }

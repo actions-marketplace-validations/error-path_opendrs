@@ -247,8 +247,8 @@ export interface PolicyOutcome {
   decision: Decision;
   /** Why the decision was made, one entry per rule that fired (first is decisive). */
   reasons: string[];
-  /** The rule-tagged subset of `reasons`: every fired rule, without the decisive line or notes. */
-  rules: Array<{ rule: PolicyRule; reason: string }>;
+  /** The rule-tagged subset of `reasons`: every fired rule, without the decisive line or notes. Optional for callers built before it existed. */
+  rules?: Array<{ rule: PolicyRule; reason: string }>;
   hardBlocked: boolean;
   sampled: boolean;
   mergeMethod: "queue" | "auto-merge" | "none";
