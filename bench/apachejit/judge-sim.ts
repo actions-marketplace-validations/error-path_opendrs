@@ -5,6 +5,8 @@
  *    the riskiest X % by opendrs's free calibrated score; bugs flagged per dollar and bugs missed.
  * 2. Power: calibrated AUC with and without the llm.* signals and a riskySnippets count, and
  *    paired bootstrap SEs of the AUC differences; the requireSafe gate with Wilson intervals.
+ * 3. Decision layer: the LLM alone vs LLM + opendrs (the judge's outputs inside the calibrated
+ *    model, and the requireSafe gate with opendrs's score), at fixed review budgets.
  * Run `npm run build` first, then `node bench/apachejit/judge-sim.ts [judgement-cache.jsonl]`
  * (default: the Sonnet 5 cache).
  */
@@ -131,6 +133,58 @@ for (const [name, signals] of Object.entries(variants)) {
   scores[name] = await Promise.all(test.map(async (r) => scoreSignals(await signals(r), model).score));
   console.log(`${name}: AUC ${aucOf(scores[name]!, y)!.toFixed(3)}${model.weights["llm.snippets"] !== undefined ? `, llm.snippets weight ${model.weights["llm.snippets"]!.toFixed(2)}` : ""}`);
 }
+
+// ---- 3. Decision layer: LLM alone vs LLM + opendrs, at fixed review budgets ----
+// "LLM alone" ranks by the judge's own outputs only: its risky-snippet count, ties broken by its
+// risk, and a logistic fit on the llm.* signals and the snippet count with no opendrs signal.
+const llmOnly = async (r: ReplayRow) => [...(await llmSignals({ llm: { judgement: judged.get(r.sha) } } as any)), snippets(r.sha)];
+const llmOnlyModel = fitModel(await Promise.all(train.map(async (r) => ({ ...r, signals: await llmOnly(r) }))), DEFAULT_WEIGHTS, "judge-sim");
+const rankings: Record<string, number[]> = {
+  "LLM alone (snippet count, then risk)": test.map((r) => judged.get(r.sha).riskySnippets.length + judged.get(r.sha).risk / 2),
+  "LLM alone (fitted on its own outputs)": await Promise.all(test.map(async (r) => scoreSignals(await llmOnly(r), llmOnlyModel).score)),
+  "opendrs alone (free score)": risk,
+  "LLM + opendrs (calibrated + llm + snippets)": scores["calibrated + llm + snippets"]!,
+};
+const negatives = y.length - bugs;
+console.log(`decision layer on the ${test.length} judged test commits (${bugs} buggy), LLM tokens for all of them ≈ ${(total.tokens / 1e6).toFixed(2)} M:`);
+console.log("| Ranking | AUC | Review budget | Bugs caught (recall) | Precision | False-positive rate | LLM tokens per bug caught |");
+const topK = (sc: number[], k: number) => sc.map((_, i) => i).sort((a, b) => sc[b]! - sc[a]!).slice(0, k);
+for (const [name, sc] of Object.entries(rankings)) {
+  for (const x of [0.1, 0.3, 0.5]) {
+    const top = topK(sc, Math.round(test.length * x));
+    const tp = top.filter((i) => y[i]).length;
+    const perBug = name.startsWith("opendrs") ? "0" : `${Math.round(total.tokens / tp / 1000)} k`;
+    console.log(`| ${name} | ${aucOf(sc, y)!.toFixed(3)} | ${pct(x)} | ${tp} (${pct(tp / bugs)}) | ${pct(tp / top.length)} | ${pct((top.length - tp) / negatives)} | ${perBug} |`);
+  }
+}
+{
+  const a = rankings["LLM + opendrs (calibrated + llm + snippets)"]!, b = rankings["LLM alone (fitted on its own outputs)"]!;
+  const r2 = mulberry32(5), dAuc: number[] = [], dRec: number[] = [];
+  for (let i = 0; i < BOOTSTRAP; i++) {
+    const idx = Array.from({ length: y.length }, () => Math.floor(r2() * y.length));
+    const yy = idx.map((j) => y[j]!), sa = idx.map((j) => a[j]!), sb = idx.map((j) => b[j]!);
+    dAuc.push(aucOf(sa, yy)! - aucOf(sb, yy)!);
+    const k = Math.round(y.length * 0.3);
+    const rec = (sc: number[]) => topK(sc, k).filter((j) => yy[j]).length / Math.max(1, yy.filter(Boolean).length);
+    dRec.push(rec(sa) - rec(sb));
+  }
+  const ci = (d: number[]) => { const s2 = [...d].sort((p, q) => p - q); return `${s2[Math.floor(d.length * 0.025)]!.toFixed(3)} to ${s2[Math.floor(d.length * 0.975)]!.toFixed(3)}`; };
+  console.log(`LLM + opendrs − LLM alone (fitted): AUC 95 % CI ${ci(dAuc)}; recall at a 30 % review budget, 95 % CI ${ci(dRec)}`);
+}
+// The requireSafe gate as the decision: LLM alone auto-approves when every hunk is safe at
+// confidence 8; LLM + opendrs auto-approves only when that holds and opendrs's free score is in
+// its lower half (median of the scores on the training commits).
+{
+  const safe = (i: number) => { const j = judged.get(test[i]!.sha); return !j.truncated && j.unclassified.length === 0 && j.hunks.every((h: any) => h.safe && h.confidence >= 8); };
+  const trainRisk = allTrain.map((r) => scoreSignals(r.signals, free).score).sort((p, q) => p - q);
+  const median = trainRisk[Math.floor(trainRisk.length / 2)]!;
+  for (const [name, approve] of [["LLM alone: requireSafe", (i: number) => safe(i)], ["LLM + opendrs: requireSafe and score below the training median", (i: number) => safe(i) && risk[i]! < median]] as const) {
+    const passed = test.map((_, i) => i).filter(approve);
+    const buggyPassed = passed.filter((i) => y[i]).length;
+    console.log(`gate "${name}": auto-approves ${passed.length} (${pct(passed.length / test.length)}), ${buggyPassed} of them buggy (${pct(buggyPassed / passed.length)}); sends ${test.length - passed.length} to review, catching ${bugs - buggyPassed} bugs (${pct((bugs - buggyPassed) / bugs)})`);
+  }
+}
+console.log("");
 
 const rand = mulberry32(7);
 console.log("\npaired bootstrap of the AUC difference (test commits resampled together):");

@@ -17,7 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
-| Planned (pre-registered 2026-10-18) | Is opendrs worth running alongside an LLM reviewer, and do concrete findings with a verify pass improve its judge? | Free simulation on cached judgements: at equal spend, routing the LLM to opendrs's riskiest commits flags 34–43 % more buggy commits than a random subset. At the same review load, opendrs alone flags as many as the LLM | Planned, paused (no paid runs yet) | [details](#planned-opendrs-alongside-an-llm-reviewer) |
+| Planned (pre-registered 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
 | 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Not merged | [details](#review-heuristic-signals) |
 | 2026-10-18 | Do the missing Kamei features (ent, age, nuc, sexp) close the gap? | No. AUC 0.819 → 0.817 | Not merged | [details](#kamei-features) |
@@ -26,93 +26,84 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
 
-## Planned: opendrs alongside an LLM reviewer
+## Planned: LLM plus opendrs vs the LLM alone
 
-**Status.** Pre-registered on 2026-10-18; no API spend yet. Paid LLM tests are paused until this
-plan's Phase 1 is approved. The full plan, with the prompt drafts, the literature and the power
-analysis, is in
+**Status.** Pre-registered on 2026-10-18, revised the same day. No API spend yet: paid LLM tests
+are paused until the user approves Phase 1. The full plan, with the prompt drafts, the context
+block, the literature and the power analysis, is in
 [the research note, Part 5](research/2026-10-18-review-risk-heuristics.html#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
 
-**Questions.**
-1. Is opendrs worth running alongside an LLM reviewer? Measured as buggy commits flagged per
-   dollar, and buggy commits missed, at equal spend.
-2. Do concrete findings with priorities (R1), a verify pass (R3) and a gate on verified findings
-   (R2) make opendrs's own judge better?
+**Question.** Does an LLM reviewer plus opendrs beat the same LLM alone, by enough to justify any
+extra tokens? It is not opendrs against the LLM. The three headline arms run on the same commits:
+1. **The LLM alone:** a `/code-review`-style reviewer reporting findings with a severity.
+2. **The LLM given opendrs's context:** score, top signals, history, blast radius, prior fixes and
+   incidents, and the hunks to focus on.
+3. **The LLM with opendrs as the decision layer:** its findings combined with opendrs's signals in
+   the calibrated model, plus the `requireSafe` gate.
+
+Routing the LLM to opendrs's riskiest commits is a secondary arm.
 
 **Already measured, for free.** `bench/apachejit/judge-sim.ts` replays the cached Sonnet 5
 judgements of the [LLM judge run](#structured-llm-judge-on-sampled-apachejit): 800 test commits,
-204 buggy. "Flagged" means at least one risky snippet. The random rows spend the same dollars on
-randomly chosen commits, averaged over 1,000 draws.
+204 buggy. Each ranking sends its riskiest 10 % of commits to review.
 
-| Arm | Spend | Buggy commits flagged (of 204) | Precision | Bugs per $ |
-|---|---:|---:|---:|---:|
-| LLM on every commit | $25.66 | 183 | 36.7 % | 7.1 |
-| opendrs's riskiest 10 % → LLM | $5.39 | 55 | 71.4 % | 10.2 |
-| Random, same spend | $5.39 | 38.4 | 36.8 % | 7.1 |
-| opendrs's riskiest 30 % → LLM | $12.88 | 123 | 54.9 % | 9.6 |
-| Random, same spend | $12.88 | 91.9 | 36.8 % | 7.1 |
-| opendrs alone, its riskiest 498 commits to a human | $0 | 183 | 36.7 % | — |
+| Ranking | AUC | Bugs caught (of 204) | Precision | False-positive rate | LLM tokens per bug |
+|---|---:|---:|---:|---:|---:|
+| LLM alone (snippet count, then its risk) | 0.789 | 51 | 63.7 % | 4.9 % | 126 k |
+| LLM alone (fitted on its own outputs) | 0.772 | 47 | 58.8 % | 5.5 % | 137 k |
+| **LLM + opendrs as the decision layer** | **0.824** | **60** | **75.0 %** | **3.4 %** | **107 k** |
+| opendrs alone, for reference | 0.817 | 56 | 70.0 % | 4.0 % | 0 |
 
-- **At equal spend, opendrs routing beats random.**
-- **Spend falls less than the commit share.** opendrs's riskiest 30 % of commits cost 50 % of the
-  spend, because risky commits are larger.
-- **At the same human-review load (498 commits), opendrs alone flags as many buggy commits as the
-  LLM, at $0.** The judge's useful output is its list of risky snippets: one added count signal,
-  `llm.snippets`, lifts calibrated AUC on these commits from 0.809 to 0.823 (95 % CI +0.004 to
-  +0.025). This was found on the same test commits, so it is exploratory.
+- **The decision layer adds +0.035 to +0.052 AUC at no extra LLM tokens.** The paired bootstrap
+  95 % CI against the fitted LLM-alone model is +0.026 to +0.077.
+- **At a 30 % review budget the gain is small and not significant.** LLM + opendrs catches 131
+  bugs against 122–125.
+- **The gate.** With opendrs's score added to `requireSafe`, the buggy share of auto-approved
+  commits falls from 5.3 % (12 of 228) to 3.5 % (7 of 198).
+- **Routing at equal spend** flags 34–43 % more buggy commits than a random subset.
+- **Caveat.** These numbers were measured on the same test commits used to look for them, so they
+  are exploratory.
 
 **Setup.**
-- **Commits.** The same 800 seeded test commits, paired with the cached run, plus 400 of the
-  seeded training commits for Phase 2.
-- **Models.** Sonnet 5 at effort `low`, the same as the cached run, and Haiku 4.5 for the
-  low-depth arm.
-- **One findings prompt** feeds the LLM-only arm and every routing arm. The routing arms reuse
-  its per-commit replies, so they need no extra calls.
+- **Commits.** The same 800 seeded test commits, so every comparison is paired, plus 400 seeded
+  training commits judged by arm 1 to fit arm 3.
+- **Model.** Sonnet 5 at effort `low`, the same as the cached run.
+- **Prompt.** The findings prompt: findings with P0–P3 priority, a trigger and a confidence; no
+  findings is a valid answer.
+- **Arm 2** adds a trusted opendrs context block of at most 2,500 characters. Mean input tokens
+  may grow by at most 15 %.
 
-**Arms, Phase 1:**
-- **L:** an LLM-only reviewer, with findings and priorities and no opendrs input.
-- **A:** Haiku 4.5 on every commit, diff cut to 12,000 characters.
-- **B:** L's replies on a random subset, at A's spend.
-- **C:** L's replies on opendrs's riskiest X %, at A's spend; the rest takes the fast path.
-- **R:** opendrs alone, no LLM.
-
-**Arms, Phase 2:**
-- **V0:** the snippet or finding count, free.
-- **V1:** L's findings as opendrs signals.
-- **V2:** V1 plus a verify call scored on `/code-review`'s 0–100 rubric, kept at ≥ 80.
-- **R2 gate:** requireSafe plus no verified P0/P1 finding.
-
-**Success thresholds** (H1 and H4 are confirmatory, Holm-corrected; the rest is descriptive):
-- **H1.** At equal spend, C flags at least 1.2 × as many buggy commits as B. Permutation test
-  against B's 1,000 draws, one-sided at α = 0.05.
-- **H2.** C flags at least as many buggy commits as A, at higher precision. The paired bootstrap
-  95 % CI lower bound must be above −10 commits.
-- **H4.** Calibrated + V1 beats calibrated + the current LLM signals + `llm.snippets` by at least
-  +0.01 AUC, with the paired bootstrap 95 % CI above 0.
-- **Power.** At n = 800, a +0.02 AUC gain is detectable at 80 % power. A 2-point change in the
-  gate's buggy-among-passed rate would need about 5,600 judged commits, so the gate is descriptive.
+**Hypotheses.** H1 and H2 are confirmatory, Holm-corrected; everything else is descriptive.
+- **H1.** AUC(arm 3) − AUC(arm 1) has a paired bootstrap 95 % CI above 0, and a point estimate of
+  at least +0.02.
+- **H2.** AUC(arm 2) − AUC(arm 1) has a CI above 0, and arm 2's LLM tokens per bug caught at a
+  30 % budget are no higher than arm 1's.
+- **Descriptive:** recall, precision and false-positive rate at 10 % and 30 % budgets; tokens per
+  bug; the gate with Wilson intervals; and whether the context makes the LLM copy opendrs
+  (Spearman correlation with opendrs's score).
+- **Power.** At n = 800, a +0.02 AUC gain is detectable at 80 % power. A +5-point recall gain at a
+  30 % budget is not, so AUC is primary.
 
 **Budget.** The Message Batches API is assumed throughout (half price).
 
 | Item | Estimate | Cap |
 |---|---:|---:|
-| Pilot (40 commits) | $1.7 | |
-| Phase 1, arm L | $14.0 | |
-| Phase 1, arm A | $3.0 | |
-| Phase 2, findings on 400 training commits | $7.0 | |
-| Phase 2, verify | $8.6 | |
-| **Total** | **$34.3** | **$40** |
+| Pilot (30 commits) | $2.2 | |
+| Arm 1 | $14.0 | |
+| Arm 2 | $14.4 | |
+| Arm 1 on 400 training commits | $7.0 | |
+| **Total** | **$37.6** | **$42** |
 
-Without batch support, Phase 1 alone costs about $36, and Phase 2 is dropped.
+Out of budget, for later: the verify pass and verified-finding gate (R2, R3), and a cheap Haiku
+review of every commit.
 
 **Stop rules.**
-- **Pilot first.** Stop if more than 1 of 40 replies fails the schema, if L costs more than
-  $0.045 a commit, if L flags more than 85 % of commits, or if more than 5 % of findings cite a
-  missing hunk.
+- **Pilot first.** Stop if more than 1 of 30 replies fails the schema, if arm 1 costs more than
+  $0.045 a commit, if arm 2's input is more than 20 % above arm 1's, if more than 85 % of commits
+  get a finding, or if more than 5 % of findings cite a missing hunk.
 - **Caps.** Each arm has a `--max-usd` cap. A batch whose first 200 results show more than 2 %
   failures is cancelled.
-- **No tuning on the test commits.** Any change after test results is a new, separately logged
-  experiment. Phase 2 starts only after the Phase 1 report and the user's go.
+- **No tuning on the test commits.** Any change after test results is a new, logged experiment.
 
 **Where.** The plan is in [the research note, Part 5](research/2026-10-18-review-risk-heuristics.html#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
 The free simulation is `bench/apachejit/judge-sim.ts`. The cached judgements are those of the

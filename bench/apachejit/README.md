@@ -89,6 +89,8 @@ missing key, or an empty sample.
 
 `judge-sim.ts` reuses the cached judgements of an `llm.ts` run, the row cache and the labels. It
 needs no API key and no clones. It prints:
+- **The decision layer:** the LLM alone against LLM + opendrs (the judge's outputs inside the
+  calibrated model, and the `requireSafe` gate with opendrs's score), at fixed review budgets.
 - **Routing at equal spend:** the LLM on every judged test commit, on a random subset, or only on
   opendrs's riskiest X %.
 - **opendrs alone** at the same human-review load.
