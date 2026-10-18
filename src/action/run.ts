@@ -254,7 +254,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
         draft: pr.draft,
         changesRequestedBy,
       },
-      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens } : undefined,
+      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens, onError: (m) => io.warning(m) } : undefined,
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);

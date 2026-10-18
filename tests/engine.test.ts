@@ -5,8 +5,13 @@ import { makeRepo, type TestRepo } from "./helpers/repo.js";
 
 const POLICY: PolicyOutcome = { tier: "green", decision: "auto-approve", reasons: [], rules: [], hardBlocked: false, sampled: false, mergeMethod: "queue", suggestedReviewers: [], landingDelayMinutes: 0 };
 vi.mock("../src/policy/gate.js", () => ({ decide: vi.fn(() => POLICY) }));
+vi.mock("../src/brief/build.js", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/brief/build.js")>();
+  return { ...mod, buildBrief: vi.fn(mod.buildBrief) };
+});
 
 const { decide } = await import("../src/policy/gate.js");
+const { buildBrief } = await import("../src/brief/build.js");
 const { scoreDiff } = await import("../src/engine.js");
 
 const CLAUDE = "feat: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>";
@@ -123,6 +128,23 @@ describe("scoreDiff brief option", () => {
 
     const fromConfig = await scoreDiff({ repoDir: repo.dir, base: "HEAD~1", head: "HEAD", config: parseConfig({ brief: { maxTokens: 900 } }), llm: null, graph: null, brief: {} });
     expect(fromConfig.brief?.budget.maxTokens).toBe(900);
+    repo.cleanup();
+  });
+
+  it("hands a brief failure to opts.brief.onError and returns the scored result without a brief; without onError it propagates", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    repo.commit({ "a.ts": "2\n" }, "change");
+    const config = defaultConfig();
+    const onError = vi.fn();
+    vi.mocked(buildBrief).mockRejectedValueOnce(new Error("boom"));
+    const degraded = await scoreDiff({ repoDir: repo.dir, base: "HEAD~1", head: "HEAD", config, llm: null, graph: null, brief: { onError } });
+    expect(degraded.brief).toBeUndefined();
+    expect(degraded.tier).toBe("green");
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("boom"));
+
+    vi.mocked(buildBrief).mockRejectedValueOnce(new Error("boom"));
+    await expect(scoreDiff({ repoDir: repo.dir, base: "HEAD~1", head: "HEAD", config, llm: null, graph: null, brief: {} })).rejects.toThrow("boom");
     repo.cleanup();
   });
 });

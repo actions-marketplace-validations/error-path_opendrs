@@ -32,6 +32,8 @@ interface Options {
   baseFiles?: Record<string, string>;
   headFiles?: Record<string, string | null>;
   result?: ScoreResult;
+  /** scoreDiff's implementation instead of resolving `result`, e.g. to call opts.brief.onError. */
+  scoreDiffImpl?: typeof scoreDiff;
   gh?: Partial<FakeGitHub>;
   inputs?: Partial<ActionInputs>;
   fork?: boolean;
@@ -100,7 +102,8 @@ async function run(o: Options = {}) {
     ? [{ id: 2, body: `${COMMENT_MARKER}\nold report\n${o.ownComment(headSha)}`, user: BOT, ...(o.ownCommentCreated ? { created_at: o.ownCommentCreated } : {}) }]
     : [];
   const gh = installFakeGitHub({ labels: [...(o.labels ?? [])], headSha, commits: [prCommit(headSha)], comments, ...o.gh });
-  vi.mocked(scoreDiff).mockResolvedValue(o.result ?? result(0.12, "green", "auto-approve"));
+  if (o.scoreDiffImpl) vi.mocked(scoreDiff).mockImplementation(o.scoreDiffImpl);
+  else vi.mocked(scoreDiff).mockResolvedValue(o.result ?? result(0.12, "green", "auto-approve"));
   const env: NodeJS.ProcessEnv = { ...o.env };
   const event = {
     action: o.action ?? "opened",
@@ -226,6 +229,20 @@ describe("the review brief", () => {
     expect(t.scoreArgs().brief).toMatchObject({ maxTokens: expect.any(Number) });
     expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*opendrs review brief v1[\s\S]*\n\1$/m);
     expect(t.output()).toMatch(/^brief-file<<(\S+)\n\S+\.json\n\1$/m);
+  });
+
+  it("warns, posts the comment and leaves the brief outputs empty when the brief could not be built", async () => {
+    const t = await run({
+      scoreDiffImpl: async (opts) => {
+        opts.brief?.onError?.("could not build the review brief: boom");
+        return result(0.1, "green", "auto-approve");
+      },
+    });
+    await t.promise;
+    expect(t.log()).toContain("::warning::could not build the review brief: boom");
+    expect(t.output()).toMatch(/^score<</m);
+    expect(t.output()).toMatch(/^brief<<(\S+)\n\n\1$/m);
+    expect(t.gh.comments).toHaveLength(1);
   });
 
   it("is not requested, and its outputs are empty, when the brief input is false", async () => {
