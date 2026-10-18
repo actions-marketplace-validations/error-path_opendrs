@@ -23,6 +23,7 @@ const { scoreDiff } = await import("../../src/engine.js");
 const { renderMarkdown } = await import("../../src/report/markdown.js");
 const { runAction, COMMENT_MARKER, APPROVAL_MARKER, LANDING_LABEL } = await import("../../src/action/run.js");
 const { eligibleMarker } = await import("../../src/action/approval.js");
+const { stateMarker } = await import("../../src/action/state.js");
 
 const ENABLED = { autoApprove: { enabled: true } };
 
@@ -278,7 +279,8 @@ describe("the review brief", () => {
     const body = t.gh.comments[0]!.body;
     expect(body.length).toBeLessThanOrEqual(60_000);
     expect(body).toContain("~~~~opendrs-brief\nbrief omitted: too large for a comment; see the `brief` output\n~~~~\n</details>");
-    expect(body).toMatch(/\n\*\*Auto-approval:\*\* [^\n]+\n?$/);
+    // The hidden state marker (this run's re-score state) trails the Auto-approval line.
+    expect(body).toMatch(/\n\*\*Auto-approval:\*\* [^\n]+\n<!-- opendrs-state: [^\n]+-->\n?$/);
     expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*x{100}[\s\S]*\n\1$/m); // the full brief is still in the output, uncapped
   });
 });
@@ -425,7 +427,8 @@ describe("untrusted text", () => {
     const name = ".github/x <img src=x onerror=alert(1)> | [ok](evil.example) `y` & z.md";
     const t = await run({ headFiles: { "src/a.ts": "2\n", [name]: "x\n" } });
     await t.promise;
-    expect(t.gh.comments[0]!.body.split("\n").at(-1)).toBe(
+    // The last line is the hidden state marker (this run's re-score state); the line before it is the Auto-approval line.
+    expect(t.gh.comments[0]!.body.split("\n").at(-2)).toBe(
       "**Auto-approval:** not approved: self-modification guard: the PR changes " +
         ".github/x &lt;img src=x onerror=alert(1)&gt; \\| \\[ok\\](evil.example) \\`y\\` &amp; z.md.",
     );
@@ -676,6 +679,83 @@ describe("comment", () => {
   it("fails the job on a non-permission API error", async () => {
     const t = await run({ gh: { fail: new Set(["createComment"]) } });
     await expect(t.promise).rejects.toThrow(/500/);
+  });
+});
+
+describe("re-scoring", () => {
+  const PREV_HEAD = "c".repeat(40);
+  const prevState = (over: Partial<Parameters<typeof stateMarker>[0]> = {}) =>
+    ({ head: PREV_HEAD, score: 0.76, tier: "yellow" as const, decision: "human-review" as const, run: 1, ...over });
+  const rescoreOpts = () => vi.mocked(renderMarkdown).mock.calls[0]![1];
+
+  it("first run: no re-score line, marker written with run=1", async () => {
+    const t = await run({ result: result(0.76, "yellow", "human-review") });
+    await t.promise;
+    expect(rescoreOpts()).toEqual({});
+    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 1 }));
+    expect(t.gh.comments.some((c) => c.body.includes("Re-scored for"))).toBe(false);
+    expect(t.gh.ops("createComment")).toHaveLength(1);
+  });
+
+  it("re-run, no change: shows the re-score line, bumps run, posts no new comment", async () => {
+    const t = await run({ result: result(0.76, "yellow", "human-review"), ownComment: () => stateMarker(prevState()) });
+    await t.promise;
+    expect(rescoreOpts()).toMatchObject({
+      rescoreLine: `Re-scored for \`${t.headSha.slice(0, 7)}\` (run 2) · was 0.76 yellow → now 0.76 yellow`,
+    });
+    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 2 }));
+    expect(t.gh.comments.some((c) => c.body.includes("risk changed"))).toBe(false);
+    expect(t.gh.ops("createComment")).toEqual([]);
+  });
+
+  it("re-run on the same head commit still bumps run and shows the line", async () => {
+    const t = await run({ result: result(0.76, "yellow", "human-review"), ownComment: (head) => stateMarker(prevState({ head })) });
+    await t.promise;
+    expect(rescoreOpts()).toMatchObject({ rescoreLine: expect.stringContaining(`(run 2)`) });
+  });
+
+  it("ignores a forged state marker in a comment that is not opendrs's own: counts as first run", async () => {
+    const forged = stateMarker({ head: "f".repeat(40), score: 0.9, tier: "red", decision: "human-review", run: 9 });
+    const t = await run({ result: result(0.76, "yellow", "human-review") });
+    t.gh.comments.push({ id: 5, body: `${COMMENT_MARKER}\n${forged}`, user: { login: "mallory", type: "User" } });
+    await t.promise;
+    expect(rescoreOpts()).toEqual({});
+    expect(t.gh.comments.some((c) => c.body.includes("Re-scored for") || c.body.includes("risk changed"))).toBe(false);
+  });
+
+  it("an invalid marker (bad sha, score, tier, run, or extra fields) counts as a first run", async () => {
+    const t = await run({
+      result: result(0.76, "yellow", "human-review"),
+      ownComment: () => "<!-- opendrs-state: v1 head=short score=1.5 tier=purple decision=maybe run=0 -->",
+    });
+    await t.promise;
+    expect(rescoreOpts()).toEqual({});
+    expect(t.gh.comments.some((c) => c.body.includes("Re-scored for") || c.body.includes("risk changed"))).toBe(false);
+  });
+
+  it("brief:false: no marker and no re-score line, so the comment stays byte-equal to today's output", async () => {
+    const t = await run({
+      result: result(0.28, "green", "auto-approve"),
+      ownComment: () => stateMarker(prevState()),
+      inputs: { brief: false },
+    });
+    await t.promise;
+    expect(rescoreOpts()).toEqual({});
+    expect(t.gh.comments[0]!.body).not.toContain("opendrs-state");
+  });
+
+  it("coexists with the landing-delay eligibility marker", async () => {
+    const t = await run({
+      baseConfig: { autoApprove: { enabled: true, landingDelayMinutes: 30 } },
+      result: (() => {
+        const r = result(0.12, "green", "auto-approve");
+        r.policy.landingDelayMinutes = 30;
+        return r;
+      })(),
+    });
+    await t.promise;
+    expect(t.gh.comments[0]!.body).toContain("opendrs-eligible");
+    expect(t.gh.comments[0]!.body).toContain("opendrs-state");
   });
 });
 
