@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { backtestRows } from "../../src/model/backtest.js";
+import { defaultConfig } from "../../src/domain/config.js";
+import { backtest, backtestRows, focusHitRate } from "../../src/model/backtest.js";
 import { fitModel } from "../../src/model/calibrate.js";
 import { DEFAULT_WEIGHTS } from "../../src/model/defaults.js";
 import { scoreSignals } from "../../src/model/logistic.js";
 import { evaluate } from "../../src/model/metrics.js";
+import { makeRepo } from "../helpers/repo.js";
 import { syntheticRows } from "./synthetic.js";
 
 describe("backtestRows", () => {
@@ -58,5 +60,44 @@ describe("backtestRows", () => {
     const report = backtestRows(rows, model);
     expect(report.recorded).toBeUndefined();
     expect(report.notes.join("\n")).toMatch(/so it has no held-out metrics/);
+  });
+});
+
+describe("focusHitRate", () => {
+  it("counts a hit when the buggy commit's Review first hunks contain the fix-blamed line", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const config = defaultConfig();
+    const result = await focusHitRate({ repoDir: repo.dir, config });
+    expect(result.commits).toBeGreaterThan(0);
+    expect(result.hitRate).toBeGreaterThanOrEqual(0);
+    expect(result.hitRate).toBeLessThanOrEqual(1);
+    repo.cleanup();
+  });
+
+  it("reports 0 commits (not NaN) when there are no SZZ-labelled commits", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    const result = await focusHitRate({ repoDir: repo.dir, config: defaultConfig() });
+    expect(result.commits).toBe(0);
+    expect(result.hitRate).toBe(0);
+    repo.cleanup();
+  });
+});
+
+describe("backtest --brief wiring", () => {
+  it("adds focusHitRate to the report only when opts.brief is true", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n" }, "fix: the bug");
+    const config = defaultConfig();
+    const plain = await backtest({ repoDir: repo.dir, config });
+    expect(plain.focusHitRate).toBeUndefined();
+    const withBrief = await backtest({ repoDir: repo.dir, config, brief: true });
+    expect(withBrief.focusHitRate).toBeDefined();
+    repo.cleanup();
   });
 });
