@@ -22,7 +22,13 @@ const META_LR = { "5": 0.187, "10": 0.279, "50": 0.846 };
 async function historyRun(args: string[], io: CliIo, label: string) {
   const { values } = parseArgs({
     args,
-    options: { since: { type: "string" }, "max-commits": { type: "string" }, "label-horizon-days": { type: "string" }, json: { type: "boolean" } },
+    options: {
+      since: { type: "string" },
+      "max-commits": { type: "string" },
+      "label-horizon-days": { type: "string" },
+      json: { type: "boolean" },
+      brief: { type: "boolean" },
+    },
   });
   const maxCommits = parsePositiveInt("--max-commits", values["max-commits"]);
   const horizon = values["label-horizon-days"];
@@ -39,7 +45,7 @@ async function historyRun(args: string[], io: CliIo, label: string) {
     maxCommits,
     onProgress: (done, total) => io.progress(`${label}: ${done}/${total} commits`),
   };
-  return { opts, json: values.json === true };
+  return { opts, json: values.json === true, brief: values.brief === true };
 }
 
 export const calibrateCommand: Command = {
@@ -104,12 +110,15 @@ default priors and (when config.model exists) the calibrated model.
 
 Options:
 ${HISTORY_OPTIONS}
+  --brief               [Report-only; free] Add the focus hit rate (the share of SZZ-labelled
+                        buggy commits whose review brief would have ranked at least one
+                        later-fixed line into "Review first").
   --json               Print the raw report as JSON`,
 
   async run(args, io) {
-    const { opts, json } = await historyRun(args, io, "backtest");
+    const { opts, json, brief } = await historyRun(args, io, "backtest");
     const { model, kind } = await loadModel(opts.repoDir, opts.config);
-    const report = await backtest({ ...opts, model: kind === "calibrated" ? model : undefined });
+    const report = await backtest({ ...opts, model: kind === "calibrated" ? model : undefined, brief });
     io.progress("");
     if (json) {
       io.out(JSON.stringify(report, null, 2));
@@ -121,6 +130,11 @@ ${HISTORY_OPTIONS}
     if (report.defaultOnHeldOut) io.out(row("default priors (held-out)", report.defaultOnHeldOut.capturedAt, report.defaultOnHeldOut));
     if (report.recorded) io.out(row("calibrated (recorded)", report.recorded.capturedAt, report.recorded));
     io.out(row("Meta LR baseline *", META_LR));
+    if (report.focusHitRate) {
+      const f = report.focusHitRate;
+      io.out("");
+      io.out(`Focus hit rate (report-only, not a gate): ${pct(f.hitRate)} of ${f.commits} SZZ-labelled commits had a later-fixed line inside "Review first" (${pct(f.changedLineShare)} of changed lines were in focus, on average).`);
+    }
     io.out("");
     if (kind !== "calibrated") io.out(`No calibrated model at ${opts.config.model}. Run \`opendrs calibrate\` to fit one.`);
     io.out("captured@X%: share of incident-linked commits that fall in the riskiest X % of commits.");

@@ -187,4 +187,31 @@ describe("opendrs backtest", () => {
     await runCli(["backtest", "--json"], t.io);
     expect(JSON.parse(t.stdout()).calibrated.auc).toBe(0.74);
   });
+
+  it("backtest --brief passes brief through and prints the focus hit rate alongside the capture table", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({
+      default: metrics(0.12, 0.2, 0.7, 0.64),
+      curve: [],
+      notes: [],
+      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25 },
+    });
+    const t = testIo(repo.dir);
+    await runCli(["backtest", "--brief"], t.io);
+    expect(vi.mocked(backtest).mock.calls[0]![0]).toMatchObject({ brief: true });
+    expect(t.stdout()).toMatch(/[Ff]ocus hit rate/);
+  });
+
+  it("backtest --brief --json includes focusHitRate", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({
+      default: metrics(0.12, 0.2, 0.7, 0.64),
+      curve: [],
+      notes: [],
+      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25 },
+    });
+    const t = testIo(repo.dir);
+    await runCli(["backtest", "--brief", "--json"], t.io);
+    expect(JSON.parse(t.stdout()).focusHitRate).toBeDefined();
+  });
 });
