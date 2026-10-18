@@ -201,7 +201,7 @@ describe("opendrs backtest", () => {
       default: metrics(0.12, 0.2, 0.7, 0.64),
       curve: [],
       notes: [],
-      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25 },
+      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25, skipped: 0 },
     });
     const t = testIo(repo.dir);
     await runCli(["backtest", "--brief"], t.io);
@@ -215,10 +215,23 @@ describe("opendrs backtest", () => {
       default: metrics(0.12, 0.2, 0.7, 0.64),
       curve: [],
       notes: [],
-      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25 },
+      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25, skipped: 0 },
     });
     const t = testIo(repo.dir);
     await runCli(["backtest", "--brief", "--json"], t.io);
     expect(JSON.parse(t.stdout()).focusHitRate).toBeDefined();
+  });
+
+  it("backtest --brief notes how many SZZ-labelled commits could not be measured", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({
+      default: metrics(0.12, 0.2, 0.7, 0.64),
+      curve: [],
+      notes: [],
+      focusHitRate: { commits: 0, hits: 0, hitRate: 0, changedLineShare: 0, skipped: 3 },
+    });
+    const t = testIo(repo.dir);
+    await runCli(["backtest", "--brief"], t.io);
+    expect(t.stdout()).toMatch(/3 .*could not be measured/);
   });
 });

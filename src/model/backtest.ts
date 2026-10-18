@@ -44,7 +44,14 @@ export async function backtest(opts: HistoryRunOptions & { model?: ModelWeights;
   return report;
 }
 
-export interface FocusHitRate { commits: number; hits: number; hitRate: number; changedLineShare: number }
+export interface FocusHitRate {
+  commits: number;
+  hits: number;
+  hitRate: number;
+  changedLineShare: number;
+  /** SZZ-labelled commits in the window whose diff or scoring failed, so they are not in `commits`. */
+  skipped: number;
+}
 
 /**
  * Spec §10.2: free, report-only measurement of the brief's ranking. For every SZZ-lite-labelled
@@ -66,6 +73,7 @@ export async function focusHitRate(opts: HistoryRunOptions & { maxTokens?: numbe
   let evaluated = 0;
   let hits = 0;
   let shareSum = 0;
+  let skipped = 0;
 
   for (const c of commits) {
     const lines = bySha.get(c.sha);
@@ -95,10 +103,11 @@ export async function focusHitRate(opts: HistoryRunOptions & { maxTokens?: numbe
       const focusChanged = brief.reviewFirst.reduce((n, f) => n + f.hunks.reduce((m, h) => m + [...changedLines(byId.get(h.id)!)].length, 0), 0);
       if (totalChanged > 0) shareSum += focusChanged / totalChanged;
     } catch {
-      // one unreadable commit must not abort the whole measurement
+      // one unreadable commit must not abort the whole measurement, but it must not vanish either
+      skipped++;
     }
   }
-  return { commits: evaluated, hits, hitRate: evaluated > 0 ? hits / evaluated : 0, changedLineShare: evaluated > 0 ? shareSum / evaluated : 0 };
+  return { commits: evaluated, hits, hitRate: evaluated > 0 ? hits / evaluated : 0, changedLineShare: evaluated > 0 ? shareSum / evaluated : 0, skipped };
 }
 
 /**

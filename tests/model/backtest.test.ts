@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultConfig } from "../../src/domain/config.js";
 import { backtest, backtestRows, focusHitRate } from "../../src/model/backtest.js";
 import { fitModel } from "../../src/model/calibrate.js";
@@ -7,6 +7,15 @@ import { scoreSignals } from "../../src/model/logistic.js";
 import { evaluate } from "../../src/model/metrics.js";
 import { makeRepo } from "../helpers/repo.js";
 import { syntheticRows } from "./synthetic.js";
+
+// Real loadDiff, wrapped so a test can make one commit's measurement fail without touching git.
+vi.mock("../../src/git/diff.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/git/diff.js")>();
+  return { ...actual, loadDiff: vi.fn(actual.loadDiff) };
+});
+const { loadDiff } = await import("../../src/git/diff.js");
+const realLoadDiff = (await vi.importActual<typeof import("../../src/git/diff.js")>("../../src/git/diff.js")).loadDiff;
+afterEach(() => vi.mocked(loadDiff).mockImplementation(realLoadDiff));
 
 describe("backtestRows", () => {
   const rows = syntheticRows(1000, 2);
@@ -134,6 +143,22 @@ describe("focusHitRate", () => {
     // Ignoring `since` would still find "introduce bug" here.
     const result = await focusHitRate({ repoDir: repo.dir, config, since });
     expect(result.commits).toBe(0);
+    repo.cleanup();
+  });
+
+  it("counts a commit whose measurement fails as skipped, instead of silently dropping it from the denominator", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    vi.mocked(loadDiff).mockImplementation(async () => {
+      throw new Error("boom");
+    });
+
+    const result = await focusHitRate({ repoDir: repo.dir, config: defaultConfig() });
+    expect(result.commits).toBe(0);
+    expect(result.hitRate).toBe(0);
+    expect(result.skipped).toBe(1);
     repo.cleanup();
   });
 });

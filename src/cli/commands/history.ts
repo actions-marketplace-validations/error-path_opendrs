@@ -135,6 +135,7 @@ ${HISTORY_OPTIONS}
       const f = report.focusHitRate;
       io.out("");
       io.out(`Focus hit rate (report-only, not a gate): ${pct(f.hitRate)} of ${f.commits} SZZ-labelled commits had a later-fixed line inside "Review first" (${pct(f.changedLineShare)} of changed lines were in focus, on average).`);
+      if (f.skipped > 0) io.out(`Note: ${f.skipped} SZZ-labelled commit(s) could not be measured (diff or scoring failed) and are not counted above.`);
     }
     io.out("");
     if (kind !== "calibrated") io.out(`No calibrated model at ${opts.config.model}. Run \`opendrs calibrate\` to fit one.`);
