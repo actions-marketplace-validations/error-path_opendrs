@@ -262,3 +262,41 @@ describe("renderText", () => {
     expect(evil).toContain("ok[2J then");
   });
 });
+
+function brief(): NonNullable<ScoreResult["brief"]> {
+  return {
+    version: 1,
+    verdict: { tier: "yellow", score: 0.46, decision: "human-review", why: "37 files depend on it" },
+    reviewFirst: [{ file: "src/a.ts", reasons: [{ kind: "dependents", text: "37 files depend on it" }], hunks: [{ id: 1, oldStart: 1, newStart: 1, newLines: 2, score: 1, reasons: [] }] }],
+    checks: [{ file: "src/a.ts", question: "Are all callers compatible?", quotes: [], evidence: [] }],
+    skim: [],
+    human: [],
+    notRanked: { hunks: 0, files: 0 },
+    budget: { maxTokens: 2500, estimatedTokens: 50, truncated: false, omitted: { files: 0, hunks: 0, checks: 0 } },
+    notes: [],
+  };
+}
+
+describe("renderMarkdown with a brief", () => {
+  it("is byte-equal to the brief-less rendering when result.brief is absent", () => {
+    expect(renderMarkdown(result())).toBe(renderMarkdown({ ...result(), brief: undefined }));
+  });
+
+  it("inserts Review focus bullets, a collapsed opendrs-brief fence, and moves the old table into Score details", () => {
+    const md = renderMarkdown(result({ brief: brief() }));
+    expect(md).toContain("**Review focus**");
+    expect(md).toContain("<details><summary>Review brief for AI reviewers (opendrs)</summary>");
+    expect(md).toContain("~~~~opendrs-brief");
+    expect(md).toContain("~~~~\n</details>");
+    expect(md).toContain("<details><summary>Score details</summary>");
+    expect(md.indexOf("**Review focus**")).toBeLessThan(md.indexOf("opendrs-brief"));
+    expect(md.indexOf("opendrs-brief")).toBeLessThan(md.indexOf("Score details"));
+    // the marker, heading and <sub> lines are unmoved
+    expect(md.split("\n")[1]).toContain("Diff risk 0.46");
+  });
+
+  it("still ends with the unchanged footer", () => {
+    const md = renderMarkdown(result({ brief: brief() }));
+    expect(md.trimEnd().split("\n").at(-1)).toContain("opendrs 0.1.5");
+  });
+});
