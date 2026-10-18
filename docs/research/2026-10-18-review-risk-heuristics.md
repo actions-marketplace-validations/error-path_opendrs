@@ -433,3 +433,284 @@ sections a research pass read. They are *(relayed)* unless marked otherwise.
 **Gap.** None of these papers measures error-handling, guard-removal, concurrency or
 literal-flip features as JIT predictors on their own. R4, R5 and R10 are hypotheses to test
 on ApacheJIT, not borrowed results.
+
+## Part 5: Pre-registered plan for the next LLM-judge experiment
+
+Written 2026-10-18, before any API spend. The user has paused paid LLM tests until we can show
+that opendrs is worth running alongside an LLM reviewer. So Phase 1 answers that question, and
+the judge improvements R1–R3 (Phase 2) come after it. The budget is about $43 of API credit.
+Prices are per million tokens:
+
+- Claude Sonnet 5: $2 input, $10 output.
+- Claude Haiku 4.5: $1 input, $5 output.
+- The Message Batches API halves both.
+
+### 5.1 What the cached data already shows ($0)
+
+[`bench/apachejit/judge-sim.ts`](../../bench/apachejit/judge-sim.ts) reuses the Sonnet 5
+judgements of the first LLM run, the replay rows and the labels. It needs no API calls and no
+clones.
+
+- **Sample.** The 800 seeded test commits from that run, 204 of them buggy (25.5 %).
+- **"Flagged"** means the judge listed at least one risky snippet (`riskySnippets`).
+- **opendrs's free score** is calibrated on all 41,967 replayed training commits. On these 800
+  commits its AUC is 0.817.
+- **Cost per commit** is estimated from diff size, the cached reply and ~1,000 thinking tokens:
+  $25.66 for all 800, or $0.032 a commit. That is close to the ~$0.034 the first run cost.
+
+**Routing at equal spend.** Each row reviews a different share of commits with the Sonnet judge.
+The random rows spend the same dollars on randomly chosen commits; their numbers are means of
+1,000 draws.
+
+| Arm | Commits reviewed | Spend | Commits flagged | Buggy commits flagged (of 204) | Precision | Bugs per $ |
+|---|---:|---:|---:|---:|---:|---:|
+| LLM on every commit | 800 | $25.66 | 498 | 183 | 36.7 % | 7.1 |
+| opendrs's riskiest 10 % → LLM | 80 | $5.39 | 77 | 55 | 71.4 % | 10.2 |
+| Random, same spend | 168 | $5.39 | 104 | 38.4 | 36.8 % | 7.1 |
+| opendrs's riskiest 30 % → LLM | 240 | $12.88 | 224 | 123 | 54.9 % | 9.6 |
+| Random, same spend | 401 | $12.88 | 249 | 91.9 | 36.8 % | 7.1 |
+| opendrs's riskiest 50 % → LLM | 400 | $17.94 | 335 | 163 | 48.7 % | 9.1 |
+| Random, same spend | 559 | $17.94 | 348 | 128.0 | 36.8 % | 7.1 |
+
+How to read it:
+- **opendrs routing beats random at equal spend.** It flags 34–43 % more buggy commits at
+  1.3–1.9× the precision.
+- **Token savings are smaller than the commit share.** opendrs's riskiest commits are larger:
+  its riskiest 10 / 30 / 50 % of commits cost 21 / 50 / 70 % of the judging spend.
+- **The routed arm's gain comes from opendrs's ranking.** Inside opendrs's riskiest 30 %, the
+  LLM flags 224 of 240 commits.
+- **At the same human-review load, opendrs alone matches the LLM, for $0.** Sending opendrs's
+  riskiest 498 commits to a human catches 183 bugs, the same as the LLM's 498 flags. With
+  stricter LLM flags:
+  - "≥ 2 snippets": opendrs 127 vs the LLM 122, out of 236 flagged;
+  - "requireSafe fails": 192 vs 192, out of 572.
+
+  At commit level, the prompted judge's flags carry no more bug signal than the free score.
+
+**The judge's snippets are its useful output.** The share of commits that turn out buggy rises
+with the number of risky snippets the judge listed: 7.0 % at 0, 23.3 % at 1, 43.3 % at 2, 57.7 %
+at 3, 63.2 % at 4 and 91.7 % at 5. One added signal, `llm.snippets` (`log1p` of that count),
+lifts calibrated AUC on the 800 commits as follows (paired bootstrap, 2,000 resamples):
+
+| Calibrated on the 800 judged training commits | Test AUC |
+|---|---:|
+| Without LLM signals | 0.809 |
+| + the current `llm.*` signals | 0.819 (+0.010, 95 % CI −0.000 to +0.022) |
+| + `llm.snippets` alone | 0.823 (+0.015, 95 % CI +0.004 to +0.025) |
+| + both | 0.824 |
+
+This finding was made after looking at these same test commits, so it is exploratory. Phase 1
+re-tests it on an independent prompt's findings for free (5.4).
+
+**Statistical power.** The paired bootstrap SE of an AUC difference on these 800 commits is
+0.0026–0.0056, depending on how alike the two models are. At 80 % power and two-sided α = 0.05:
+- **AUC gains:** +0.02 needs 110–500 test commits and +0.03 needs 50–220. So the 800 cached test
+  commits, reused with a paired test, are enough for +0.02.
+- **Gate buggy rate:** the gate's 5.3 % (12 of 228 passed) has a Wilson 95 % interval of
+  3.0–9.0 %. Telling a 2-point change apart needs about 1,600 passed commits per arm, or about
+  5,600 judged commits at a 28.5 % pass rate. That is out of budget, so the gate is reported
+  descriptively.
+
+### 5.2 Literature that shapes the design
+
+Every number below is from a research pass over arXiv HTML pages, mostly through a summarising
+fetch tool *(relayed)*.
+
+**Find-then-verify.** Every verify step checks each finding on its own, not the whole PR.
+- **BitsAI-CR** ([2501.15134](https://arxiv.org/abs/2501.15134)) adds a ReviewFilter after its
+  finder: precision 57.0 → 65.6 %, recall 45.5 → 39.8 % on 1,397 cases. Its filter outputs the
+  conclusion first, then the reasoning. That beat reasoning-first on precision (77.1 vs 65.8 %)
+  at about 1/18 the latency.
+- **Atlassian RovoDev** ([2601.01129](https://arxiv.org/abs/2601.01129)) found an actionability
+  gate worth +20 points of comment-to-human match, and its LLM judge worth little.
+- **Static-analysis verifiers** gain much more:
+  - BugLens ([2504.11711](https://arxiv.org/abs/2504.11711)): precision 0.10 → 0.72 at recall 1.0.
+  - ZeroFalse ([2510.02534](https://arxiv.org/abs/2510.02534)): +0.33 F1 from added context.
+  - These verify one warning at a time, with structured reasoning.
+- **Anthropic's `/code-review`** scores each finding 0–100 on a five-point rubric and keeps those
+  at 80 or above (Part 1.2).
+
+**Prompted vs fine-tuned JIT prediction.**
+- No prompted LLM matches a fine-tuned one. DRS-OSS ([2511.21964](https://arxiv.org/abs/2511.21964))
+  fine-tunes Llama 3.1 8B on metric tokens, the commit message and a compacted diff (22k tokens)
+  and reaches AUC 0.895. It publishes no ablation.
+- Meta's diff-pretrained 13B beat a 34B code model ([2410.06351](https://arxiv.org/abs/2410.06351)).
+- Prompted Sonnet 4.5 over-flags. At a 5 % base rate it had recall 0.79, precision 0.14 and few-shot
+  F1 0.22–0.26 ([2607.06766](https://arxiv.org/abs/2607.06766)). CodeFlowLM saw 2× more false
+  positives than false negatives with GPT-5 ([2512.00231](https://arxiv.org/abs/2512.00231)).
+- ReDef ([2509.09192](https://arxiv.org/abs/2509.09192)) found diff format matters (compact diff
+  blocks beat after-only code), and longer context did not help.
+- No JIT paper measures chain-of-thought or few-shot effects beyond +0.03–0.06 F1.
+
+So the plan keeps one model and one effort setting across the compared arms, asks for findings
+with explicit triggers rather than a probability, and puts the conclusion first in the verify
+reply.
+
+### 5.3 Phase 1: is opendrs worth running alongside an LLM reviewer? (~$19)
+
+**One judging run serves every arm.** The findings prompt in 5.5 runs once per commit and returns
+findings (with priorities), the hunk classification and the risk score. The LLM-only arm reads
+only its findings. The routing arms are subsets of the same per-commit replies. So a second
+full-depth run is never needed.
+
+| Arm | What runs | Cost |
+|---|---|---|
+| **L**: LLM-only reviewer | Sonnet 5, effort `low`, full diff (60,000 characters), findings prompt, on all 800 test commits. No opendrs input. A commit is flagged when it has a finding of priority P0–P2 at confidence ≥ 0.5 | ~$14.0, batched |
+| **A**: cheap review of every commit | Haiku 4.5 (no thinking), same prompt, diff cut to 12,000 characters, on all 800 | ~$3.0, batched |
+| **B**: full review of a random subset | L's replies on random commits until A's measured spend is used up; 1,000 draws | $0, from L |
+| **C**: opendrs routes | L's replies on opendrs's riskiest X %, X set so the spend equals A's measured spend. Also reported at X = 10 / 30 / 50 %. The rest takes the fast path: no LLM call, auto-approved unless an opendrs gate rule fires | $0, from L |
+| **R**: opendrs alone | opendrs's riskiest k commits sent to a human, k = L's flag count | $0 |
+| Pilot | 40 test commits on the standard API, L and A prompts | ~$1.7 |
+
+**Commits.** The same 800 seeded test commits the current judge already saw, pinned by a sha
+list. Every comparison is paired, on the same commits.
+
+**Metrics, per arm:**
+- buggy commits flagged, and buggy commits missed (of 204);
+- commits flagged and precision;
+- measured dollars and tokens (from `response.usage`);
+- buggy commits flagged per dollar and per million tokens.
+
+**Hypotheses** (confirmatory; Holm-corrected together with H4):
+- **H1 (primary).** At equal spend, C flags more buggy commits than B.
+  - Test: C's count against the distribution of B's 1,000 draws, one-sided at α = 0.05.
+  - Success: C ≥ 1.2 × B's mean. The cached simulation predicts +34–43 %.
+- **H2.** At equal spend, C flags at least as many buggy commits as A, at higher precision.
+  - Test: paired bootstrap of (C − A) over commits.
+  - Success: point estimate ≥ 0, and a 95 % CI lower bound above −10 buggy commits (5 % of 204).
+- **H3 (descriptive).** L's flags against R at the same human-review load. If L ≤ R, as in the
+  cached data, the LLM's value is in what it says about each finding. Commit-level labels cannot
+  measure that (5.8).
+
+**Decision.** If H1 holds, opendrs is worth running in front of an LLM reviewer as a router and
+gate, and we publish the result. Phase 2 starts only after the Phase 1 report and an explicit go
+from the user.
+
+### 5.4 Phase 2: R1–R3 inside opendrs's judge (~$16)
+
+- **V0 ($0).** `llm.snippets` on the cached judge (5.1), plus its analogue `llm.findings`
+  (`log1p` of the count of findings at P0–P2 and confidence ≥ 0.5) from L's replies. The L
+  version is the independent re-test of V0.
+- **V1 (R1).** L's replies as opendrs signals:
+  - `llm.findings`, as above;
+  - `llm.findings.high` = 1 when any P0/P1 finding has confidence ≥ 0.8;
+  - plus the existing `llm.semantic` and `llm.risk.*`.
+
+  Fitting needs judged training commits. The first 400 of the seeded 800-commit training sample
+  are judged with the findings prompt: ~$7.0, batched.
+- **V2 (R3).** A verify call (5.5) on every L finding, for commits that have one. That is about
+  480 test and 240 training commits: ~$8.6, batched. A finding counts as verified at score ≥ 80.
+  Signals `llm.findings.verified` and `llm.findings.verified_high` are defined like V1's.
+- **R2 gate**, from V2 at no extra cost: auto-approve only when requireSafe passes and no
+  verified P0/P1 finding exists.
+
+**Hypotheses:**
+- **H4 (confirmatory).** Calibrated + V1 beats calibrated + the current `llm.*` + `llm.snippets`
+  by at least +0.01 AUC, with the paired bootstrap 95 % CI above 0.
+  - Both sides are refitted on the same 400 training commits; the baseline's judgements are cached.
+  - The minimum detectable effect at n = 800 is 0.008–0.016.
+- **H5 (descriptive).** Commits with a verified high finding are ≥ 5 points more often buggy than
+  commits with only unverified high findings, while V2 keeps ≥ 80 % of V1's flagged buggy commits.
+- **H6 (descriptive).** The R2 gate's pass rate and buggy rate, with Wilson intervals, against
+  requireSafe's 28.5 % and 5.3 %.
+
+### 5.5 Prompt and schema changes (draft)
+
+**Findings prompt (arms L and A, and V1).** Insert this into the judge's system prompt before
+"Hunk classification":
+
+> Findings: list the concrete defects this change introduces, at most 5, most severe first. A
+> finding must (a) point at a changed line inside a [hunk N], (b) name its trigger: the input,
+> state or caller that makes it fail, (c) be introduced by this change, not present before it, and
+> (d) be something the author would fix if told. Do not report style, naming, missing tests or
+> documentation, anything a compiler, type checker or linter would catch, symbols that may be
+> defined outside the diff, or speculation that another part of the code might break unless you
+> name that code. Priority: P0 = breaks for every input (crash, data loss, security hole); P1 =
+> breaks for a plausible input or state; P2 = an edge case or degraded behaviour; P3 = minor.
+> Confidence (0 to 1) is the probability that the finding is real. Most changes have no
+> findings; return an empty list when nothing qualifies.
+
+Also change the hunk rules: "A risk category `logic_bug`, `security` or `performance` needs a
+finding on that hunk; without one, choose a safe category, or `complex`. Use `structural` only
+for new modules, public interfaces, data flow or schema."
+
+**Schema.** Add `findings: [{hunk: integer, priority: 0..3, confidence: 0..1, trigger: string ≤
+200, description: string ≤ 300}]` (at most 5 items) and drop `risky_snippets`. `parse.ts` maps
+each finding to a risky snippet at its hunk's file and line, so reports still show evidence.
+
+**Verify prompt (V2).** A second call. It gets the same untrusted diff and the findings, as JSON
+inside an `<untrusted_findings>` block, because the finder read untrusted text:
+
+> You verify candidate defects that another reviewer found in this diff. For each finding, first
+> output your score, then one sentence of reason. Try to refute it from the diff: score 0 if the
+> cited hunk does not do what the finding says, the problem existed before this change, it needs
+> an assumption the diff does not support, a guard visible in the diff prevents it, or it is
+> style; 25 if it might be real but you cannot confirm it from the diff; 50 if it is real but
+> minor or rare; 75 if it is real and will be hit in practice; 100 if it is certain and frequent.
+
+Its reply schema: `{verdicts: [{finding: integer, score: 0|25|50|75|100, reason: string ≤ 200}]}`.
+The rubric is `/code-review`'s, with the conclusion first as in BitsAI-CR.
+
+### 5.6 Budget
+
+Estimates per call (validated by the pilot):
+
+| Call | Per commit, standard | Per commit, batched |
+|---|---:|---:|
+| Sonnet 5 findings | ~$0.035 (current $0.032 + ~300 output tokens) | ~$0.0175 |
+| Haiku 4.5 at 12,000 diff characters | ~$0.0074 (~3,400 input + ~800 output tokens) | ~$0.0037 |
+| Sonnet 5 verify | ~$0.024 (~5,600 input + ~1,300 output and thinking tokens) | ~$0.012 |
+
+| Item | Spend cap (`--max-usd`) | Estimate |
+|---|---:|---:|
+| Pilot, 40 commits, L and A, standard API | $2 | $1.7 |
+| Phase 1: L on 800 test commits (batched) | $16 | $14.0 |
+| Phase 1: A on 800 test commits (batched) | $4 | $3.0 |
+| Phase 2: findings on 400 training commits (batched) | $8 | $7.0 |
+| Phase 2: verify on ~720 commits with findings (batched) | $10 | $8.6 |
+| **Total** | **$40** | **$34.3** |
+
+That leaves about 20 % headroom under $43. Without batch support, Phase 1 alone costs about $36,
+and Phase 2 does not fit.
+
+### 5.7 Prerequisites ($0) and stop rules
+
+**Prerequisites, all before any spend:**
+1. `bench/apachejit/llm.ts`: submission through the Message Batches API; `response.usage` saved
+   with each judgement; flags for model, effort and `maxDiffChars` per arm.
+2. Pin the sample with a committed sha list. Today the sample depends on which row-cache file is
+   newest.
+3. The findings schema and prompt, the verify call, and the new signals, each behind a new
+   prompt hash.
+4. Re-clone the 14 projects: diffs are read from the clones (~15 GB, hours, $0).
+5. `judge-sim.ts` reads the new caches and prints every Phase 1 and 2 table.
+
+**Stop rules:**
+- **Pilot.** Stop and revise the prompt (logged as a new pre-registration) if any of these hold:
+  - more than 1 of 40 replies fail the schema;
+  - L's measured mean cost exceeds $0.045 per commit;
+  - L reports a finding on more than 85 % of commits;
+  - more than 5 % of findings cite a hunk that does not exist.
+- **Main runs.** Each arm has its own `--max-usd` cap (table above). A batch whose first 200
+  results show more than 2 % failures is cancelled.
+- **No tuning on the test sample.** No prompt changes after test results are seen. Any re-run is
+  a new, separately logged experiment.
+
+### 5.8 Open questions and risks
+
+- **Commit labels, not bug locations.** ApacheJIT labels commits by SZZ. "Flagged a buggy commit"
+  does not mean "found its bug", so the LLM's real strength (pointing at the line) is unmeasured.
+  A hand check of about 50 P0/P1 findings against the fixing commits would help; it costs time,
+  not money.
+- **V0 is post hoc.** It was found on this test sample. Its re-test on L's findings is
+  independent of the prompt, but not of the commits.
+- **Arm A changes two things.** It changes both model and depth at once. That is the point of a
+  "cheap review everywhere" arm, but a loss there cannot be pinned on either.
+- **Costs are estimated from diff size.** The pilot measures them. If L costs more than ~$0.045 a
+  commit, Phase 2 shrinks to verify on test commits only.
+- **Effort stays `low`.** Sonnet 5 runs at effort `low`, as in the cached run. Findings might need
+  more effort, but changing it would break the pairing with the cached baseline.
+- **Pretraining contamination.** Apache code is likely in the models' pretraining data, as the
+  DRS-OSS authors note. The same applies to every arm.
+- **The fast path misses bugs.** Routing auto-approves opendrs's least risky commits without an
+  LLM call, and the bugs among them are missed. Phase 1 reports them per X.
