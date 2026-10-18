@@ -39,8 +39,8 @@ function hunkCounts(llm: LlmJudgement): string {
 /** What the Action posts in place of a brief that would push the comment over GitHub's size limit. */
 const BRIEF_OMITTED = "brief omitted: too large for a comment; see the `brief` output";
 
-/** PR comment body. Starts with the `<!-- opendrs -->` marker. `omitBrief` keeps the layout but fences the omission notice instead of the brief. */
-export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean } = {}): string {
+/** PR comment body. Starts with the `<!-- opendrs -->` marker. `omitBrief` keeps the layout but fences the omission notice instead of the brief. `rescoreLine`, when a previous run's state exists, is inserted right after the `<sub>` lines. */
+export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean; rescoreLine?: string } = {}): string {
   const { policy, diff } = result;
   const summaryOf = (id: string) => result.signals.find((s) => s.id === id)?.summary ?? "not reported; model prior used";
   const head = [
@@ -49,6 +49,7 @@ export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean 
     `<sub>${diff.files} files · +${diff.added} −${diff.deleted} · \`${short(diff.base)}…${short(diff.head)}\`</sub>`,
     // Name and evidence come from commit messages and author fields the PR author controls.
     `<sub>${[`Source: ${untrusted(sourceName(result.source))}`, ...result.source.evidence.map(untrusted)].join(" · ")}</sub>`,
+    ...(opts.rescoreLine ? [opts.rescoreLine] : []),
     "",
   ];
 

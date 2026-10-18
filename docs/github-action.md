@@ -68,7 +68,8 @@ opendrs checks out and reads the PR's code. opendrs scores on events that carry 
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). A landing delay needs it: the comment records when the head commit became eligible. |
 | `labels` | `true` | Set the risk label and remove stale ones. opendrs creates its labels (`risk:*`, `opendrs:landing`, `opendrs:hold`, `opendrs:review-after-merge`) with their own colours and descriptions, and recolours one GitHub auto-created in default grey; a colour you chose is kept. |
 | `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
-| `brief` | `true` | Build the review brief and fold it into the PR comment (a **Review focus** summary plus a collapsed "Review brief for AI reviewers" section), the `brief`/`brief-file` outputs, and the job summary. `false` restores today's comment layout byte for byte, and leaves `brief`/`brief-file` empty. See [LLM reviewers](llm-reviewers.html) for recipes that consume it. |
+| `brief` | `true` | Build the review brief and fold it into the PR comment (a **Review focus** summary plus a collapsed "Review brief for AI reviewers" section), the `brief`/`brief-file` outputs, and the job summary. `false` restores today's comment layout byte for byte, and leaves `brief`/`brief-file` empty, the hidden state marker, the re-score line and the change notice all included: see [Re-scoring on new commits](#re-scoring-on-new-commits). |
+| `notify-changes` | `true` | When a re-score changes the tier or the decision, post one short new comment pointing back at the updated report. `false` keeps the re-score line in the main comment but skips the extra comment. Needs `brief` and `comment` to both be true. |
 
 | Output | Values |
 |---|---|
@@ -357,6 +358,27 @@ The same `concurrency` block serves both: a sweep has no PR number, so sweeps sh
 still finishes. The sweep needs the same permissions as a PR run, plus `contents: write` when it merges, and it
 uses the sweep run's `github-token`, so it cannot run on fork PRs (which are never approved anyway).
 On a sweep the `score`, `tier` and `decision` outputs are those of the last PR swept.
+
+## Re-scoring on new commits
+
+Every run that updates the comment also writes a hidden machine marker into it, for example
+`<!-- opendrs-state: v1 head=<sha> score=0.76 tier=yellow decision=human-review run=2 -->`,
+recording this run's result. The next run reads that marker from opendrs's own comment (never from
+another comment or the PR body, and never a forged or malformed one: anything that does not match
+the fixed shape exactly counts as no marker, i.e. a first run) and, when one is found:
+
+- adds one line under the heading: `` Re-scored for `<head7>` (run N) · was 0.76 yellow → now 0.46
+  yellow ``, where `N` is the previous run's number plus one. A push restarts nothing here; even a
+  re-run on the same commit still bumps `N` and shows the line.
+- when the tier or the decision changed since that previous run, also posts one short **new**
+  comment, with no table and nothing the PR controls, for example: "opendrs: risk changed yellow
+  0.76 → green 0.28 · decision human-review → auto-approve · see the updated report ↑". It never
+  carries the `<!-- opendrs -->` marker, so it is never mistaken for the main comment. Set
+  `notify-changes: false` to keep the re-score line but skip this extra comment.
+
+The first run on a PR has no previous marker, so it shows no re-score line and posts no notice; the
+marker it writes starts `run=1`. Both the marker and the re-score line need the `brief` input:
+`brief: false` keeps the comment byte-equal to today's output, with none of the three added.
 
 ## Rollout
 

@@ -14,6 +14,7 @@ import { cell } from "../report/escape.js";
 import { renderMarkdown } from "../report/markdown.js";
 import { HOLD_LABEL, changesRequested, eligibleMarker, noreplyLogin, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { GitHubError, type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
+import { changeNotice, readState, rescoreLine, stateMarker } from "./state.js";
 import type { WorkflowIO } from "./workflow.js";
 
 export { APPROVAL_MARKER } from "./approval.js";
@@ -38,6 +39,8 @@ export interface ActionInputs {
   sampleSalt?: string;
   /** Build the review brief and add it to the comment, job summary and brief/brief-file outputs. */
   brief: boolean;
+  /** Post a short new comment when a re-score changes the tier or the decision. Needs `brief` and `comment`. */
+  notifyChanges: boolean;
 }
 
 /** The fields of the `pull_request` webhook payload the action uses. */
@@ -306,15 +309,23 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment }),
   );
 
+  // Re-score visibility needs the state marker, which the brief:false byte-equal guarantee forbids adding.
+  const previousState = d.inputs.brief ? readState(mine?.body ?? undefined) : undefined;
+  const runNumber = previousState ? previousState.run + 1 : 1;
+  const rescore = previousState ? rescoreLine(previousState, runNumber, pr.head.sha, result.score, result.tier) : undefined;
+
   const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
+  const state = d.inputs.brief
+    ? `\n${stateMarker({ head: pr.head.sha, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
+    : "";
   const assemble = (report: string) =>
-    `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
-  const body = assemble(renderMarkdown(result));
+    `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;
+  const body = assemble(renderMarkdown(result, { rescoreLine: rescore }));
   // Over GitHub's limit the comment is rendered again without the brief, never edited by a pattern
   // over content the PR controls; the full brief stays in the `brief` output.
-  const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true })) : body;
+  const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore })) : body;
 
   if (comments) {
     await unlessForbidden(
@@ -324,6 +335,14 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
       },
       () => io.warning(COMMENT_FORBIDDEN),
     );
+    // A short, separate notice so a re-score that changes the outcome is not missed in an updated-in-place
+    // comment; it never carries the opendrs marker, so it is never mistaken for the main comment.
+    if (d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
+      await unlessForbidden(
+        () => client.createComment(pr.number, changeNotice(previousState, result.score, result.tier, result.policy.decision)),
+        () => io.warning(COMMENT_FORBIDDEN),
+      );
+    }
   }
 
   // The sweep finds PRs waiting out their delay by this label, so it is kept whatever the labels input

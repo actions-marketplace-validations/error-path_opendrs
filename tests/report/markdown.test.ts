@@ -222,6 +222,15 @@ describe("renderMarkdown", () => {
     expect(red).toContain("🔴");
     expect(red).toContain("calibrated model");
   });
+
+  it("inserts the re-score line right after the <sub> lines, before the blank line, when given one", () => {
+    const withLine = renderMarkdown(result(), { rescoreLine: "Re-scored for `abcdef1` (run 2) · was 0.76 yellow → now 0.46 yellow" });
+    const lines = withLine.split("\n");
+    expect(lines[3]).toContain("<sub>Source:");
+    expect(lines[4]).toBe("Re-scored for `abcdef1` (run 2) · was 0.76 yellow → now 0.46 yellow");
+    expect(lines[5]).toBe("");
+    expect(renderMarkdown(result())).not.toContain("Re-scored for");
+  });
 });
 
 describe("renderText", () => {

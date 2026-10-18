@@ -34,6 +34,10 @@ inputs:
     description: Build the review brief (ranked hunks, check questions, safe-to-skim, hard-rule reasons) and add it to the PR comment, the job summary and the brief/brief-file outputs. Set to false to keep today's comment layout byte for byte.
     required: false
     default: "true"
+  notify-changes:
+    description: When a re-score changes the tier or the decision, post one short new comment pointing back at the updated report. Needs brief and comment to both be true; otherwise nothing is posted.
+    required: false
+    default: "true"
 
 outputs:
   score:

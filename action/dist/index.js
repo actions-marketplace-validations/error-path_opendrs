@@ -31043,6 +31043,7 @@ function renderMarkdown(result, opts = {}) {
     `<sub>${diff.files} files \xB7 +${diff.added} \u2212${diff.deleted} \xB7 \`${short(diff.base)}\u2026${short(diff.head)}\`</sub>`,
     // Name and evidence come from commit messages and author fields the PR author controls.
     `<sub>${[`Source: ${untrusted(sourceName(result.source))}`, ...result.source.evidence.map(untrusted)].join(" \xB7 ")}</sub>`,
+    ...opts.rescoreLine ? [opts.rescoreLine] : [],
     ""
   ];
   const body = [];
@@ -31290,6 +31291,20 @@ async function enableMerge({ client, io, pr, result }) {
   }
 }
 
+// src/action/state.ts
+var STATE_ANY_RE = /<!-- opendrs-state:[^>]*-->/g;
+var STATE_STRICT_RE = /^<!-- opendrs-state: v1 head=([0-9a-f]{40}) score=(0(?:\.\d{1,4})?|1(?:\.0{1,4})?) tier=(green|yellow|red) decision=(auto-approve|deferred-review|waiting-ai-review|human-review) run=([1-9]\d{0,5}|1000000) -->$/;
+var stateMarker = (s) => `<!-- opendrs-state: v1 head=${s.head} score=${s.score.toFixed(4)} tier=${s.tier} decision=${s.decision} run=${s.run} -->`;
+function readState(body) {
+  const candidates = body?.match(STATE_ANY_RE) ?? [];
+  if (candidates.length !== 1) return void 0;
+  const m = STATE_STRICT_RE.exec(candidates[0]);
+  if (!m) return void 0;
+  return { head: m[1], score: Number(m[2]), tier: m[3], decision: m[4], run: Number(m[5]) };
+}
+var rescoreLine = (prev, run, head, score, tier) => `Re-scored for \`${head.slice(0, 7)}\` (run ${run}) \xB7 was ${prev.score.toFixed(2)} ${prev.tier} \u2192 now ${score.toFixed(2)} ${tier}`;
+var changeNotice = (prev, score, tier, decision) => `opendrs: risk changed ${prev.tier} ${prev.score.toFixed(2)} \u2192 ${tier} ${score.toFixed(2)} \xB7 decision ${prev.decision} \u2192 ${decision} \xB7 see the updated report \u2191`;
+
 // src/action/run.ts
 var COMMENT_MARKER = "<!-- opendrs -->";
 var LANDING_LABEL = "opendrs:landing";
@@ -31476,6 +31491,9 @@ async function scorePullRequest(d, pr) {
     "Approval",
     () => reconcileApproval({ client, io, pr, config: config2, result, files, viewer, now: /* @__PURE__ */ new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment })
   );
+  const previousState = d.inputs.brief ? readState(mine?.body ?? void 0) : void 0;
+  const runNumber = previousState ? previousState.run + 1 : 1;
+  const rescore = previousState ? rescoreLine(previousState, runNumber, pr.head.sha, result.score, result.tier) : void 0;
   const warning = predictable ? `
 
 **Warning:** ${PREDICTABLE_SAMPLING}` : "";
@@ -31483,12 +31501,14 @@ async function scorePullRequest(d, pr) {
 ${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `
 **Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
+  const state = d.inputs.brief ? `
+${stateMarker({ head: pr.head.sha, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}` : "";
   const assemble = (report) => `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}
 ${report}`}${warning}
 
-**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
-  const body = assemble(renderMarkdown(result));
-  const capped = body.length > 6e4 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true })) : body;
+**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;
+  const body = assemble(renderMarkdown(result, { rescoreLine: rescore }));
+  const capped = body.length > 6e4 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore })) : body;
   if (comments) {
     await unlessForbidden(
       async () => {
@@ -31497,6 +31517,12 @@ ${report}`}${warning}
       },
       () => io.warning(COMMENT_FORBIDDEN)
     );
+    if (d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
+      await unlessForbidden(
+        () => client.createComment(pr.number, changeNotice(previousState, result.score, result.tier, result.policy.decision)),
+        () => io.warning(COMMENT_FORBIDDEN)
+      );
+    }
   }
   const landing = approval.pendingUntil !== void 0 || labels.includes(HOLD_LABEL) && approval.eligibleSince !== void 0;
   if (landing !== labels.includes(LANDING_LABEL)) {
@@ -31636,7 +31662,8 @@ function readInputs(env) {
     comment: bool("comment", true),
     labels: bool("labels", true),
     sampleSalt: get("sample-salt"),
-    brief: bool("brief", true)
+    brief: bool("brief", true),
+    notifyChanges: bool("notify-changes", true)
   };
 }
 async function runFromEnv(env, write) {
