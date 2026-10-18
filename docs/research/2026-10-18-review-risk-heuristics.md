@@ -25,7 +25,7 @@ could turn into deterministic signals, judge-prompt changes or gate rules.
 
 | | |
 |---|---|
-| **Source** | `requesting-code-review/code-reviewer.md` and `receiving-code-review/SKILL.md`, local under `~/.claude/plugins/cache/claude-plugins-official/superpowers/6.4.1/skills/`. Upstream: [code-reviewer.md](https://github.com/obra/superpowers/blob/main/skills/requesting-code-review/code-reviewer.md), [receiving-code-review](https://github.com/obra/superpowers/blob/main/skills/receiving-code-review/SKILL.md). There is no separate agent file in v6.4.1: the skill fills a template for a general-purpose subagent. |
+| **Source** | Superpowers v6.4.1: [`requesting-code-review/code-reviewer.md`](https://github.com/obra/superpowers/blob/v6.4.1/skills/requesting-code-review/code-reviewer.md) and [`receiving-code-review/SKILL.md`](https://github.com/obra/superpowers/blob/v6.4.1/skills/receiving-code-review/SKILL.md). There is no separate agent file in v6.4.1: the skill fills a template for a general-purpose subagent. |
 | **What it looks for** | Five checklists. **Plan alignment.** **Code quality**: error handling, type safety, DRY, edge cases. **Architecture**: design, scalability, security, integration. **Testing**: tests that check real behaviour rather than mocks, edge cases, integration tests. **Production readiness**: a migration strategy if the schema changed, backward compatibility, docs. Where the spec is silent, it judges by what a reasonable user would expect. |
 | **Severity** | Critical: bugs, security, data loss, broken functionality. Important: architecture, missing features, poor error handling, test gaps. Minor: style, optimisation, docs. "Not everything is Critical." |
 | **Approval** | Gives a verdict, "Ready to merge? Yes / No / With fixes". Critical issues are fixed immediately and Important ones before proceeding. |
@@ -35,15 +35,15 @@ could turn into deterministic signals, judge-prompt changes or gate rules.
 
 | | |
 |---|---|
-| **Source** | Local copy: `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/code-review/commands/code-review.md`. Upstream, which is newer: [anthropics/claude-code plugins/code-review](https://github.com/anthropics/claude-code/blob/main/plugins/code-review/commands/code-review.md). |
-| **What it looks for** | **Local version: five parallel reviewers.** (1) CLAUDE.md compliance. (2) A shallow scan of the diff for obvious bugs, "large bugs", not nitpicks. (3) Git blame and history of the modified code. (4) Comments on earlier PRs that touched the same files. (5) Compliance with guidance in code comments. **Upstream version: four agents.** Two check CLAUDE.md. Two are bug agents, told to flag only HIGH SIGNAL issues: code that will not compile or parse, code that "will definitely produce wrong results regardless of inputs", and clear CLAUDE.md violations. They must not flag issues that "depend on specific inputs or state". |
-| **Severity** | No severity tiers. Each issue gets a 0–100 confidence score from a separate Haiku agent with a fixed rubric. 75 means "verified ... will be hit in practice", 100 means "definitely". Issues below 80 are dropped. Upstream replaces the score with a validation subagent per issue. |
+| **Source** | Five-agent version: [anthropics/claude-plugins-official `plugins/code-review/commands/code-review.md`](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-review/commands/code-review.md). Newer four-agent version: [anthropics/claude-code `plugins/code-review/commands/code-review.md`](https://github.com/anthropics/claude-code/blob/main/plugins/code-review/commands/code-review.md). |
+| **What it looks for** | **claude-plugins-official version: five parallel reviewers.** (1) CLAUDE.md compliance. (2) A shallow scan of the diff for obvious bugs, "large bugs", not nitpicks. (3) Git blame and history of the modified code. (4) Comments on earlier PRs that touched the same files. (5) Compliance with guidance in code comments. **claude-code version: four agents.** Two check CLAUDE.md. Two are bug agents, told to flag only HIGH SIGNAL issues: code that will not compile or parse, code that "will definitely produce wrong results regardless of inputs", and clear CLAUDE.md violations. They must not flag issues that "depend on specific inputs or state". |
+| **Severity** | No severity tiers. Each issue gets a 0–100 confidence score from a separate Haiku agent with a fixed rubric. 75 means "verified ... will be hit in practice", 100 means "definitely". Issues below 80 are dropped. The claude-code version replaces the score with a validation subagent per issue. |
 | **Approval** | Never approves. Comments only, or says "No issues found". It skips closed, draft, trivial or automated PRs. |
 | **Notable** | An explicit list of **false positives not to flag**: pre-existing issues, anything a linter or compiler would catch, general quality concerns such as test coverage unless CLAUDE.md requires them, intentional functional changes, and issues on lines the PR did not modify. |
 
 The same marketplace ships the **pr-review-toolkit**
-(local: `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/pr-review-toolkit/agents/`,
-[upstream](https://github.com/anthropics/claude-code/tree/main/plugins/pr-review-toolkit/agents)).
+([claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit/agents),
+[claude-code](https://github.com/anthropics/claude-code/tree/main/plugins/pr-review-toolkit/agents)).
 Its `/review-pr` command
 picks agents by what the diff touches: `silent-failure-hunter` if error handling changed,
 `pr-test-analyzer` if tests changed, `type-design-analyzer` if types were added, `comment-analyzer`
@@ -56,14 +56,14 @@ failing call, broad catches, unjustified fallbacks, and retries that give up sil
 CRITICAL for a silent failure or broad catch, HIGH for a bad message or unjustified fallback,
 MEDIUM for missing context. `pr-test-analyzer` rates test gaps 1–10 (9–10 means data loss,
 security or system failure). `feature-dev`'s `code-reviewer`
-([upstream](https://github.com/anthropics/claude-code/blob/main/plugins/feature-dev/agents/code-reviewer.md))
+([source](https://github.com/anthropics/claude-code/blob/main/plugins/feature-dev/agents/code-reviewer.md))
 uses the same ≥ 80 confidence filter.
 
 ### 1.3 Anthropic security review (`/security-review` and the security-guidance plugin)
 
 | | |
 |---|---|
-| **Source** | [claude-code-security-review `.claude/commands/security-review.md`](https://github.com/anthropics/claude-code-security-review/blob/main/.claude/commands/security-review.md) and its [`findings_filter.py`](https://github.com/anthropics/claude-code-security-review/blob/main/claudecode/findings_filter.py). The security-guidance plugin: [`review_api.py`](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/security-guidance/hooks/review_api.py) and [`patterns.py`](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/security-guidance/hooks/patterns.py), local under `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/security-guidance/hooks/`. |
+| **Source** | [claude-code-security-review `.claude/commands/security-review.md`](https://github.com/anthropics/claude-code-security-review/blob/main/.claude/commands/security-review.md) and its [`findings_filter.py`](https://github.com/anthropics/claude-code-security-review/blob/main/claudecode/findings_filter.py). The security-guidance plugin: [`review_api.py`](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/security-guidance/hooks/review_api.py) and [`patterns.py`](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/security-guidance/hooks/patterns.py). |
 | **What it looks for** | **`/security-review`**: only security issues "newly added by this PR", in five groups: input validation (SQL, command, XXE, template, NoSQL injection, path traversal), authn/authz, crypto and secrets, injection and code execution, data exposure. **security-guidance, two stages.** First a regex check on every edit: 24 rules such as `eval_injection`, `child_process_exec`, `pickle_deserialization`, `innerHTML_xss`, `tls_verification_disabled`, `unsafe_yaml_load` and `github_actions_workflow`. Then an agentic LLM review with a list of "high-miss patterns", which **name concrete diff shapes**: *control regression* (a deleted fail-closed validator replaced by a single condition), *sibling-path gate parity* (a guard added to one branch or handler but missing from its siblings), *fail-open state drift*, *allowlist semantic escape*, *gate/action field mismatch*, *security-registry fanout* (a new enum or field missing from sanitiser and redaction lists), *IaC omitted arg*, *CI/CD trust* (`pull_request_target` without a branch filter). |
 | **Severity** | `/security-review`: HIGH, MEDIUM, LOW. Confidence must be ≥ 0.8 to report, and false-positive subtasks drop anything below 8/10. security-guidance: critical, high, medium. Mediums are kept, because "dropping mediums ... filters out most real findings". |
 | **Approval** | None. They report findings. |
@@ -73,7 +73,7 @@ uses the same ≥ 80 confidence filter.
 
 | | |
 |---|---|
-| **Source** | Local: `~/.claude/plugins/synced/…/engineering/skills/code-review/SKILL.md`. Upstream: [knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins/blob/main/engineering/skills/code-review/SKILL.md). |
+| **Source** | [anthropics/knowledge-work-plugins `engineering/skills/code-review/SKILL.md`](https://github.com/anthropics/knowledge-work-plugins/blob/main/engineering/skills/code-review/SKILL.md). |
 | **What it looks for** | **Security**: SQLi, XSS, CSRF, authn/authz, secrets, deserialisation, path traversal, SSRF. **Performance**: N+1, allocations, O(n²) in hot paths, missing indexes, unbounded queries or loops, resource leaks. **Correctness**: edge cases (empty, null, overflow), race conditions, error handling and propagation, off-by-one, type safety. **Maintainability.** |
 | **Severity** | 🔴 Critical in a table; other items are suggestions. |
 | **Approval** | Verdict: Approve, Request Changes, or Needs Discussion. |
@@ -116,7 +116,7 @@ checked in their source.
 1. **Only what the diff introduces.** Codex, PR-Agent, Kodus, `/code-review` and `/security-review`
    all exclude pre-existing issues and unchanged lines.
 2. **Concrete failure mode or nothing.** A finding must name a trigger, input or affected caller
-   (Codex rule 7, PR-Agent "concrete scenario" and `failure_modes.trigger`, upstream `/code-review`
+   (Codex rule 7, PR-Agent "concrete scenario" and `failure_modes.trigger`, claude-code `/code-review`
    "wrong results regardless of inputs"). Speculation is a false positive.
 3. **Find, then verify.** A second pass scores or refutes each finding before it counts:
    `/code-review` (≥ 80 / validation agents), `/security-review` (≥ 8/10), security-guidance (refute),
@@ -166,7 +166,7 @@ checked in their source.
 | H19 | **Low-risk shapes**: docs, tests only, formatting, logging, comments | 5: RADAR, cubic, PR-Agent (score 0 for docstrings), `/code-review` (skip trivial), Meta DRS | **`size.comment_only`**, safe categories, `size.new_files_only` | Yes for comments and docs. Logging and refactor need the LLM. |
 | H20 | **Author and source trust**: external contributor, bot, agent | 3: cubic, Greptile, `/code-review` (skip automated PRs) | **`sources.*`**, `expertise.*`, `policy/source.ts` | Yes. Already done. |
 | H21 | **Introduced by this diff, not pre-existing** | 6: Codex, PR-Agent, Kodus, `/code-review`, `/security-review`, security-guidance | Not stated in the prompt | Prompt rule, not a signal. |
-| H22 | **Concrete trigger required for a risk claim** | 5: Codex, PR-Agent, upstream `/code-review`, Kodus, `/security-review` | Partly: "Go above 0.5 only when you can name a concrete, plausible failure mode" applies to `risk`, but not to the hunk categories. | Prompt rule. |
+| H22 | **Concrete trigger required for a risk claim** | 5: Codex, PR-Agent, claude-code `/code-review`, Kodus, `/security-review` | Partly: "Go above 0.5 only when you can name a concrete, plausible failure mode" applies to `risk`, but not to the hunk categories. | Prompt rule. |
 
 **Literature context.** No paper we found measures H1, H2, H3 or H8 as JIT-defect predictors on
 their own. The tools use them as checklist items, which is not evidence that they predict defects.
