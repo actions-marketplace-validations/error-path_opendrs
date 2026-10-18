@@ -48,6 +48,20 @@ describe("checkQuestions", () => {
     expect(q!.evidence).toEqual(["src/b.ts", "src/c.ts", "src/d.ts"]);
   });
 
+  it("looks up dependents by the file's oldPath for a renamed file, matching rank.ts", () => {
+    const graph: DependencyGraph = {
+      dependentsOf: (path) => (path === "src/old.ts" ? ["src/caller.ts"] : []),
+      transitiveDependents: () => new Set(),
+      supports: () => true,
+      fileCount: 5,
+    };
+    const renamed = { path: "src/new.ts", oldPath: "src/old.ts", status: "renamed" as const, added: 1, deleted: 1, binary: false, hunks: [], ignored: false };
+    const context = makeContext("/tmp/x", { base: "b", head: "h", files: [renamed] }, defaultConfig(), fakeHistory([]), graph);
+    const f: RankedFile = { file: "src/new.ts", score: 1, reasons: [], hunks: [hunk([{ kind: "exports", text: "exports changed: `f()`" }])] };
+    const [q] = checkQuestions([f], context, []);
+    expect(q!.evidence).toEqual(["src/caller.ts"]);
+  });
+
   it("asks a no-tests question from a no-tests reason", () => {
     const [q] = checkQuestions([fileWith([{ kind: "no-tests", text: "no test changed alongside it" }])], ctx(), []);
     expect(q!.question).toBe("No test changed for `src/a.ts`. Which new branch is unverified?");

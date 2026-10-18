@@ -53,7 +53,9 @@ export function checkQuestions(ranked: RankedFile[], ctx: ScoringContext, incide
 
     const exports = reasons.find((r) => r.kind === "exports");
     if (exports) {
-      const dependents = ctx.graph?.dependentsOf(f.file) ?? [];
+      // The graph is read at base, where a renamed file still has its old path (matches rank.ts).
+      const oldPath = ctx.diff.files.find((cf) => cf.path === f.file)?.oldPath ?? f.file;
+      const dependents = ctx.graph?.dependentsOf(oldPath) ?? [];
       const named = dependents.slice(0, MAX_DEPENDENTS_NAMED).map(code);
       if (dependents.length > named.length) named.push("…");
       const callers = dependents.length > 0 ? `; ${dependents.length} file${dependents.length === 1 ? "" : "s"} import ${path} (${named.join(", ")})` : "";
