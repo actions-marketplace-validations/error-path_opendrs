@@ -7656,9 +7656,13 @@ function renderBriefMarkdown(brief) {
   }
   if (brief.reviewFirst.length > 0) {
     lines.push("", "## Review first");
+    if (brief.reviewFirstScope === "skim-only") lines.push("Only docs/tests/generated files changed; nothing ranks above skim level.");
     brief.reviewFirst.forEach((f, i) => {
       lines.push(`${i + 1}. ${code(f.file)}${f.reasons.length > 0 ? ` (${reasonText(f.reasons)})` : ""}`);
-      for (const h of f.hunks) lines.push(`   - [hunk ${h.id}] ${lineRange(h)}: ${reasonText(h.reasons)}`);
+      for (const h of f.hunks) {
+        const reason = reasonText(h.reasons);
+        lines.push(`   - [hunk ${h.id}] ${lineRange(h)}${reason ? `: ${reason}` : ""}`);
+      }
     });
   }
   if (brief.checks.length > 0) {
@@ -29263,6 +29267,12 @@ function hunkPublicDecl(c) {
   }
   return void 0;
 }
+function fallbackReason(c, dependents, fixCount) {
+  const base = plural2(hunkChangedLines(c.hunk), "changed line");
+  const decl = hunkPublicDecl(c);
+  const context = dependents > 0 ? `${plural2(dependents, "file")} depend${dependents === 1 ? "s" : ""} on it` : decl ? `changes exported ${code(decl)}` : fixCount > 0 ? `in a file with ${plural2(fixCount, "prior fix")}` : void 0;
+  return { kind: "changed-lines", text: context ? `${base}, ${context}` : base };
+}
 function fixHistory(ctx, path) {
   const commits = ctx.history.fileCommits(path, ctx.asOf).filter((c) => c.isFix || c.isRevert);
   return { count: commits.length, latest: commits[0] };
@@ -29339,6 +29349,7 @@ function rankHunks(ctx, result, blame, opts = {}) {
           quote: clipQuote(verdict.reason)
         });
       }
+      if (reasons.length === 0) reasons.push(fallbackReason(c, dependents, fixes.count));
       return { id: c.id, oldStart: c.hunk.oldStart, oldLines: c.hunk.oldLines, newStart: c.hunk.newStart, newLines: c.hunk.newLines, score, reasons: reasons.slice(0, MAX_REASONS) };
     });
     files.push({ file: path, score: Math.max(risk, ...hunks.map((h) => h.score)), reasons: fileReasons.slice(0, MAX_REASONS), hunks });
@@ -29518,7 +29529,7 @@ function commentOnly(f) {
   const texts = f.hunks.flatMap((h) => h.lines.filter((l) => l[0] === "+" || l[0] === "-").map((l) => l.slice(1)));
   return texts.length > 0 && texts.every((t) => inert(t, family));
 }
-function skimList(ctx) {
+function skimEntries(ctx) {
   const isTest = (path) => matchAny(ctx.config.paths.tests, path);
   const testsDeleted = ctx.diff.files.some((f) => isTest(f.path) && (f.status === "deleted" || f.deleted > f.added));
   const entries = [];
@@ -29530,6 +29541,13 @@ function skimList(ctx) {
       if (!testsDeleted) entries.push({ file: f.path, category: "tests" });
     } else if (commentOnly(f)) entries.push({ file: f.path, category: "comment-only" });
   }
+  return entries;
+}
+function skimmablePaths(ctx) {
+  return new Set(skimEntries(ctx).map((e) => e.file));
+}
+function skimList(ctx, exclude = /* @__PURE__ */ new Set()) {
+  const entries = skimEntries(ctx).filter((e) => !exclude.has(e.file));
   if (entries.length <= COLLAPSE_AT) return entries;
   const counts = {};
   for (const e of entries) counts[e.category] = (counts[e.category] ?? 0) + 1;
@@ -29550,11 +29568,15 @@ async function buildBrief(result, ctx, options = {}) {
   );
   const { hits, notes } = await blameFixes(ctx, candidates.filter((c) => topIds.has(c.id)));
   const ranked = rankHunks(ctx, result, hits, { llm: options.llm });
-  const shown = ranked.slice(0, MAX_FILES).map((f) => ({
+  const skimPaths = skimmablePaths(ctx);
+  const codeRanked = ranked.filter((f) => !skimPaths.has(f.file));
+  const reviewFirstScope = codeRanked.length > 0 || ranked.length === 0 ? "code" : "skim-only";
+  const pool = reviewFirstScope === "code" ? codeRanked : ranked;
+  const shown = pool.slice(0, MAX_FILES).map((f) => ({
     ...f,
     hunks: [...f.hunks].sort((a, b) => b.score - a.score || a.id - b.id).slice(0, MAX_HUNKS_PER_FILE).sort((a, b) => a.id - b.id)
   }));
-  const totalHunks = ranked.reduce((n, f) => n + f.hunks.length, 0);
+  const totalHunks = pool.reduce((n, f) => n + f.hunks.length, 0);
   const shownHunks = shown.reduce((n, f) => n + f.hunks.length, 0);
   let incidents = [];
   try {
@@ -29569,15 +29591,16 @@ async function buildBrief(result, ctx, options = {}) {
     {
       version: 1,
       verdict: verdictOf(result),
+      reviewFirstScope,
       reviewFirst: shown.map((f) => ({
         file: f.file,
         reasons: f.reasons,
         hunks: f.hunks.map((h) => ({ id: h.id, oldStart: h.oldStart, newStart: h.newStart, newLines: h.newLines, score: h.score, reasons: h.reasons }))
       })),
       checks: checkQuestions(shown, ctx, incidents),
-      skim: skimList(ctx),
+      skim: skimList(ctx, new Set(shown.map((f) => f.file))),
       human: needsHuman(result.policy),
-      notRanked: { hunks: totalHunks - shownHunks, files: ranked.length - shown.length },
+      notRanked: { hunks: totalHunks - shownHunks, files: pool.length - shown.length },
       budget: { maxTokens, estimatedTokens: 0, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
       notes
     },
