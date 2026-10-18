@@ -21,6 +21,14 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - Research note: [how AI code reviewers judge PR risk](docs/research/2026-10-18-review-risk-heuristics.md).
 - [Experiment log](docs/experiments.md): every benchmark and model experiment with its numbers and verdict, the
   ones that did not work included (Kamei features, review-heuristic signals).
+- The Action's PR comment now leads with a **Review focus** (up to 3 bullets: where to look first,
+  the top check question, and any hard-rule reason) and a collapsed "Review brief for AI reviewers"
+  section, built deterministically from signals already computed (no extra LLM call). The old
+  signal table, unknowns, policy reasons and LLM block move into a collapsed "Score details"
+  section — expand it, or read the Action's outputs, if you scrape the table. Set the new `brief`
+  input to `false` for the old layout, byte for byte.
+- New Action outputs `brief` (the brief as Markdown) and `brief-file` (its JSON, under
+  `$RUNNER_TEMP`); both empty when `brief: false`. The brief is also included in the job summary.
 
 ## 0.2.0 - 2026-10-18
 
