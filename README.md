@@ -125,7 +125,7 @@ Every setting lives in `.opendrs.yml`, read from the base branch so a PR cannot 
 
 | Benchmark | Result | Details |
 |---|---|---|
-| ApacheJIT (15 Apache Java projects, official 2017–2019 test years, `apache/hadoop` left out because it has no positive labels) | Calibrated opendrs: AUC 0.819; catches 66 % of buggy commits in its riskiest 30 %, on par with a regression on the classic JIT metrics | [Results on ApacheJIT](docs/calibration.md#results-on-apachejit) |
+| ApacheJIT (15 Apache Java projects, official 2017–2019 test years, `apache/hadoop` left out because it has no positive labels) | Calibrated opendrs: AUC 0.823; catches 67 % of buggy commits in its riskiest 30 %, on par with a regression on the classic JIT metrics (0.821, 66 %) | [Results on ApacheJIT](docs/calibration.md#results-on-apachejit) |
 | ApacheJIT with the LLM judge (Claude Sonnet 5, 800 sampled test commits) | At confidence 8, the commits the judge calls all-safe are buggy at 5.3 %, against a 25.5 % base rate | [With the structured LLM judge](docs/calibration.md#with-the-structured-llm-judge) |
 | 27 public repositories (calibrate, then backtest) | Calibration beat the default priors on held-out commits in all nine repositories of the first run | [Benchmark results](docs/results.md) |
 
@@ -156,6 +156,7 @@ Flags, exit codes, MCP tools and the agent skill: [CLI, MCP server and agent ski
 | [LLM judge](docs/llm-judge.md) | turn on the optional LLM judge or the `requireSafe` gate |
 | [Calibration and backtesting](docs/calibration.md) | fit the model to your repository and choose thresholds |
 | [Benchmark results](docs/results.md) | see how opendrs ranks risk on public repositories |
+| [Experiments](docs/experiments.md) | see what we tried and what did not work |
 | [CLI, MCP server and agent skill](docs/cli-and-mcp.md) | run opendrs locally or from an agent |
 | [Known limitations](docs/limitations.md) | know what opendrs cannot see |
 | [Compared with other tools](docs/alternatives.md) | choose between opendrs and other PR risk tools |

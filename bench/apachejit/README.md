@@ -33,6 +33,7 @@ node bench/apachejit/run.ts --projects zookeeper,groovy --max-per-project 300  #
 | `--max-per-project <n>` | none | keep the newest `n` labelled commits per project and split |
 | `--concurrency <n>` | 2 | projects replayed at once (each replay runs 8 commits in parallel) |
 | `--out <file>` | `bench/apachejit/results.md` | the report |
+| `--cached-only` | off | never clone or replay: every project loads from the row cache, keyed by its pinned head (fails on a miss). For re-fitting after a change that leaves replay alone |
 
 The pooled table is also printed to stdout; progress goes to stderr. The exit code is 1 when a
 project was skipped (failed clone, or its pinned head is missing from the clone), 2 on a bad flag.

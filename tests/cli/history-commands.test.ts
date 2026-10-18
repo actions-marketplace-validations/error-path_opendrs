@@ -172,6 +172,15 @@ describe("opendrs backtest", () => {
     expect(t.stdout()).toContain("Note: No replayed commit is newer");
   });
 
+  it("prints calibrate's recorded held-out metrics as a labelled row when there are no newer commits", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({ default: metrics(0.12, 0.2, 0.7, 0.64), recorded: metrics(0.2, 0.31, 0.88, 0.74), curve: [], notes: [] });
+    const t = testIo(repo.dir);
+    await runCli(["backtest"], t.io);
+    expect(t.stdout()).toMatch(/calibrated \(recorded\)\s+20\.0 %\s+31\.0 %\s+88\.0 %\s+0\.74/);
+    expect(t.stdout()).toContain("recorded: calibrate's held-out evaluation");
+  });
+
   it("prints the raw report with --json", async () => {
     vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
     const t = testIo(repo.dir);

@@ -11,8 +11,8 @@ These are the numbers behind opendrs's claims: `opendrs backtest` replayed on op
 
 On the public [ApacheJIT](calibration.html#results-on-apachejit) benchmark (Apache Java
 projects, official 2017–2019 test years, `apache/hadoop` left out because it has no positive
-labels), calibrated opendrs reaches AUC 0.819 and catches 66 % of buggy commits in its riskiest
-30 %, on par with a regression on the classic JIT metrics.
+labels), calibrated opendrs reaches AUC 0.823 and catches 67 % of buggy commits in its riskiest
+30 %, on par with a regression on the classic JIT metrics (0.821, 66 %).
 
 We ran `opendrs calibrate` and then `opendrs backtest --max-commits 4000` on nine open-source
 repositories with opendrs v0.1.0, without changing any configuration. Labels come from reverts and

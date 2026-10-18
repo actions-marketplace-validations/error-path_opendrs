@@ -48,5 +48,7 @@ nav:
     url: /calibration.html
   - title: Results
     url: /results.html
+  - title: Experiments
+    url: /experiments.html
   - title: Alternatives
     url: /alternatives.html

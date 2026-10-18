@@ -75,7 +75,7 @@ ${HISTORY_OPTIONS}`,
     const m = model.metrics;
     if (m) {
       io.out(
-        `Held-out newest 20 %:  captured@5%  ${pct(m.capturedAt["5"])}   @10%  ${pct(m.capturedAt["10"])}   @50%  ${pct(m.capturedAt["50"])}   AUC ${m.auc.toFixed(2)}`,
+        `Held-out newest 20 % (fit on the oldest 80 %; the saved model is refitted on all):  captured@5%  ${pct(m.capturedAt["5"])}   @10%  ${pct(m.capturedAt["10"])}   @50%  ${pct(m.capturedAt["50"])}   AUC ${m.auc.toFixed(2)}`,
       );
     } else {
       io.out("The model has no held-out metrics (too few labelled commits to evaluate).");
@@ -119,11 +119,13 @@ ${HISTORY_OPTIONS}
     io.out(row("default priors", report.default.capturedAt, report.default));
     if (report.calibrated) io.out(row("calibrated (held-out)", report.calibrated.capturedAt, report.calibrated));
     if (report.defaultOnHeldOut) io.out(row("default priors (held-out)", report.defaultOnHeldOut.capturedAt, report.defaultOnHeldOut));
+    if (report.recorded) io.out(row("calibrated (recorded)", report.recorded.capturedAt, report.recorded));
     io.out(row("Meta LR baseline *", META_LR));
     io.out("");
     if (kind !== "calibrated") io.out(`No calibrated model at ${opts.config.model}. Run \`opendrs calibrate\` to fit one.`);
     io.out("captured@X%: share of incident-linked commits that fall in the riskiest X % of commits.");
     if (report.calibrated) io.out("held-out: commits newer than the calibrated model's training window; compare the two held-out rows.");
+    if (report.recorded) io.out("recorded: calibrate's held-out evaluation of its fit on the oldest 80 % (no newer commits to test on yet).");
     for (const note of report.notes) io.out(`Note: ${note}`);
     io.out(
       "* Meta's in-house results for its LR baseline on Meta's own diffs and SEVs (arXiv 2410.06351). " +

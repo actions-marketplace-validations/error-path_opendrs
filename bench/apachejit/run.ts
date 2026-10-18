@@ -39,6 +39,8 @@ interface Options {
   out: string;
   /** Hash of the built dist/: cached rows are only reused by the code that produced them. */
   build: string;
+  /** Never clone or replay: every project must load from the row cache (keyed by its pinned head). */
+  cachedOnly: boolean;
 }
 
 /** Labelled CSV rows of one project (or several, pooled) and the rows replayed for them. */
@@ -81,6 +83,7 @@ function parseOptions(args: string[], build: string): Options {
       "max-per-project": { type: "string" },
       concurrency: { type: "string", default: "2" },
       out: { type: "string", default: fileURLToPath(new URL("results.md", import.meta.url)) },
+      "cached-only": { type: "boolean", default: false },
     },
   });
   const positiveInt = (flag: string, value: string) => {
@@ -98,6 +101,7 @@ function parseOptions(args: string[], build: string): Options {
     concurrency: positiveInt("concurrency", values.concurrency),
     out: values.out,
     build,
+    cachedOnly: values["cached-only"],
   };
 }
 
@@ -123,6 +127,11 @@ export async function ensureDataset(workDir: string): Promise<{ jit: Record<Spli
     hashes[file] = got;
   }
   return { jit, hashes };
+}
+
+/** The pinned head and no clone with --cached-only (its rows must come from the cache); else ensureClone. */
+function source(o: Options, project: Project): Promise<{ repoDir: string; head: string } | { skipped: string }> {
+  return o.cachedOnly ? Promise.resolve({ repoDir: "", head: project.head }) : ensureClone(o.workDir, project);
 }
 
 /** Full clone into <work-dir>/repos/<name> unless that directory exists; returns the replay head or why the project is skipped. */
@@ -212,6 +221,7 @@ async function replayRows(o: Options, cacheName: string, repoDir: string, head: 
     console.error(`${cacheName}: ${cached.rows.length} rows from cache`);
     return cached;
   }
+  if (o.cachedOnly) throw new Error(`${cacheName}: no cached rows at ${path}; --cached-only never replays`);
   const config = defaultConfig();
   config.history.maxCommits = 1_000_000;
   const onProgress = (done: number, total: number) => {
@@ -287,7 +297,7 @@ async function runProject(o: Options, jit: Record<Split, JitRow[]>, project: Pro
   const train = projectRows(jit.train, project.project, o.maxPerProject);
   const test = projectRows(jit.test_large, project.project, o.maxPerProject);
   const pre = jit.total.filter((r) => r.project === project.project && r.time < TEST_FROM);
-  const clone = await ensureClone(o.workDir, project);
+  const clone = await source(o, project);
   if ("skipped" in clone) {
     console.error(`${project.name}: skipped, ${clone.skipped}`);
     return { result: { project: project.project, coverage: coverage({ train, test, rows: [], pre }), models: {}, skipped: clone.skipped, warnings: [] } };
@@ -299,7 +309,7 @@ async function runProject(o: Options, jit: Record<Split, JitRow[]>, project: Pro
     warnings.forEach((w, i) => w.includes("not found") && (warnings[i] = `${w} (looked up in ${fallback.project} next)`));
     const replayed = new Set(rows.map((r) => r.sha));
     const rest = new Map([...labels].filter(([sha]) => !replayed.has(sha)));
-    const other = await ensureClone(o.workDir, fallback);
+    const other = await source(o, fallback);
     if ("skipped" in other) warnings.push(`${fallback.name}: ${other.skipped}`);
     else {
       const more = await replayRows(o, `${project.name}-in-${fallback.name}`, other.repoDir, other.head, rest);
