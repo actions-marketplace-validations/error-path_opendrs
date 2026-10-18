@@ -1,7 +1,8 @@
 import type { BacktestMetrics, ModelWeights, ScoreResult } from "../domain/types.js";
 import { buildBrief } from "../brief/build.js";
+import { candidateHunks } from "../brief/rank.js";
 import { computeSignals, makeContext } from "../engine.js";
-import { loadDiff } from "../git/diff.js";
+import { changedLines, loadDiff } from "../git/diff.js";
 import { git } from "../git/exec.js";
 import { buildHistoryIndex } from "../git/history.js";
 import { decide } from "../policy/gate.js";
@@ -87,7 +88,9 @@ export async function focusHitRate(opts: HistoryRunOptions & { maxTokens?: numbe
       if (lines.some((l) => inFocus(l.path, l.line))) hits++;
 
       const totalChanged = diff.files.reduce((n, f) => n + f.added + f.deleted, 0);
-      const focusChanged = brief.reviewFirst.reduce((n, f) => n + f.hunks.reduce((m, h) => m + h.newLines, 0), 0);
+      // Changed (+/-) lines of the focus hunks, looked up by id: a hunk's newLines counts its context too.
+      const byId = new Map(candidateHunks(ctx).map((c) => [c.id, c.hunk]));
+      const focusChanged = brief.reviewFirst.reduce((n, f) => n + f.hunks.reduce((m, h) => m + [...changedLines(byId.get(h.id)!)].length, 0), 0);
       if (totalChanged > 0) shareSum += focusChanged / totalChanged;
     } catch {
       // one unreadable commit must not abort the whole measurement

@@ -77,6 +77,17 @@ describe("focusHitRate", () => {
     repo.cleanup();
   });
 
+  it("measures changedLineShare over changed lines, not context: 1.0 when the one focus hunk is the whole diff", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const result = await focusHitRate({ repoDir: repo.dir, config: defaultConfig() });
+    expect(result.commits).toBe(1);
+    expect(result.changedLineShare).toBe(1);
+    repo.cleanup();
+  });
+
   it("reports 0 commits (not NaN) when there are no SZZ-labelled commits", async () => {
     const repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "base");
