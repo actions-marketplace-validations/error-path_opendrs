@@ -2,7 +2,16 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.0 - 2026-10-18
+
+The roadmap release: Meta's RADAR funnel and the rest of the DRS lineage. Every new policy is off
+by default, so moving from `@v0` changes no decision until you configure it. To use the landing
+delay or a hold added after approval, add `labeled, unlabeled` to the workflow's
+`pull_request` types (see [docs/github-action.md](docs/github-action.md)).
+
+- Labels opendrs adds are created with colours (`risk:green` green, `risk:yellow` yellow,
+  `risk:red` red, and the `opendrs:*` labels); a label still in GitHub's default grey is
+  recoloured, one you coloured is left alone.
 
 - `opendrs feedback` records an incident in `.opendrs/incidents.jsonl`, by commit
   (`--inducing`, `--fix`) or by PR number (`--pr <n> --was-incident`).
