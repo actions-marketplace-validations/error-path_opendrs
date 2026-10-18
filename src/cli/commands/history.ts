@@ -61,7 +61,8 @@ Options:
 ${HISTORY_OPTIONS}`,
 
   async run(args, io) {
-    const { opts } = await historyRun(args, io, "calibrate");
+    const { opts, brief } = await historyRun(args, io, "calibrate");
+    if (brief) throw new OpendrsError("--brief is not a calibrate option (it stays valid on backtest)", "usage");
     const { model, warnings } = await calibrate(opts);
     io.progress("");
     for (const w of warnings) io.err(`opendrs: warning: ${w}`);

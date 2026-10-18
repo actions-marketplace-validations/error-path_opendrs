@@ -80,6 +80,13 @@ describe("opendrs calibrate", () => {
     expect(calibrate).not.toHaveBeenCalled();
   });
 
+  it("rejects --brief: it is not a calibrate option", async () => {
+    const t = testIo(repo.dir);
+    expect(await runCli(["calibrate", "--brief"], t.io)).toBe(2);
+    expect(t.stderr()).toContain("--brief");
+    expect(calibrate).not.toHaveBeenCalled();
+  });
+
   it("prints captured@5/10/50 and AUC", async () => {
     const t = testIo(repo.dir);
     await runCli(["calibrate"], t.io);
