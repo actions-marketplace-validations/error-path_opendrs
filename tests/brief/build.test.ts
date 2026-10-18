@@ -54,6 +54,27 @@ describe("buildBrief", () => {
     repo.cleanup();
   });
 
+  it("ignores an incidents file that exists only at the PR head: incidents come from the base commit", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n" }, "base");
+    repo.commit({ "a.ts": "1\nX\n", ".opendrs/incidents.jsonl": '{"paths":["a.ts"],"note":"queue stalled"}\n' }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.checks.some((c) => c.question.startsWith("Incident"))).toBe(false);
+    expect(brief.notes).toEqual([]);
+    repo.cleanup();
+  });
+
+  it("asks the incident question from the base commit's incidents file", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n", ".opendrs/incidents.jsonl": '{"paths":["a.ts"],"note":"queue stalled"}\n' }, "base");
+    repo.commit({ "a.ts": "1\nX\n", ".opendrs/incidents.jsonl": null }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.checks.some((c) => c.question.includes("«queue stalled»"))).toBe(true);
+    repo.cleanup();
+  });
+
   it("builds a brief with no graph, no llm and a shallow-history note without throwing", async () => {
     const repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "base");

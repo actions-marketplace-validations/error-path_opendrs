@@ -1,5 +1,6 @@
 import type { Incident, ReviewBrief, ScoreResult, ScoringContext } from "../domain/types.js";
-import { INCIDENTS_FILE, loadIncidents } from "../model/label.js";
+import { gitMaybe } from "../git/exec.js";
+import { INCIDENTS_FILE, parseIncidents } from "../model/label.js";
 import { untrusted } from "../report/escape.js";
 import { blameFixes } from "./blame.js";
 import { fitBudget } from "./budget.js";
@@ -41,9 +42,11 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
   const totalHunks = ranked.reduce((n, f) => n + f.hunks.length, 0);
   const shownHunks = shown.reduce((n, f) => n + f.hunks.length, 0);
 
+  // From the base commit, like the Action's config and model: the PR must not write its own incidents.
   let incidents: Incident[] = [];
   try {
-    incidents = await loadIncidents(ctx.repoDir);
+    const text = await gitMaybe(ctx.repoDir, ["show", `${ctx.diff.base}:${INCIDENTS_FILE}`]);
+    if (text !== undefined) incidents = parseIncidents(text);
   } catch (e) {
     notes.push(`could not read ${INCIDENTS_FILE}: ${untrusted((e as Error).message)}`);
   }

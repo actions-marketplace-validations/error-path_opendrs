@@ -23,7 +23,7 @@ const incidentSchema = z.object({
   note: z.string().optional(),
 });
 
-/** Read `.opendrs/incidents.jsonl` (one Incident per line); missing file = []. */
+/** Read `.opendrs/incidents.jsonl` from the working tree (one Incident per line); missing file = []. */
 export async function loadIncidents(repoDir: string): Promise<Incident[]> {
   let text: string;
   try {
@@ -32,6 +32,11 @@ export async function loadIncidents(repoDir: string): Promise<Incident[]> {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw new OpendrsError(`Cannot read ${INCIDENTS_FILE}: ${(e as Error).message}`, "io");
   }
+  return parseIncidents(text);
+}
+
+/** The contents of `.opendrs/incidents.jsonl`, one Incident per line, from wherever the caller read it. */
+export function parseIncidents(text: string): Incident[] {
   const incidents: Incident[] = [];
   text.split("\n").forEach((line, i) => {
     if (!line.trim()) return;
