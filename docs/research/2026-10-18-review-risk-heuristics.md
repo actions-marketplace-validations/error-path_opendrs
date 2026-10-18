@@ -583,7 +583,7 @@ with arm 1's prompt, to fit the combined model.
 | Arm | What runs | Cost (batched) |
 |---|---|---|
 | **1. LLM alone (L)** | The findings prompt (5.5) on all 800 test commits. No opendrs input. It reports findings (P0–P3, trigger, confidence), classifies each hunk and gives a risk score | ~$14.0 |
-| **2. LLM + opendrs context (O)** | The same prompt, plus a trusted opendrs context block of at most 2,500 characters (5.5), on the same 800. Input grows by about 10 %. The cap is +15 % mean tokens per commit | ~$14.4 |
+| **2. LLM + the opendrs review brief (O)** | The same prompt, plus the product's brief, `renderBriefMarkdown(buildBrief(...))`, at the product default `maxTokens: 2,500` (5.5, amended 2026-10-18), on the same 800. The cap is +30 % mean input tokens per commit | ~$15.4 |
 | **3. opendrs as the decision layer (D)** | L's outputs as opendrs signals in the calibrated model, fitted on L's 400 training commits, plus the gate: `requireSafe` and opendrs's score below the training median | ~$7.0, for the training commits |
 | Routing (secondary) | L's replies on opendrs's riskiest 10 / 30 / 50 %; the rest takes the fast path | $0, from L |
 | Pilot | 30 test commits, L and O, standard API | ~$2.2 |
@@ -599,7 +599,8 @@ with arm 1's prompt, to fit the combined model.
 **Metrics, for every arm:**
 - AUC;
 - recall, precision and false-positive rate at review budgets of 10 % and 30 %;
-- LLM tokens per bug caught, from the measured `response.usage`;
+- LLM tokens per bug caught, from the measured `response.usage` — for O this includes the
+  brief's own tokens, since the brief is part of its prompt;
 - for L and O, the share of commits with a P0/P1 finding that turn out buggy;
 - for D and L, the gate: share auto-approved and buggy rate among them, with Wilson intervals.
 
@@ -610,9 +611,11 @@ descriptive.
   - Success: the point estimate is at least +0.02. The cached simulation shows +0.035 to +0.052.
   - D costs no extra LLM tokens per test commit, so any gain in bugs caught at a fixed budget is a
     gain in tokens per bug.
-- **H2, context.** O beats L by enough to pay for its extra tokens.
+- **H2, the brief.** O (LLM + the opendrs review brief) beats L by enough to pay for its extra
+  tokens.
   - Test: the paired bootstrap 95 % CI of AUC(O) − AUC(L) lies above 0.
-  - Success: O's LLM tokens per bug caught at a 30 % budget are no higher than L's.
+  - Success: O's LLM tokens per bug caught at a 30 % budget are no higher than L's, counting the
+    brief's own tokens.
 - **H3 (descriptive), independence.** The Spearman correlation between each arm's finding count
   and opendrs's score, for L and for O. A much higher value for O means the context made the LLM
   copy opendrs. A D built on O's outputs would then gain less than one built on L's.
@@ -655,8 +658,9 @@ for new modules, public interfaces, data flow or schema."
 200, description: string ≤ 300}]` (at most 5 items) and drop `risky_snippets`. `parse.ts` maps
 each finding to a risky snippet at its hunk's file and line, so reports still show evidence.
 
-**The opendrs context block (arm 2).** It is computed by opendrs from git and sent after the diff,
-at most 2,500 characters. The format is below; the values are illustrative:
+**The opendrs context block (arm 2) — superseded by the 2026-10-18 amendment.** The block below
+was this plan's original hand-designed draft, at most 2,500 characters, illustrative only. It is
+kept here for the record; arm 2 no longer uses it (see Amendments, below).
 
 ```
 <opendrs_context>
@@ -679,6 +683,15 @@ Add this to the system prompt:
 > where to look first. It is not evidence that a defect exists: report a finding only when the
 > diff shows it, and do not raise your risk because the score is high.
 
+**The opendrs context block (arm 2), as amended 2026-10-18.** Arm 2's context block is the
+product's own `renderBriefMarkdown(buildBrief(...))`, not the hand-designed block above. The
+bench calls the same builder at each commit's point in time (`asOf`, with history and graph at
+the parent), with the judge's own `[hunk N]` numbering, so the brief the experiment measures is
+the brief the product ships (design spec §10.1). `buildBrief` runs with its `llm: false` option,
+so the brief excludes judge-derived reasons — there is no leakage between arms. Tokens are
+estimated as characters ÷ 3.5, the same rule as the rest of this bench, and the brief runs at the
+product default, `maxTokens: 2,500`, not this plan's original 900.
+
 ### 5.6 Budget
 
 Estimates per call (validated by the pilot):
@@ -686,18 +699,34 @@ Estimates per call (validated by the pilot):
 | Call | Per commit, standard | Per commit, batched |
 |---|---:|---:|
 | Sonnet 5, findings prompt (L) | ~$0.035 (the current $0.032, plus ~300 output tokens) | ~$0.0175 |
-| Sonnet 5, findings prompt with context (O) | ~$0.036 (~+500 input tokens) | ~$0.018 |
+| Sonnet 5, findings prompt with the brief (O), amended 2026-10-18 | ~$0.0386 (+30 % input on ~6,000 input tokens ≈ +1,800 tokens × $2/M ≈ +$0.0036) | ~$0.0193 |
+
+**Amended 2026-10-18.** The arithmetic behind the total, with arm 2 at its new +30 % cap:
+
+| Item | Arithmetic | Estimate |
+|---|---|---:|
+| Pilot: 30 commits, L and O, standard API | 30 × ($0.035 + $0.0386) | ≈ $2.2 |
+| Arm 1 (L) on 800 test commits | 800 × $0.0175 | ≈ $14.0 |
+| Arm 2 (O) on 800 test commits | 800 × $0.0193 | ≈ $15.4 |
+| L on 400 training commits, for arm 3's fit | 400 × $0.0175 | ≈ $7.0 |
+| **Total** | | **≈ $38.6** |
 
 | Item | Spend cap (`--max-usd`) | Estimate |
 |---|---:|---:|
 | Pilot: 30 commits, L and O, standard API | $3 | $2.2 |
 | Arm 1 (L) on 800 test commits | $15 | $14.0 |
-| Arm 2 (O) on 800 test commits | $16 | $14.4 |
+| Arm 2 (O) on 800 test commits | $17 | $15.4 |
 | L on 400 training commits, for arm 3's fit | $8 | $7.0 |
-| **Total** | **$42** | **$37.6** |
+| **Total** | **$43** | **$38.6** |
 
-The headroom is about 12 % under $43. If the pilot measures more than 10 % above these estimates,
-the training set shrinks to 300 commits, then O to 600 test commits, before anything else runs.
+The headroom is about 11 % under $43.
+
+**If the pilot's measured costs push the projected total above $43** (amended 2026-10-18, the
+fallback order changed): drop "L on 400 training commits" first. Arm 3 can then only be checked
+against the stale cached fit (prompt hash `678a59d397a9`, §5.1), not an independent fit on this
+phase's own findings, which is what §5.8 says Phase 1 is for. If that is still not enough, shrink
+arm 2 to 600 test commits next.
+
 Without batch support the plan does not fit, and the Batches API is a prerequisite.
 
 ### 5.7 Prerequisites ($0) and stop rules
@@ -717,7 +746,7 @@ Without batch support the plan does not fit, and the Batches API is a prerequisi
 - **Pilot.** Stop and revise (logged as a new pre-registration) if any of these hold:
   - more than 1 of 30 replies fail the schema;
   - L costs more than $0.045 a commit;
-  - O's input is more than 20 % above L's on the same commits;
+  - O's input is more than 35 % above L's on the same commits (amended 2026-10-18; was 20 %);
   - L reports a finding on more than 85 % of commits;
   - more than 5 % of findings cite a missing hunk.
 - **Main runs.** Each arm has its own `--max-usd` cap. A batch whose first 200 results show more
@@ -742,3 +771,28 @@ Without batch support the plan does not fit, and the Batches API is a prerequisi
   DRS-OSS authors note. The same applies to every arm.
 - **The fast path misses bugs.** Routing and the gate auto-approve commits without an LLM call or
   a human, and the bugs among them are missed. Both report them.
+- **The context is now the shipped brief (amended 2026-10-18).** Arm 2's "opendrs context" is no
+  longer a hand-built block; it is `renderBriefMarkdown(buildBrief(...))`, so the design spec's
+  own anchoring mitigations — the "Not ranked: … read them too" line and the hunk-numbered focus
+  list (design spec §11) — apply to this arm directly, which should make H3 a cleaner test.
+
+### Amendments
+
+- **2026-10-18, before any spend.** The project owner amended this plan the same day it was
+  written, after the review-brief design spec shipped. Reason: the product decided its default
+  brief size, and the experiment must measure the product as shipped, not a hand-built stand-in.
+  1. **Arm 2 is now "LLM + the opendrs review brief."** Its context block is
+     `renderBriefMarkdown(buildBrief(...))` (design spec
+     [`docs/specs/2026-10-18-review-brief-design.md`](../specs/2026-10-18-review-brief-design.md),
+     §10.1), built at each commit's point in time with the judge's own hunk ids and with
+     `llm: false`, so there is no leakage from judge-derived reasons. It runs at the product
+     default `maxTokens: 2,500` (characters ÷ 3.5), not this plan's original 900. See §5.5.
+  2. **Arm 2's input cap rises from +15 % to +30 %** of arm 1's mean input tokens. The pilot stop
+     rule moves with it: stop if arm 2's mean input is more than 35 % above arm 1's on the same
+     commits (previously 20 %). See §5.6 and §5.7.
+  3. **The budget is recomputed** on the plan's own per-call estimates, now ≈ $38.6 of ≤ $43. See
+     §5.6 for the arithmetic, the new per-arm caps, and the fallback order if the pilot runs hot.
+  4. **Hypotheses are unchanged** except H2's wording, which now refers to the brief; arm 2's
+     tokens-per-bug includes the brief's own tokens. See §5.3.
+  5. **The matching entry** is in
+     [`docs/experiments.md`](../experiments.md#planned-llm-plus-opendrs-vs-the-llm-alone).
