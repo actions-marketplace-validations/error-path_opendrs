@@ -38,7 +38,14 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
   const { hits, notes } = await blameFixes(ctx, candidates.filter((c) => topIds.has(c.id)));
   const ranked = rankHunks(ctx, result, hits, { llm: options.llm });
 
-  const shown = ranked.slice(0, MAX_FILES).map((f) => ({ ...f, hunks: [...f.hunks].sort((a, b) => b.score - a.score || a.id - b.id).slice(0, MAX_HUNKS_PER_FILE) }));
+  // The top hunks of a file by score, shown in diff order (spec §6.2: hunks within a file keep diff order).
+  const shown = ranked.slice(0, MAX_FILES).map((f) => ({
+    ...f,
+    hunks: [...f.hunks]
+      .sort((a, b) => b.score - a.score || a.id - b.id)
+      .slice(0, MAX_HUNKS_PER_FILE)
+      .sort((a, b) => a.id - b.id),
+  }));
   const totalHunks = ranked.reduce((n, f) => n + f.hunks.length, 0);
   const shownHunks = shown.reduce((n, f) => n + f.hunks.length, 0);
 

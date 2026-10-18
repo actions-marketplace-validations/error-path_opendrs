@@ -108,6 +108,26 @@ describe("buildBrief", () => {
     repo.cleanup();
   });
 
+  it("picks a file's top 3 hunks by score but lists them in diff order", async () => {
+    const repo = makeRepo();
+    const before = Array.from({ length: 60 }, () => "a");
+    const after = [...before];
+    // Four hunks, each more than 6 unchanged lines from the next so they do not merge; the first is the
+    // smallest and the last the largest, so a sort by score alone would list them backwards.
+    after[0] = "b";
+    for (let i = 14; i < 17; i++) after[i] = "if (x && y) {";
+    for (let i = 29; i < 34; i++) after[i] = "if (x && y) {";
+    for (let i = 44; i < 52; i++) after[i] = "if (x && y) {";
+    repo.commit({ "src/a.ts": `${before.join("\n")}\n` }, "base");
+    repo.commit({ "src/a.ts": `${after.join("\n")}\n` }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    expect(ctx.diff.files[0]!.hunks).toHaveLength(4);
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.reviewFirst[0]!.hunks.map((h) => h.id)).toEqual([2, 3, 4]);
+    expect(brief.notRanked).toEqual({ hunks: 1, files: 0 });
+    repo.cleanup();
+  });
+
   it("clamps the budget to the 6000-token ceiling and defaults to 2500", async () => {
     const repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "base");
