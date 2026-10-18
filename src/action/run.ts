@@ -1,3 +1,7 @@
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { renderBriefMarkdown } from "../brief/render.js";
 import { CONFIG_FILE, defaultConfig, loadConfig, parseConfigText, type OpendrsConfig } from "../domain/config.js";
 import type { Decision, ModelWeights, Tier } from "../domain/types.js";
 import { OpendrsError } from "../domain/types.js";
@@ -6,7 +10,8 @@ import { git, gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
 import { assignReviewer, suggestReviewers } from "../policy/reviewers.js";
-import { cell, renderMarkdown } from "../report/markdown.js";
+import { cell } from "../report/escape.js";
+import { renderMarkdown } from "../report/markdown.js";
 import { HOLD_LABEL, changesRequested, eligibleMarker, noreplyLogin, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { GitHubError, type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
 import type { WorkflowIO } from "./workflow.js";
@@ -31,6 +36,8 @@ export interface ActionInputs {
   labels: boolean;
   /** Mixed into the drift-sampling key; a secret makes the sample unpredictable. */
   sampleSalt?: string;
+  /** Build the review brief and add it to the comment, job summary and brief/brief-file outputs. */
+  brief: boolean;
 }
 
 /** The fields of the `pull_request` webhook payload the action uses. */
@@ -247,6 +254,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
         draft: pr.draft,
         changesRequestedBy,
       },
+      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens, onError: (m) => io.warning(m) } : undefined,
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -255,6 +263,21 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   io.setOutput("score", result.score.toFixed(4));
   io.setOutput("tier", result.tier);
   io.setOutput("decision", result.policy.decision);
+  if (result.brief) {
+    io.setOutput("brief", renderBriefMarkdown(result.brief));
+    const dir = d.env.RUNNER_TEMP ?? tmpdir();
+    const file = join(dir, `opendrs-brief-${pr.number}.json`);
+    try {
+      await writeFile(file, JSON.stringify(result.brief));
+      io.setOutput("brief-file", file);
+    } catch (e) {
+      io.warning(`Could not write the brief file (${e instanceof Error ? e.message : String(e)}); the \`brief-file\` output is empty. The \`brief\` output still has the full brief.`);
+      io.setOutput("brief-file", "");
+    }
+  } else {
+    io.setOutput("brief", "");
+    io.setOutput("brief-file", "");
+  }
 
   // A push during scoring: the comment, labels and reviewer request belong to the run for the new head.
   const current = await client.pullHeadSha(pr.number);
@@ -283,17 +306,21 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment }),
   );
 
-  const report = renderMarkdown(result);
   const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
+  const assemble = (report: string) =>
+    `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}`;
+  const body = assemble(renderMarkdown(result));
+  // Over GitHub's limit the comment is rendered again without the brief, never edited by a pattern
+  // over content the PR controls; the full brief stays in the `brief` output.
+  const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true })) : body;
 
   if (comments) {
     await unlessForbidden(
       async () => {
-        if (mine) await client.updateComment(mine.id, body);
-        else await client.createComment(pr.number, body);
+        if (mine) await client.updateComment(mine.id, capped);
+        else await client.createComment(pr.number, capped);
       },
       () => io.warning(COMMENT_FORBIDDEN),
     );
@@ -320,6 +347,6 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     );
   }
 
-  io.summary(body);
+  io.summary(capped);
   return { score: result.score, tier: result.tier, decision: result.policy.decision, approved: approval.approved };
 }

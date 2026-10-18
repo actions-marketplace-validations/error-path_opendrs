@@ -1,5 +1,6 @@
 import { OpendrsError } from "../domain/types.js";
 import { VERSION } from "../version.js";
+import { briefCommand } from "./commands/brief.js";
 import { explainCommand } from "./commands/explain.js";
 import { feedbackCommand } from "./commands/feedback.js";
 import { hotspotsCommand } from "./commands/hotspots.js";
@@ -9,7 +10,7 @@ import { mcpCommand } from "./commands/mcp.js";
 import { scoreCommand } from "./commands/score.js";
 import type { CliIo, Command } from "./types.js";
 
-const COMMANDS: Command[] = [scoreCommand, explainCommand, hotspotsCommand, calibrateCommand, backtestCommand, feedbackCommand, initCommand, mcpCommand()];
+const COMMANDS: Command[] = [scoreCommand, briefCommand, explainCommand, hotspotsCommand, calibrateCommand, backtestCommand, feedbackCommand, initCommand, mcpCommand()];
 
 const HELP = `Usage: opendrs <command> [options]
 

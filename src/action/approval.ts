@@ -13,10 +13,14 @@ const REVIEW_AFTER_MERGE_LABEL = "opendrs:review-after-merge";
 /** Records in opendrs's comment when `head` first became eligible to land, so the landing delay survives reruns. */
 export const eligibleMarker = (head: string, since: Date) => `<!-- ${ELIGIBLE_MARKER}: ${head} ${since.toISOString()} -->`;
 
-/** The eligibility time recorded for exactly `head`; a marker for another commit does not count, so a push restarts the clock. */
+/**
+ * The eligibility time recorded for exactly `head`; a marker for another commit does not count, so a push
+ * restarts the clock. The body is scanned for this head's marker, since a file name rendered as inline code
+ * keeps `<` and `>` and could carry a forged marker earlier in the comment.
+ */
 export function readEligibleSince(body: string | undefined, head: string): Date | undefined {
-  const m = body?.match(new RegExp(`<!-- ${ELIGIBLE_MARKER}: (\\S+) (\\S+) -->`));
-  if (!m || m[1] !== head) return undefined;
+  const m = [...(body?.matchAll(new RegExp(`<!-- ${ELIGIBLE_MARKER}: (\\S+) (\\S+) -->`, "g")) ?? [])].find((x) => x[1] === head);
+  if (!m) return undefined;
   const since = new Date(m[2]!);
   return Number.isNaN(since.getTime()) ? undefined : since;
 }

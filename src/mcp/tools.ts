@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { renderBriefMarkdown } from "../brief/render.js";
 import { repoRoot } from "../cli/repo.js";
 import { loadConfig } from "../domain/config.js";
 import { scoreDiff } from "../engine.js";
@@ -45,6 +46,20 @@ export async function scoreDiffTool(args: { repoDir: string; base?: string; head
       source: r.source,
       diff: r.diff,
     });
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** The review brief: Markdown as text content for the model, the ReviewBrief itself as structured content. */
+export async function reviewBriefTool(args: { repoDir: string; base?: string; head?: string; maxTokens?: number }): Promise<CallToolResult> {
+  try {
+    const repoDir = await repoRoot(resolve(args.repoDir));
+    const config = await loadConfig(repoDir);
+    const base = args.base ?? (await defaultBase(repoDir));
+    const r = await scoreDiff({ repoDir, base, head: args.head ?? "HEAD", config, brief: { maxTokens: args.maxTokens } });
+    const brief = r.brief!;
+    return { content: [{ type: "text", text: renderBriefMarkdown(brief) }], structuredContent: brief as unknown as Record<string, unknown> };
   } catch (e) {
     return fail(e);
   }

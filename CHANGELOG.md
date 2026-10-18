@@ -4,6 +4,10 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+- New `/opendrs-review` Claude Code plugin command, a "Brief before you review" section in the
+  agent skill, and [docs/llm-reviewers.md](docs/llm-reviewers.md): recipes for claude-code-action,
+  Cursor Bugbot, CodeRabbit's `path_instructions`, and the generic "paste the brief" pattern for
+  GitHub Copilot and Codex.
 - `calibrate` refits its chosen setting on every labelled commit. It still chooses the penalty,
   decides whether to keep the priors, and measures its held-out `metrics` on an 80 / 20 time split.
   Earlier versions saved the oldest-80 % fit, which never saw the newest fifth of the history. On
@@ -17,6 +21,22 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - Research note: [how AI code reviewers judge PR risk](docs/research/2026-10-18-review-risk-heuristics.md).
 - [Experiment log](docs/experiments.md): every benchmark and model experiment with its numbers and verdict, the
   ones that did not work included (Kamei features, review-heuristic signals).
+- The Action's PR comment now leads with a **Review focus** (up to 3 bullets: where to look first,
+  the top check question, and any hard-rule reason) and a collapsed "Review brief for AI reviewers"
+  section, built deterministically from signals already computed (no extra LLM call). The old
+  signal table, unknowns, policy reasons and LLM block move into a collapsed "Score details"
+  section — expand it, or read the Action's outputs, if you scrape the table. Set the new `brief`
+  input to `false` for the old layout: identical except that control, format (invisible/bidi) and
+  tilde-fence characters in untrusted text are now neutralised.
+- New Action outputs `brief` (the brief as Markdown) and `brief-file` (its JSON, under
+  `$RUNNER_TEMP`); both empty when `brief: false`. The brief is also included in the job summary.
+- New `opendrs brief` CLI command and `review_brief` MCP tool: the same token-budgeted review
+  brief (where to look first, what to check, what is safe to skim, what still needs a human), for
+  a terminal or an agent instead of the Action. `opendrs backtest --brief` reports its (free,
+  report-only) focus hit rate. Budget is `brief.maxTokens` in `.opendrs.yml` (default 2500, min
+  300, max 6000; see [docs/configuration.md](docs/configuration.md)). A budget below 300 — too
+  small for the brief's mandatory sections — is rejected with a clear error from the config,
+  `--max-tokens` and the MCP tool's `maxTokens` alike.
 
 ## 0.2.0 - 2026-10-18
 

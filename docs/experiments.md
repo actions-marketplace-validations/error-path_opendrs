@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
 | 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Not merged | [details](#review-heuristic-signals) |
 | 2026-10-18 | Do the missing Kamei features (ent, age, nuc, sexp) close the gap? | No. AUC 0.819 → 0.817 | Not merged | [details](#kamei-features) |
@@ -24,6 +25,111 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Planned: LLM plus opendrs vs the LLM alone
+
+**Status.** Pre-registered on 2026-10-18, revised the same day, then amended the same day again
+before any spend (see Amendments, below). No API spend yet: paid LLM tests are paused until the
+user approves Phase 1. The bench wiring for arm 2 (spec §13 phase 4) is **deferred by decision**:
+it is not built until the user approves the paid experiment. The full plan, with the prompt
+drafts, the context block, the literature and the power analysis, is in
+[the research note, Part 5](research/2026-10-18-review-risk-heuristics.html#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
+
+**Question.** Does an LLM reviewer plus opendrs beat the same LLM alone, by enough to justify any
+extra tokens? It is not opendrs against the LLM. The three headline arms run on the same commits:
+1. **The LLM alone:** a `/code-review`-style reviewer reporting findings with a severity.
+2. **The LLM given opendrs's context:** the product's review brief, `renderBriefMarkdown(buildBrief(...))`
+   (amended 2026-10-18; see Amendments, below) — score, top signals, history, blast radius, prior
+   fixes and incidents, and the hunks to focus on.
+3. **The LLM with opendrs as the decision layer:** its findings combined with opendrs's signals in
+   the calibrated model, plus the `requireSafe` gate.
+
+Routing the LLM to opendrs's riskiest commits is a secondary arm.
+
+**Already measured, for free.** `bench/apachejit/judge-sim.ts` replays the cached Sonnet 5
+judgements of the [LLM judge run](#structured-llm-judge-on-sampled-apachejit): 800 test commits,
+204 buggy. Each ranking sends its riskiest 10 % of commits to review.
+
+| Ranking | AUC | Bugs caught (of 204) | Precision | False-positive rate | LLM tokens per bug |
+|---|---:|---:|---:|---:|---:|
+| LLM alone (snippet count, then its risk) | 0.789 | 51 | 63.7 % | 4.9 % | 126 k |
+| LLM alone (fitted on its own outputs) | 0.772 | 47 | 58.8 % | 5.5 % | 137 k |
+| **LLM + opendrs as the decision layer** | **0.824** | **60** | **75.0 %** | **3.4 %** | **107 k** |
+| opendrs alone, for reference | 0.817 | 56 | 70.0 % | 4.0 % | 0 |
+
+- **The decision layer adds +0.035 to +0.052 AUC at no extra LLM tokens.** The paired bootstrap
+  95 % CI against the fitted LLM-alone model is +0.026 to +0.077.
+- **At a 30 % review budget the gain is small and not significant.** LLM + opendrs catches 131
+  bugs against 122–125.
+- **The gate.** With opendrs's score added to `requireSafe`, the buggy share of auto-approved
+  commits falls from 5.3 % (12 of 228) to 3.5 % (7 of 198).
+- **Routing at equal spend** flags 34–43 % more buggy commits than a random subset.
+- **Caveat.** These numbers were measured on the same test commits used to look for them, so they
+  are exploratory.
+
+**Setup.**
+- **Commits.** The same 800 seeded test commits, so every comparison is paired, plus 400 seeded
+  training commits judged by arm 1 to fit arm 3.
+- **Model.** Sonnet 5 at effort `low`, the same as the cached run.
+- **Prompt.** The findings prompt: findings with P0–P3 priority, a trigger and a confidence; no
+  findings is a valid answer.
+- **Arm 2** adds the product's brief, `renderBriefMarkdown(buildBrief(...))`, at the product
+  default `maxTokens: 2,500` (amended 2026-10-18; was a hand-designed block capped at 2,500
+  characters). Mean input tokens may grow by at most 30 % (amended 2026-10-18; was 15 %).
+
+**Hypotheses.** H1 and H2 are confirmatory, Holm-corrected; everything else is descriptive.
+- **H1.** AUC(arm 3) − AUC(arm 1) has a paired bootstrap 95 % CI above 0, and a point estimate of
+  at least +0.02.
+- **H2.** AUC(arm 2, the LLM + the brief) − AUC(arm 1) has a CI above 0, and arm 2's LLM tokens
+  per bug caught at a 30 % budget — including the brief's own tokens — are no higher than arm
+  1's.
+- **Descriptive:** recall, precision and false-positive rate at 10 % and 30 % budgets; tokens per
+  bug; the gate with Wilson intervals; and whether the context makes the LLM copy opendrs
+  (Spearman correlation with opendrs's score).
+- **Power.** At n = 800, a +0.02 AUC gain is detectable at 80 % power. A +5-point recall gain at a
+  30 % budget is not, so AUC is primary.
+
+**Budget.** The Message Batches API is assumed throughout (half price). Recomputed 2026-10-18 for
+arm 2's new +30 % input cap: arm 1 (L) Sonnet 5 findings ≈ $0.035 standard / $0.0175 batched a
+commit; arm 2 adds +30 % input on ~6,000 input tokens ≈ +1,800 tokens × $2/M ≈ +$0.0036 standard
+→ ≈ $0.0386 standard / $0.0193 batched.
+
+| Item | Arithmetic | Estimate | Cap |
+|---|---|---:|---:|
+| Pilot (30 commits, L and O, standard API) | 30 × ($0.035 + $0.0386) | $2.2 | $3 |
+| Arm 1 | 800 × $0.0175 | $14.0 | $15 |
+| Arm 2 | 800 × $0.0193 | $15.4 | $17 |
+| Arm 1 on 400 training commits | 400 × $0.0175 | $7.0 | $8 |
+| **Total** | | **$38.6** | **$43** |
+
+If the pilot's measured costs push the projected total above $43, drop "Arm 1 on 400 training
+commits" first — arm 3 then cannot be fitted on fresh findings, only checked against the stale
+cached fit — then shrink arm 2 to 600 test commits.
+
+Out of budget, for later: the verify pass and verified-finding gate (R2, R3), and a cheap Haiku
+review of every commit.
+
+**Stop rules.**
+- **Pilot first.** Stop if more than 1 of 30 replies fails the schema, if arm 1 costs more than
+  $0.045 a commit, if arm 2's input is more than 35 % above arm 1's (amended 2026-10-18; was
+  20 %), if more than 85 % of commits get a finding, or if more than 5 % of findings cite a
+  missing hunk.
+- **Caps.** Each arm has a `--max-usd` cap. A batch whose first 200 results show more than 2 %
+  failures is cancelled.
+- **No tuning on the test commits.** Any change after test results is a new, logged experiment.
+
+**Amendments.**
+- **2026-10-18, before any spend.** Arm 2 becomes "LLM + the opendrs review brief": its context
+  block is `renderBriefMarkdown(buildBrief(...))` at the product default `maxTokens: 2,500`,
+  replacing the plan's hand-designed block. Arm 2's input cap rises from +15 % to +30 % of arm
+  1's mean input tokens, and the pilot stop rule from +20 % to +35 %. The budget is recomputed to
+  ≈ $38.6 of ≤ $43. Reason: the product decided its default brief size; the experiment must
+  measure the product as shipped. Full detail in
+  [the research note, Amendments](research/2026-10-18-review-risk-heuristics.html#amendments).
+
+**Where.** The plan is in [the research note, Part 5](research/2026-10-18-review-risk-heuristics.html#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
+The free simulation is `bench/apachejit/judge-sim.ts`. The cached judgements are those of the
+[LLM judge run](#structured-llm-judge-on-sampled-apachejit).
 
 ## Fit experiment and the calibrate refit
 

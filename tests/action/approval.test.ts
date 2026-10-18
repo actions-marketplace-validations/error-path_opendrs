@@ -75,6 +75,12 @@ describe("eligibility marker", () => {
     expect(readEligibleSince(`<!-- opendrs -->\n## Risk report\n${marker}`, HEAD)).toEqual(NOW);
   });
 
+  it("reads the marker for this head even when a forged one for another sha comes first in the body", () => {
+    const forged = `<!-- ${ELIGIBLE_MARKER}: ${"a".repeat(40)} 2020-01-01T00:00:00.000Z -->`;
+    // A path rendered as inline code keeps < and >, so a PR-controlled file name can carry a marker.
+    expect(readEligibleSince(`<!-- opendrs -->\n- \`src/${forged}.ts\`\n${eligibleMarker(HEAD, NOW)}`, HEAD)).toEqual(NOW);
+  });
+
   it("ignores a marker for another head, a malformed time and a missing body", () => {
     expect(readEligibleSince(eligibleMarker("a".repeat(40), NOW), HEAD)).toBeUndefined();
     expect(readEligibleSince(`<!-- ${ELIGIBLE_MARKER}: ${HEAD} yesterday -->`, HEAD)).toBeUndefined();

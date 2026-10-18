@@ -1,4 +1,6 @@
 import type { Authorship, Contribution, Decision, LlmJudgement, ScoreResult, Tier } from "../domain/types.js";
+import { renderBriefMarkdown, renderFocusBullets } from "../brief/render.js";
+import { cell, code, untrusted } from "./escape.js";
 
 const MARKER = "<!-- opendrs -->";
 const PROJECT_URL = "https://github.com/error-path/opendrs";
@@ -15,19 +17,6 @@ const DECISION_TEXT: Record<Decision, string> = {
   "human-review": "human review",
 };
 
-/** Inline text for a table cell or list item: one line, no raw HTML, links, code spans or table breakouts. */
-export const cell = (text: string) =>
-  text
-    .replace(/\s+/g, " ")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/[\\|`[\]]/g, "\\$&")
-    .trim();
-/** Untrusted text as inline code, where HTML, links and mentions are inert; only a backtick could end it. */
-const code = (text: string) => `\`${text.replace(/\s+/g, " ").replace(/`/g, "ˋ").trim()}\``;
-/** LLM output is shaped by the (untrusted) diff, so also stop it from @-mentioning people. */
-const untrusted = (text: string) => cell(text).replace(/@(?=\w)/g, "@\u200b");
 /** Terminal text: drop control characters so a summary cannot inject escape sequences. */
 const plain = (text: string) => text.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim();
 
@@ -47,11 +36,14 @@ function hunkCounts(llm: LlmJudgement): string {
   return `${safe.length} safe${breakdown}, ${llm.hunks.length - safe.length} risky`;
 }
 
-/** PR comment body. Starts with the `<!-- opendrs -->` marker. */
-export function renderMarkdown(result: ScoreResult): string {
+/** What the Action posts in place of a brief that would push the comment over GitHub's size limit. */
+const BRIEF_OMITTED = "brief omitted: too large for a comment; see the `brief` output";
+
+/** PR comment body. Starts with the `<!-- opendrs -->` marker. `omitBrief` keeps the layout but fences the omission notice instead of the brief. */
+export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean } = {}): string {
   const { policy, diff } = result;
   const summaryOf = (id: string) => result.signals.find((s) => s.id === id)?.summary ?? "not reported; model prior used";
-  const lines = [
+  const head = [
     MARKER,
     `### ${TIER_EMOJI[result.tier]} Diff risk ${result.score.toFixed(2)} · ${result.tier} · ${DECISION_TEXT[policy.decision]}`,
     `<sub>${diff.files} files · +${diff.added} −${diff.deleted} · \`${short(diff.base)}…${short(diff.head)}\`</sub>`,
@@ -60,44 +52,67 @@ export function renderMarkdown(result: ScoreResult): string {
     "",
   ];
 
+  const body: string[] = [];
   const rows = top(result.contributions);
   if (rows.length > 0) {
-    lines.push("| Signal | Value | Push | Why |", "|---|--:|--:|---|");
-    for (const c of rows) lines.push(`| \`${c.id}\` | ${c.value.toFixed(2)} | ${signed(c.contribution, "−")} | ${cell(summaryOf(c.id))} |`);
-    lines.push("");
+    body.push("| Signal | Value | Push | Why |", "|---|--:|--:|---|");
+    for (const c of rows) body.push(`| \`${c.id}\` | ${c.value.toFixed(2)} | ${signed(c.contribution, "−")} | ${cell(summaryOf(c.id))} |`);
+    body.push("");
   }
 
   if (result.unknowns.length > 0) {
-    lines.push("**Unknowns** (counted as risk, not as zero)");
-    for (const id of result.unknowns.slice(0, MAX_UNKNOWNS)) lines.push(`- \`${id}\`: ${cell(summaryOf(id))}`);
-    if (result.unknowns.length > MAX_UNKNOWNS) lines.push(`- …and ${result.unknowns.length - MAX_UNKNOWNS} more`);
-    lines.push("");
+    body.push("**Unknowns** (counted as risk, not as zero)");
+    for (const id of result.unknowns.slice(0, MAX_UNKNOWNS)) body.push(`- \`${id}\`: ${cell(summaryOf(id))}`);
+    if (result.unknowns.length > MAX_UNKNOWNS) body.push(`- …and ${result.unknowns.length - MAX_UNKNOWNS} more`);
+    body.push("");
   }
 
-  lines.push("**Policy**", ...policy.reasons.map((r) => `- ${cell(r)}`), "");
+  body.push("**Policy**", ...policy.reasons.map((r) => `- ${cell(r)}`), "");
 
   if (policy.landingDelayMinutes > 0 && (policy.decision === "auto-approve" || policy.decision === "deferred-review")) {
-    lines.push(`Landing delay: ${policy.landingDelayMinutes} min after the head commit becomes eligible`, "");
+    body.push(`Landing delay: ${policy.landingDelayMinutes} min after the head commit becomes eligible`, "");
   }
 
   if (policy.suggestedReviewers.length > 0) {
-    lines.push(`**Suggested reviewers:** ${policy.suggestedReviewers.map(code).join(", ")}`, "");
+    body.push(`**Suggested reviewers:** ${policy.suggestedReviewers.map(code).join(", ")}`, "");
   }
 
   if (result.llm) {
-    lines.push(`<details><summary>LLM review (p=${result.llm.risk.toFixed(2)})</summary>`, "", `> ${untrusted(clip(result.llm.rationale))}`, "");
+    body.push(`<details><summary>LLM review (p=${result.llm.risk.toFixed(2)})</summary>`, "", `> ${untrusted(clip(result.llm.rationale))}`, "");
     for (const s of result.llm.riskySnippets.slice(0, MAX_SNIPPETS)) {
-      lines.push(`- ${code(`${s.file}${s.line !== undefined ? `:${s.line}` : ""}`)} ${untrusted(s.reason)}`);
+      body.push(`- ${code(`${s.file}${s.line !== undefined ? `:${s.line}` : ""}`)} ${untrusted(s.reason)}`);
     }
-    lines.push("", `Hunks: ${hunkCounts(result.llm)}`, "");
+    body.push("", `Hunks: ${hunkCounts(result.llm)}`, "");
     for (const h of result.llm.hunks.filter((h) => !h.safe).slice(0, MAX_SNIPPETS)) {
-      lines.push(`- ${code(`${h.file}:${h.line}`)} — ${h.category} (${h.confidence}/10): ${untrusted(h.reason)}`);
+      body.push(`- ${code(`${h.file}:${h.line}`)} — ${h.category} (${h.confidence}/10): ${untrusted(h.reason)}`);
     }
-    lines.push("", "</details>", "");
+    body.push("", "</details>", "");
   }
 
-  lines.push(`<sub>opendrs ${result.version} · ${result.model} model · [${PROJECT_URL.replace("https://", "")}](${PROJECT_URL})</sub>`);
-  return `${lines.join("\n")}\n`;
+  const footer = `<sub>opendrs ${result.version} · ${result.model} model · [${PROJECT_URL.replace("https://", "")}](${PROJECT_URL})</sub>`;
+
+  if (!result.brief) return `${[...head, ...body, footer].join("\n")}\n`;
+
+  const brief = result.brief;
+  const focus = renderFocusBullets(brief).map((b) => `- ${b}`);
+  const sections = [
+    ...head,
+    ...(focus.length > 0 ? ["**Review focus**", ...focus, ""] : []),
+    "<details><summary>Review brief for AI reviewers (opendrs)</summary>",
+    "",
+    "~~~~opendrs-brief",
+    opts.omitBrief ? BRIEF_OMITTED : renderBriefMarkdown(brief).trimEnd(),
+    "~~~~",
+    "</details>",
+    "",
+    "<details><summary>Score details</summary>",
+    "",
+    ...body,
+    "</details>",
+    "",
+    footer,
+  ];
+  return `${sections.join("\n")}\n`;
 }
 
 /** Short human text for terminals. */

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { OpendrsConfig } from "./domain/config.js";
 import type { DependencyGraph, DiffInfo, HistoryIndex, LlmProvider, ModelWeights, ScoreResult, ScoringContext, Signal } from "./domain/types.js";
 import { OpendrsError } from "./domain/types.js";
+import { buildBrief } from "./brief/build.js";
 import { createBlobReader } from "./git/blobs.js";
 import { git } from "./git/exec.js";
 import { EMPTY_TREE, loadDiff } from "./git/diff.js";
@@ -43,6 +44,11 @@ export interface ScoreOptions {
   description?: string;
   /** Epoch ms for freeze windows. Default: Date.now(). */
   now?: number;
+  /**
+   * Build a review brief (ScoreResult.brief). maxTokens defaults to config.brief.maxTokens. With
+   * onError, a failure to build it is reported there and the result has no brief; without, it propagates.
+   */
+  brief?: { maxTokens?: number; llm?: boolean; onError?: (message: string) => void };
 }
 
 /** Load the calibrated model if config.model exists in the repo; else the default priors. */
@@ -165,7 +171,7 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
   });
 
   const counted = diff.files.filter((f) => !f.ignored);
-  return {
+  const result: ScoreResult = {
     score,
     tier: policy.tier,
     signals,
@@ -184,4 +190,17 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     model: kind,
     version: VERSION,
   };
+  if (opts.brief) {
+    try {
+      result.brief = await buildBrief(result, ctx, {
+        maxTokens: opts.brief.maxTokens ?? config.brief.maxTokens,
+        llm: opts.brief.llm,
+      });
+    } catch (e) {
+      // The brief is an add-on to the score: the Action keeps the decision and posts without it.
+      if (!opts.brief.onError) throw e;
+      opts.brief.onError(`could not build the review brief: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return result;
 }

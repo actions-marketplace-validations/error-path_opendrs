@@ -85,6 +85,26 @@ line per commit, so a rerun with the same model and prompt only judges what is m
 errors are retried once per run. A changed prompt gets a new file. Exit code 2 on a bad flag, a
 missing key, or an empty sample.
 
+## Judge simulations (no API calls)
+
+`judge-sim.ts` reuses the cached judgements of an `llm.ts` run, the row cache and the labels. It
+needs no API key and no clones. It prints:
+- **The decision layer:** the LLM alone against LLM + opendrs (the judge's outputs inside the
+  calibrated model, and the `requireSafe` gate with opendrs's score), at fixed review budgets.
+- **Routing at equal spend:** the LLM on every judged test commit, on a random subset, or only on
+  opendrs's riskiest X %.
+- **opendrs alone** at the same human-review load.
+- **Calibrated AUC** with and without the `llm.*` signals and a risky-snippet count, with paired
+  bootstrap SEs and the test commits needed for 80 % power.
+- **The `requireSafe` gate** with Wilson intervals.
+
+The plan it feeds is in the research note, Part 5 (`docs/research/2026-10-18-review-risk-heuristics.md`).
+
+```sh
+npm run build
+node bench/apachejit/judge-sim.ts            # default: the Sonnet 5 judgement cache
+```
+
 ## Run time
 
 Cloning takes a while on the first run. The full replay is estimated at 3–8 hours on 16 cores;

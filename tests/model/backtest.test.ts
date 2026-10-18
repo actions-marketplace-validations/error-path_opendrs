@@ -1,10 +1,21 @@
-import { describe, expect, it } from "vitest";
-import { backtestRows } from "../../src/model/backtest.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { defaultConfig } from "../../src/domain/config.js";
+import { backtest, backtestRows, focusHitRate } from "../../src/model/backtest.js";
 import { fitModel } from "../../src/model/calibrate.js";
 import { DEFAULT_WEIGHTS } from "../../src/model/defaults.js";
 import { scoreSignals } from "../../src/model/logistic.js";
 import { evaluate } from "../../src/model/metrics.js";
+import { makeRepo } from "../helpers/repo.js";
 import { syntheticRows } from "./synthetic.js";
+
+// Real loadDiff, wrapped so a test can make one commit's measurement fail without touching git.
+vi.mock("../../src/git/diff.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/git/diff.js")>();
+  return { ...actual, loadDiff: vi.fn(actual.loadDiff) };
+});
+const { loadDiff } = await import("../../src/git/diff.js");
+const realLoadDiff = (await vi.importActual<typeof import("../../src/git/diff.js")>("../../src/git/diff.js")).loadDiff;
+afterEach(() => vi.mocked(loadDiff).mockImplementation(realLoadDiff));
 
 describe("backtestRows", () => {
   const rows = syntheticRows(1000, 2);
@@ -58,5 +69,111 @@ describe("backtestRows", () => {
     const report = backtestRows(rows, model);
     expect(report.recorded).toBeUndefined();
     expect(report.notes.join("\n")).toMatch(/so it has no held-out metrics/);
+  });
+});
+
+describe("focusHitRate", () => {
+  it("counts a hit when the buggy commit's Review first hunks contain the fix-blamed line", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const config = defaultConfig();
+    const result = await focusHitRate({ repoDir: repo.dir, config });
+    expect(result.commits).toBeGreaterThan(0);
+    expect(result.hitRate).toBeGreaterThanOrEqual(0);
+    expect(result.hitRate).toBeLessThanOrEqual(1);
+    repo.cleanup();
+  });
+
+  it("measures changedLineShare over changed lines, not context: 1.0 when the one focus hunk is the whole diff", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const result = await focusHitRate({ repoDir: repo.dir, config: defaultConfig() });
+    expect(result.commits).toBe(1);
+    expect(result.changedLineShare).toBe(1);
+    repo.cleanup();
+  });
+
+  it("excludes an ignored file's lines from totalChanged, so a lockfile bump does not dilute changedLineShare", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n", "pkg-lock.json": '{"v":1}\n' }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n", "pkg-lock.json": '{"v":2}\n' }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const config = defaultConfig();
+    config.paths.ignore.push("pkg-lock.json");
+    const result = await focusHitRate({ repoDir: repo.dir, config });
+    expect(result.commits).toBe(1);
+    expect(result.changedLineShare).toBe(1);
+    repo.cleanup();
+  });
+
+  it("reports 0 commits (not NaN) when there are no SZZ-labelled commits", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    const result = await focusHitRate({ repoDir: repo.dir, config: defaultConfig() });
+    expect(result.commits).toBe(0);
+    expect(result.hitRate).toBe(0);
+    repo.cleanup();
+  });
+
+  it("applies maxCommits to the same newest-first window as replayHistory, before the SZZ filter", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug"); // SZZ-labelled, but outside the 1-commit window
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\nmore\n" }, "unrelated newest change"); // the only commit in the window
+    const config = defaultConfig();
+    // Filtering to SZZ-labelled commits before windowing would still find "introduce bug" here.
+    const result = await focusHitRate({ repoDir: repo.dir, config, maxCommits: 1 });
+    expect(result.commits).toBe(0);
+    repo.cleanup();
+  });
+
+  it("applies since to the same window as replayHistory, before the SZZ filter", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base", undefined, 1_700_000_000);
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug", undefined, 1_700_001_000); // SZZ-labelled, but before `since`
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug", undefined, 1_700_002_000);
+    repo.commit({ "a.ts": "1\nFIXED\n3\nmore\n" }, "unrelated newest change", undefined, 1_700_100_000); // after `since`
+    const config = defaultConfig();
+    const since = new Date(1_700_050_000 * 1000).toISOString();
+    // Ignoring `since` would still find "introduce bug" here.
+    const result = await focusHitRate({ repoDir: repo.dir, config, since });
+    expect(result.commits).toBe(0);
+    repo.cleanup();
+  });
+
+  it("counts a commit whose measurement fails as skipped, instead of silently dropping it from the denominator", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    vi.mocked(loadDiff).mockImplementation(async () => {
+      throw new Error("boom");
+    });
+
+    const result = await focusHitRate({ repoDir: repo.dir, config: defaultConfig() });
+    expect(result.commits).toBe(0);
+    expect(result.hitRate).toBe(0);
+    expect(result.skipped).toBe(1);
+    repo.cleanup();
+  });
+});
+
+describe("backtest --brief wiring", () => {
+  it("adds focusHitRate to the report only when opts.brief is true", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n" }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n" }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n" }, "fix: the bug");
+    const config = defaultConfig();
+    const plain = await backtest({ repoDir: repo.dir, config });
+    expect(plain.focusHitRate).toBeUndefined();
+    const withBrief = await backtest({ repoDir: repo.dir, config, brief: true });
+    expect(withBrief.focusHitRate).toBeDefined();
+    repo.cleanup();
   });
 });

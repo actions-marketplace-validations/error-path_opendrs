@@ -37,6 +37,7 @@ function result(): ScoreResult {
       tier: "yellow",
       decision: "human-review",
       reasons: ["tier yellow"],
+      rules: [],
       hardBlocked: false,
       sampled: false,
       mergeMethod: "queue",

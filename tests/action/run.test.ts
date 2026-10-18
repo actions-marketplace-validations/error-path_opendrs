@@ -32,6 +32,8 @@ interface Options {
   baseFiles?: Record<string, string>;
   headFiles?: Record<string, string | null>;
   result?: ScoreResult;
+  /** scoreDiff's implementation instead of resolving `result`, e.g. to call opts.brief.onError. */
+  scoreDiffImpl?: typeof scoreDiff;
   gh?: Partial<FakeGitHub>;
   inputs?: Partial<ActionInputs>;
   fork?: boolean;
@@ -100,7 +102,8 @@ async function run(o: Options = {}) {
     ? [{ id: 2, body: `${COMMENT_MARKER}\nold report\n${o.ownComment(headSha)}`, user: BOT, ...(o.ownCommentCreated ? { created_at: o.ownCommentCreated } : {}) }]
     : [];
   const gh = installFakeGitHub({ labels: [...(o.labels ?? [])], headSha, commits: [prCommit(headSha)], comments, ...o.gh });
-  vi.mocked(scoreDiff).mockResolvedValue(o.result ?? result(0.12, "green", "auto-approve"));
+  if (o.scoreDiffImpl) vi.mocked(scoreDiff).mockImplementation(o.scoreDiffImpl);
+  else vi.mocked(scoreDiff).mockResolvedValue(o.result ?? result(0.12, "green", "auto-approve"));
   const env: NodeJS.ProcessEnv = { ...o.env };
   const event = {
     action: o.action ?? "opened",
@@ -117,7 +120,7 @@ async function run(o: Options = {}) {
     },
   };
   const client = new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" });
-  const inputs: ActionInputs = { token: "t", baseConfig: true, comment: true, labels: true, ...o.inputs };
+  const inputs: ActionInputs = { token: "t", baseConfig: true, comment: true, labels: true, brief: true, ...o.inputs };
   const promise = runAction({ repoDir: repo.dir, event, inputs, client, io, env });
   return {
     promise,
@@ -206,8 +209,77 @@ describe("scoring", () => {
     const io = createWorkflowIO({}, () => {});
     const client = new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" });
     await expect(
-      runAction({ repoDir: repo.dir, event: { push: {} }, inputs: { token: "t", baseConfig: true, comment: true, labels: true }, client, io, env: {} }),
+      runAction({ repoDir: repo.dir, event: { push: {} }, inputs: { token: "t", baseConfig: true, comment: true, labels: true, brief: true }, client, io, env: {} }),
     ).rejects.toBeInstanceOf(OpendrsError);
+  });
+});
+
+const BRIEF: NonNullable<ScoreResult["brief"]> = {
+  version: 1,
+  verdict: { tier: "green", score: 0.1, decision: "auto-approve", why: "ok" },
+  reviewFirst: [], checks: [], skim: [], human: [], notRanked: { hunks: 0, files: 0 },
+  budget: { maxTokens: 2500, estimatedTokens: 5, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
+  notes: [],
+};
+
+describe("the review brief", () => {
+  it("is requested from scoreDiff by default, and its outputs are set", async () => {
+    const t = await run({ result: { ...result(0.1, "green", "auto-approve"), brief: BRIEF } });
+    await t.promise;
+    expect(t.scoreArgs().brief).toMatchObject({ maxTokens: expect.any(Number) });
+    expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*opendrs review brief v1[\s\S]*\n\1$/m);
+    expect(t.output()).toMatch(/^brief-file<<(\S+)\n\S+\.json\n\1$/m);
+  });
+
+  it("warns, posts the comment and leaves the brief outputs empty when the brief could not be built", async () => {
+    const t = await run({
+      scoreDiffImpl: async (opts) => {
+        opts.brief?.onError?.("could not build the review brief: boom");
+        return result(0.1, "green", "auto-approve");
+      },
+    });
+    await t.promise;
+    expect(t.log()).toContain("::warning::could not build the review brief: boom");
+    expect(t.output()).toMatch(/^score<</m);
+    expect(t.output()).toMatch(/^brief<<(\S+)\n\n\1$/m);
+    expect(t.gh.comments).toHaveLength(1);
+  });
+
+  it("warns and leaves brief-file empty, but keeps the brief output, when the brief file cannot be written", async () => {
+    const t = await run({
+      result: { ...result(0.1, "green", "auto-approve"), brief: BRIEF },
+      env: { RUNNER_TEMP: join(tmpdir(), "opendrs-does-not-exist", "nested") },
+    });
+    await t.promise;
+    expect(t.log()).toContain("::warning::Could not write the brief file");
+    expect(t.output()).toMatch(/^brief-file<<(\S+)\n\n\1$/m);
+    expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*opendrs review brief v1[\s\S]*\n\1$/m);
+    expect(t.gh.comments).toHaveLength(1);
+  });
+
+  it("is not requested, and its outputs are empty, when the brief input is false", async () => {
+    const t = await run({ inputs: { brief: false }, result: result(0.1, "green", "auto-approve") });
+    await t.promise;
+    expect(t.scoreArgs().brief).toBeUndefined();
+    expect(t.output()).toMatch(/^brief<<(\S+)\n\n\1$/m);
+    expect(t.output()).toMatch(/^brief-file<<(\S+)\n\n\1$/m);
+  });
+
+  it("replaces the brief block with an omission notice when the assembled comment would exceed 60,000 characters, keeping the full brief in the output", async () => {
+    // The real renderMarkdown (not the fixed-string mock the rest of this file uses) so the comment
+    // actually embeds the brief's own Markdown; it is rendered twice when the first body is over the cap.
+    const { renderMarkdown: real } = await vi.importActual<typeof import("../../src/report/markdown.js")>("../../src/report/markdown.js");
+    vi.mocked(renderMarkdown).mockImplementationOnce(real).mockImplementationOnce(real);
+    // Paths with tilde runs: a regex looking for the fence's end would stop at the first one, inside the brief.
+    const files = Array.from({ length: 3_000 }, (_, i) => ({ file: `src/a~~~~b${i}.ts`, reasons: [], hunks: [] }));
+    const huge: NonNullable<ScoreResult["brief"]> = { ...BRIEF, reviewFirst: files, notes: ["x".repeat(100)] };
+    const t = await run({ result: { ...result(0.5, "yellow", "human-review"), brief: huge } });
+    await t.promise;
+    const body = t.gh.comments[0]!.body;
+    expect(body.length).toBeLessThanOrEqual(60_000);
+    expect(body).toContain("~~~~opendrs-brief\nbrief omitted: too large for a comment; see the `brief` output\n~~~~\n</details>");
+    expect(body).toMatch(/\n\*\*Auto-approval:\*\* [^\n]+\n?$/);
+    expect(t.output()).toMatch(/^brief<<(\S+)\n[\s\S]*x{100}[\s\S]*\n\1$/m); // the full brief is still in the output, uncapped
   });
 });
 

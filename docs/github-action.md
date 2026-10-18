@@ -39,6 +39,11 @@ jobs:
 computes the merge-base of the PR, and reads the config from the base commit. With a shallow clone
 the job fails with "Base commit ... is not in the checkout".
 
+The comment now leads with a **Review focus** summary (at most 3 bullets) and a collapsed
+"Review brief for AI reviewers" section; the signal table, unknowns, policy reasons and LLM block
+move into a collapsed "Score details" section. If you scrape the table, expand that section or use
+the outputs instead; `brief: false` keeps the old layout exactly.
+
 Keep the `concurrency` block. A push cancels the run still scoring the previous head, so an old
 run cannot approve or merge a commit it did not score. The Action also re-reads the PR head before
 approving, and passes the scored commit as `expectedHeadOid` when it enables auto-merge or
@@ -63,12 +68,15 @@ opendrs checks out and reads the PR's code. opendrs scores on events that carry 
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). A landing delay needs it: the comment records when the head commit became eligible. |
 | `labels` | `true` | Set the risk label and remove stale ones. opendrs creates its labels (`risk:*`, `opendrs:landing`, `opendrs:hold`, `opendrs:review-after-merge`) with their own colours and descriptions, and recolours one GitHub auto-created in default grey; a colour you chose is kept. |
 | `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
+| `brief` | `true` | Build the review brief and fold it into the PR comment (a **Review focus** summary plus a collapsed "Review brief for AI reviewers" section), the `brief`/`brief-file` outputs, and the job summary. `false` restores today's comment layout byte for byte, and leaves `brief`/`brief-file` empty. See [LLM reviewers](llm-reviewers.html) for recipes that consume it. |
 
 | Output | Values |
 |---|---|
 | `score` | 0 to 1, four decimals |
 | `tier` | `green`, `yellow`, `red` |
 | `decision` | `auto-approve`, `deferred-review`, `waiting-ai-review`, `human-review` (the policy decision, even when approval is disabled or a landing delay is still running) |
+| `brief` | The review brief as Markdown (empty when `brief: false`) |
+| `brief-file` | Path to the review brief as JSON, under `$RUNNER_TEMP` (empty when `brief: false`) |
 
 Use the outputs in later steps, for example to request a reviewer on red PRs:
 
