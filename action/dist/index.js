@@ -28177,37 +28177,49 @@ function parseIncidents(text) {
   });
   return incidents;
 }
+async function runPool(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 
 // src/brief/blame.ts
 var BLAME_TIMEOUT_MS = 5e3;
+var BLAME_CONCURRENCY = 4;
 var SHA_LINE = /^([0-9a-f]{40,64}) \d+ \d+/;
 async function blameFixes(ctx, candidates) {
   const hits = /* @__PURE__ */ new Map();
-  const notes = [];
   const fixes = new Map(ctx.history.commits.filter((c) => (c.isFix || c.isRevert) && (ctx.asOf === void 0 || c.time < ctx.asOf)).map((c) => [c.sha, c]));
-  for (const c of candidates) {
-    if (c.hunk.oldLines === 0) continue;
-    const oldPath = c.file.oldPath ?? c.file.path;
-    let out;
-    try {
-      const range = `${c.hunk.oldStart},${c.hunk.oldStart + c.hunk.oldLines - 1}`;
-      out = await git(ctx.repoDir, ["blame", "--porcelain", "-L", range, ctx.diff.base, "--", oldPath], { timeoutMs: BLAME_TIMEOUT_MS });
-    } catch (e) {
-      notes.push(`blame unavailable for ${code(oldPath)}: ${untrusted(e instanceof Error ? e.message : String(e))}`);
-      continue;
+  const notes = new Array(candidates.length);
+  await runPool(
+    candidates.map((c, i) => ({ c, i })),
+    BLAME_CONCURRENCY,
+    async ({ c, i }) => {
+      if (c.hunk.oldLines === 0) return;
+      const oldPath = c.file.oldPath ?? c.file.path;
+      let out;
+      try {
+        const range = `${c.hunk.oldStart},${c.hunk.oldStart + c.hunk.oldLines - 1}`;
+        out = await git(ctx.repoDir, ["blame", "--porcelain", "-L", range, ctx.diff.base, "--", oldPath], { timeoutMs: BLAME_TIMEOUT_MS });
+      } catch (e) {
+        notes[i] = `blame unavailable for ${code(oldPath)}: ${untrusted(e instanceof Error ? e.message : String(e))}`;
+        return;
+      }
+      const seen = /* @__PURE__ */ new Set();
+      const fixHits = [];
+      for (const line2 of out.split("\n")) {
+        const sha = SHA_LINE.exec(line2)?.[1];
+        if (!sha || seen.has(sha)) continue;
+        seen.add(sha);
+        const commit = fixes.get(sha);
+        if (commit) fixHits.push({ sha: commit.sha, subject: commit.subject, time: commit.time });
+      }
+      if (fixHits.length > 0) hits.set(c.id, fixHits.sort((a, b) => b.time - a.time));
     }
-    const seen = /* @__PURE__ */ new Set();
-    const fixHits = [];
-    for (const line2 of out.split("\n")) {
-      const sha = SHA_LINE.exec(line2)?.[1];
-      if (!sha || seen.has(sha)) continue;
-      seen.add(sha);
-      const commit = fixes.get(sha);
-      if (commit) fixHits.push({ sha: commit.sha, subject: commit.subject, time: commit.time });
-    }
-    if (fixHits.length > 0) hits.set(c.id, fixHits.sort((a, b) => b.time - a.time));
-  }
-  return { hits, notes };
+  );
+  return { hits, notes: notes.filter((n) => n !== void 0) };
 }
 
 // src/brief/budget.ts
@@ -28299,7 +28311,8 @@ function checkQuestions(ranked, ctx, incidents) {
     }
     const exports = reasons.find((r) => r.kind === "exports");
     if (exports) {
-      const dependents = ctx.graph?.dependentsOf(f.file) ?? [];
+      const oldPath = ctx.diff.files.find((cf) => cf.path === f.file)?.oldPath ?? f.file;
+      const dependents = ctx.graph?.dependentsOf(oldPath) ?? [];
       const named = dependents.slice(0, MAX_DEPENDENTS_NAMED).map(code);
       if (dependents.length > named.length) named.push("\u2026");
       const callers = dependents.length > 0 ? `; ${dependents.length} file${dependents.length === 1 ? "" : "s"} import ${path} (${named.join(", ")})` : "";
@@ -29534,9 +29547,8 @@ function skimEntries(ctx) {
   const testsDeleted = ctx.diff.files.some((f) => isTest(f.path) && (f.status === "deleted" || f.deleted > f.added));
   const entries = [];
   for (const f of ctx.diff.files) {
-    if (f.binary || f.submodule) continue;
-    if (f.ignored) entries.push({ file: f.path, category: "ignored" });
-    else if (languageFamily(f.path) === "docs") entries.push({ file: f.path, category: "docs" });
+    if (f.binary || f.submodule || f.ignored) continue;
+    if (languageFamily(f.path) === "docs") entries.push({ file: f.path, category: "docs" });
     else if (isTest(f.path)) {
       if (!testsDeleted) entries.push({ file: f.path, category: "tests" });
     } else if (commentOnly(f)) entries.push({ file: f.path, category: "comment-only" });
@@ -30973,7 +30985,6 @@ async function scoreDiff(opts) {
     try {
       result.brief = await buildBrief(result, ctx, {
         maxTokens: opts.brief.maxTokens ?? config2.brief.maxTokens,
-        now: opts.brief.now ?? opts.now,
         llm: opts.brief.llm
       });
     } catch (e) {
@@ -31060,9 +31071,7 @@ function renderMarkdown(result, opts = {}) {
   const focus = renderFocusBullets(brief).map((b) => `- ${b}`);
   const sections = [
     ...head,
-    "**Review focus**",
-    ...focus,
-    "",
+    ...focus.length > 0 ? ["**Review focus**", ...focus, ""] : [],
     "<details><summary>Review brief for AI reviewers (opendrs)</summary>",
     "",
     "~~~~opendrs-brief",
@@ -31425,8 +31434,13 @@ async function scorePullRequest(d, pr) {
     io.setOutput("brief", renderBriefMarkdown(result.brief));
     const dir = d.env.RUNNER_TEMP ?? tmpdir();
     const file2 = join5(dir, `opendrs-brief-${pr.number}.json`);
-    await writeFile2(file2, JSON.stringify(result.brief));
-    io.setOutput("brief-file", file2);
+    try {
+      await writeFile2(file2, JSON.stringify(result.brief));
+      io.setOutput("brief-file", file2);
+    } catch (e) {
+      io.warning(`Could not write the brief file (${e instanceof Error ? e.message : String(e)}); the \`brief-file\` output is empty. The \`brief\` output still has the full brief.`);
+      io.setOutput("brief-file", "");
+    }
   } else {
     io.setOutput("brief", "");
     io.setOutput("brief-file", "");
