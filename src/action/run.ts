@@ -31,6 +31,8 @@ export interface ActionInputs {
   labels: boolean;
   /** Mixed into the drift-sampling key; a secret makes the sample unpredictable. */
   sampleSalt?: string;
+  /** Build the review brief and add it to the comment, job summary and brief/brief-file outputs. */
+  brief: boolean;
 }
 
 /** The fields of the `pull_request` webhook payload the action uses. */

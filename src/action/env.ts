@@ -24,6 +24,7 @@ export function readInputs(env: NodeJS.ProcessEnv): ActionInputs {
     comment: bool("comment", true),
     labels: bool("labels", true),
     sampleSalt: get("sample-salt"),
+    brief: bool("brief", true),
   };
 }
 
