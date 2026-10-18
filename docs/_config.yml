@@ -30,11 +30,23 @@ exclude:
 nav:
   - title: Auto-approve PRs
     url: /auto-approve.html
+  - title: Policy
+    url: /policy.html
+  - title: Configuration
+    url: /configuration.html
+  - title: Signals
+    url: /signals.html
   - title: Blast radius
     url: /blast-radius.html
+  - title: LLM judge
+    url: /llm-judge.html
   - title: GitHub Action
     url: /github-action.html
+  - title: CLI & MCP
+    url: /cli-and-mcp.html
   - title: Calibration
     url: /calibration.html
+  - title: Results
+    url: /results.html
   - title: Alternatives
     url: /alternatives.html
