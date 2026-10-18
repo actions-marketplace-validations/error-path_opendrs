@@ -140,4 +140,17 @@ describe("rankHunks", () => {
     expect(rankHunks(ctx, result, blame, { llm: false })[0]!.hunks[0]!.reasons.some((r) => r.kind === "llm")).toBe(false);
     repo.cleanup();
   });
+
+  it("gives a hunk with no fix-blame, exports, dependents or llm reason a changed-lines fallback instead of an empty list", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "a.ts": "1\n2\n3\nNEW\n" }, "change"); // a pure one-line addition: exactly one changed row
+    const config = defaultConfig();
+    const diff = await loadDiff(repo.dir, "HEAD~1", "HEAD", config);
+    const ctx = makeContext(repo.dir, diff, config, fakeHistory([]), undefined); // no graph, no history, no blame
+    const ranked = rankHunks(ctx, fakeResult(0.1), new Map(), { llm: false });
+    const hunk = ranked[0]!.hunks[0]!;
+    expect(hunk.reasons).toEqual([{ kind: "changed-lines", text: "1 changed line" }]);
+    repo.cleanup();
+  });
 });

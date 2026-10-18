@@ -159,4 +159,41 @@ describe("buildBrief", () => {
     expect((await buildBrief(scored, ctx)).verdict.why).toBe("37 files depend on the changed files");
     repo.cleanup();
   });
+
+  it("keeps a skimmable doc file out of Review first when the PR has a non-skimmable hunk, listing it only under Safe to skim", async () => {
+    const repo = makeRepo();
+    repo.commit({ "README.md": "# old\n", "src/a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "README.md": "# fix 1\n" }, "fix: typo in README");
+    repo.commit({ "README.md": "# fix 2\n" }, "fix: another typo in README");
+    repo.commit({ "README.md": "# updated\n", "src/a.ts": "1\n2\nCHANGED\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+
+    const brief = await buildBrief(fakeResult(0.2), ctx, { llm: false });
+    expect(brief.reviewFirst.map((f) => f.file)).toEqual(["src/a.ts"]);
+    expect(brief.reviewFirstScope).toBe("code");
+    expect(Array.isArray(brief.skim) ? brief.skim.map((s) => s.file) : "collapsed").toEqual(["README.md"]);
+
+    const md = renderBriefMarkdown(brief);
+    const reviewFirstSection = md.split("## Review first")[1]!.split(/\n## /)[0]!;
+    expect(reviewFirstSection).not.toContain("README.md");
+    expect(md).toContain("## Safe to skim\n- `README.md` (docs)");
+    repo.cleanup();
+  });
+
+  it("lists skim-only files in Review first with an explicit note on a docs-only PR, and never doubles them under Safe to skim", async () => {
+    const repo = makeRepo();
+    repo.commit({ "README.md": "# old\n", "CHANGELOG.md": "# old\n" }, "base");
+    repo.commit({ "README.md": "# updated\n", "CHANGELOG.md": "# updated\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.reviewFirstScope).toBe("skim-only");
+    expect(brief.reviewFirst.map((f) => f.file).sort()).toEqual(["CHANGELOG.md", "README.md"]);
+    expect(brief.skim).toEqual([]);
+
+    const md = renderBriefMarkdown(brief);
+    expect(md).toContain("Only docs/tests/generated files changed; nothing ranks above skim level.");
+    expect(md).not.toContain("## Safe to skim");
+    repo.cleanup();
+  });
 });

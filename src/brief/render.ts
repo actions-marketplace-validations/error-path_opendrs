@@ -28,9 +28,13 @@ export function renderBriefMarkdown(brief: ReviewBrief): string {
 
   if (brief.reviewFirst.length > 0) {
     lines.push("", "## Review first");
+    if (brief.reviewFirstScope === "skim-only") lines.push("Only docs/tests/generated files changed; nothing ranks above skim level.");
     brief.reviewFirst.forEach((f, i) => {
       lines.push(`${i + 1}. ${code(f.file)}${f.reasons.length > 0 ? ` (${reasonText(f.reasons)})` : ""}`);
-      for (const h of f.hunks) lines.push(`   - [hunk ${h.id}] ${lineRange(h)}: ${reasonText(h.reasons)}`);
+      for (const h of f.hunks) {
+        const reason = reasonText(h.reasons);
+        lines.push(`   - [hunk ${h.id}] ${lineRange(h)}${reason ? `: ${reason}` : ""}`);
+      }
     });
   }
 

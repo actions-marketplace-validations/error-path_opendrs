@@ -90,6 +90,14 @@ describe("renderBriefMarkdown", () => {
     expect(md).toContain("`src/ab.ts`");
   });
 
+  it("drops the trailing colon when a hunk has no reasons, instead of ending the line with an empty one", () => {
+    const b = brief();
+    b.reviewFirst[0]!.hunks[0]!.reasons = [];
+    const md = renderBriefMarkdown(b);
+    expect(md).toContain("   - [hunk 4] L120–148\n");
+    expect(md.split("\n").some((l) => l.trim().endsWith(":"))).toBe(false);
+  });
+
   it("renders a file path as inline code, never inside «»", () => {
     const md = renderBriefMarkdown(brief());
     expect(md).toContain("`Queue.java`");

@@ -86,6 +86,25 @@ function hunkPublicDecl(c: HunkCandidate): string | undefined {
   return undefined;
 }
 
+/**
+ * Every listed hunk needs at least one concrete reason. When none of the templates above applied,
+ * fall back to the hunk's own size, plus the most informative file context on hand: dependents,
+ * then an exported declaration, then prior fixes.
+ */
+function fallbackReason(c: HunkCandidate, dependents: number, fixCount: number): BriefReason {
+  const base = plural(hunkChangedLines(c.hunk), "changed line");
+  const decl = hunkPublicDecl(c);
+  const context =
+    dependents > 0
+      ? `${plural(dependents, "file")} depend${dependents === 1 ? "s" : ""} on it`
+      : decl
+        ? `changes exported ${code(decl)}`
+        : fixCount > 0
+          ? `in a file with ${plural(fixCount, "prior fix")}`
+          : undefined;
+  return { kind: "changed-lines", text: context ? `${base}, ${context}` : base };
+}
+
 function fixHistory(ctx: ScoringContext, path: string) {
   const commits = ctx.history.fileCommits(path, ctx.asOf).filter((c) => c.isFix || c.isRevert);
   return { count: commits.length, latest: commits[0] };
@@ -175,6 +194,7 @@ export function rankHunks(
           quote: clipQuote(verdict.reason),
         });
       }
+      if (reasons.length === 0) reasons.push(fallbackReason(c, dependents, fixes.count));
       return { id: c.id, oldStart: c.hunk.oldStart, oldLines: c.hunk.oldLines, newStart: c.hunk.newStart, newLines: c.hunk.newLines, score, reasons: reasons.slice(0, MAX_REASONS) };
     });
 

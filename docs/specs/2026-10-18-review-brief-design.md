@@ -202,6 +202,10 @@ Each ranked file or hunk lists up to 4 reasons, chosen from these templates in t
 | No tests changed for a source file | "no test changed alongside it" |
 | The author is new to the file | "the author has not changed this file before" |
 | The judge's risk category | "LLM judge: logic_bug (7/10) «reason»" |
+| (hunk fallback) None of the above applied | "12 changed lines" plus, if available, the file's dependents, an exported declaration, or its prior-fix count: "12 changed lines, 6 files depend on it" |
+
+Every listed hunk gets at least one reason; a hunk that matches none of the templates above gets
+the fallback row so it never renders with an empty reason.
 
 ### 5.5 Check-specifically questions
 
@@ -230,6 +234,17 @@ A file is listed as safe to skim when one of these holds:
 Binary files and submodules are never listed as safe to skim; they go to §5.7. Beyond 20 paths,
 the list collapses to counts per category.
 
+**A skim-listed file never appears in "Review first" when the PR has any non-skimmable changed
+hunk.** Code hunks always outrank a doc, a comment-only change or an untouched-by-deletion test
+file, regardless of that file's risk-at-rest score (`ReviewBrief.reviewFirstScope` is `"code"`).
+Only when *every* ranked file is skim-listed (a docs-only PR, for example) does "Review first"
+list those files anyway, and `reviewFirstScope` is then `"skim-only"`; the Markdown rendering says
+so explicitly ("Only docs/tests/generated files changed; nothing ranks above skim level."). A file
+is never listed in both "Review first" and "Safe to skim": in the `"code"` scope a skim-listed file
+is dropped from the candidate pool entirely (its hunks count toward neither `reviewFirst` nor
+`notRanked`); in the `"skim-only"` scope, "Safe to skim" excludes whatever "Review first" already
+shows instead of listing it twice.
+
 ### 5.7 Needs a human regardless
 
 These are `PolicyOutcome.rules` entries whose rule is one of:
@@ -255,6 +270,7 @@ listed here: the verdict line covers the score.
 export interface ReviewBrief {
   version: 1;
   verdict: { tier: Tier; score: number; decision: Decision; why: string };
+  reviewFirstScope?: "code" | "skim-only"; // §5.6: "skim-only" only when every ranked file is skim-listed
   reviewFirst: Array<{
     file: string;                      // repo-relative path; untrusted (PR-controlled)
     reasons: BriefReason[];
@@ -268,7 +284,7 @@ export interface ReviewBrief {
   notes: string[];                     // e.g. "blame unavailable: shallow clone"
 }
 export interface BriefReason {
-  kind: "fix-blame" | "fix-history" | "incident" | "exports" | "dependents" | "critical" | "no-tests" | "new-author" | "llm";
+  kind: "fix-blame" | "fix-history" | "incident" | "exports" | "dependents" | "critical" | "no-tests" | "new-author" | "llm" | "changed-lines";
   text: string;                        // rendered sentence; untrusted parts are already escaped
   quote?: string;                      // the raw untrusted fragment (commit subject, incident note, judge reason), clipped to 120 characters
   sha?: string;

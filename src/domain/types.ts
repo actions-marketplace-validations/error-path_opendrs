@@ -262,7 +262,7 @@ export interface PolicyOutcome {
 
 /** One reason a file or hunk ranks where it does in the review brief. */
 export interface BriefReason {
-  kind: "fix-blame" | "fix-history" | "incident" | "exports" | "dependents" | "critical" | "no-tests" | "new-author" | "llm";
+  kind: "fix-blame" | "fix-history" | "incident" | "exports" | "dependents" | "critical" | "no-tests" | "new-author" | "llm" | "changed-lines";
   /** Rendered sentence; untrusted parts already escaped. */
   text: string;
   /** Raw untrusted fragment (commit subject, incident note, judge reason), clipped to 120 chars. */
@@ -274,6 +274,13 @@ export interface BriefReason {
 export interface ReviewBrief {
   version: 1;
   verdict: { tier: Tier; score: number; decision: Decision; why: string };
+  /**
+   * "code" when at least one non-skimmable hunk exists, so Review first never lists a skim-listed
+   * file (spec §5.6). "skim-only" when every changed hunk is skim-listed, so Review first lists
+   * those files anyway and the Markdown says so explicitly. Optional for callers built before it
+   * existed; absent means "code".
+   */
+  reviewFirstScope?: "code" | "skim-only";
   reviewFirst: Array<{
     file: string;
     reasons: BriefReason[];
