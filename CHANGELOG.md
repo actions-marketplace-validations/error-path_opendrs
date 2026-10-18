@@ -2,7 +2,13 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.3.0 - 2026-10-19
+
+The review-brief release. opendrs now tells LLM and human reviewers what to review first and why,
+not just how risky a PR is. The PR comment opens with a short "Review focus" and a collapsed brief
+for AI reviewers, and the score table moves into a collapsed section. Set the Action input
+`brief: false` to keep the old comment. Re-scores on new commits are now visible, and `calibrate`
+refits its weights on every labelled commit.
 
 - Re-scores are now visible: when the Action re-scores a PR and a valid previous run exists (a
   hidden `<!-- opendrs-state: ... -->` marker in its own comment), the comment gains a
