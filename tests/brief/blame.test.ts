@@ -53,12 +53,27 @@ describe("blameFixes", () => {
     repo.cleanup();
   });
 
+  it("does not blame a fix commit when only an unrelated line next to its change is inserted", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n4\n5\n6\n7\n8\n" }, "base");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n4\n5\n6\n7\n8\n" }, "fix: bug");
+    // Inserts a line within the fix's 3-line context window without touching the fixed line itself.
+    repo.commit({ "a.ts": "1\nFIXED\n3\n4\nNEW\n5\n6\n7\n8\n" }, "insert near the fix");
+    const ctx = await ctxFor(repo);
+    const { hits } = await blameFixes(ctx, candidateHunks(ctx));
+    expect(hits.size).toBe(0);
+    repo.cleanup();
+  });
+
   it("uses the old path for a renamed file", async () => {
     const repo = makeRepo();
-    repo.commit({ "old.ts": "1\n2\n3\n" }, "base");
-    repo.commit({ "old.ts": "1\nFIXED\n3\n" }, "fix: bug");
+    // A big-enough file that git still detects the rename (-M50) once one line changes again.
+    const lines = Array.from({ length: 10 }, (_, i) => `${i + 1}`);
+    const withLine2 = (v: string) => [lines[0], v, ...lines.slice(2)].join("\n") + "\n";
+    repo.commit({ "old.ts": withLine2(lines[1]!) }, "base");
+    repo.commit({ "old.ts": withLine2("FIXED") }, "fix: bug");
     repo.git("mv", "old.ts", "new.ts");
-    repo.commit({ "new.ts": "1\nFIXED\nchanged\n" }, "rename and tweak");
+    repo.commit({ "new.ts": withLine2("changed") }, "rename and tweak");
     const ctx = await ctxFor(repo);
     expect(ctx.diff.files[0]!.oldPath).toBe("old.ts");
     const { hits, notes } = await blameFixes(ctx, candidateHunks(ctx));

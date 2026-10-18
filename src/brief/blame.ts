@@ -1,4 +1,5 @@
-import type { ScoringContext } from "../domain/types.js";
+import type { Hunk, ScoringContext } from "../domain/types.js";
+import { changedLines } from "../git/diff.js";
 import { git } from "../git/exec.js";
 import { runPool } from "../model/label.js";
 import { code, untrusted } from "../report/escape.js";
@@ -25,13 +26,13 @@ export async function blameFixes(ctx: ScoringContext, candidates: HunkCandidate[
     candidates.map((c, i) => ({ c, i })),
     BLAME_CONCURRENCY,
     async ({ c, i }) => {
-      if (c.hunk.oldLines === 0) return;
+      const ranges = deletedRanges(c.hunk);
+      if (ranges.length === 0) return;
       // The base tree has the file at its old path, not its new one.
       const oldPath = c.file.oldPath ?? c.file.path;
       let out: string;
       try {
-        const range = `${c.hunk.oldStart},${c.hunk.oldStart + c.hunk.oldLines - 1}`;
-        out = await git(ctx.repoDir, ["blame", "--porcelain", "-L", range, ctx.diff.base, "--", oldPath], { timeoutMs: BLAME_TIMEOUT_MS });
+        out = await git(ctx.repoDir, ["blame", "--porcelain", ...ranges.flatMap(([a, b]) => ["-L", `${a},${b}`]), ctx.diff.base, "--", oldPath], { timeoutMs: BLAME_TIMEOUT_MS });
       } catch (e) {
         // git's message echoes the path, so it is escaped like any other untrusted text; notes render as they are.
         notes[i] = `blame unavailable for ${code(oldPath)}: ${untrusted(e instanceof Error ? e.message : String(e))}`;
@@ -50,4 +51,16 @@ export async function blameFixes(ctx: ScoringContext, candidates: HunkCandidate[
     },
   );
   return { hits, notes: notes.filter((n): n is string => n !== undefined) };
+}
+
+/** Old-side line ranges of a hunk's deleted rows only (never its context), merged when consecutive. */
+function deletedRanges(hunk: Hunk): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const { kind, line } of changedLines(hunk)) {
+    if (kind !== "-") continue;
+    const last = ranges.at(-1);
+    if (last && last[1] === line - 1) last[1] = line;
+    else ranges.push([line, line]);
+  }
+  return ranges;
 }
