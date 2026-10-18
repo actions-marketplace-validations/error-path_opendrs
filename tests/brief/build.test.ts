@@ -47,7 +47,7 @@ describe("buildBrief", () => {
     const asOf = 1_800_000_000; // between the two fixes
     const ctx = await ctxFor(repo, asOfSha, asOf);
 
-    const brief = await buildBrief(fakeResult(0.1), ctx, { maxTokens: 2500, now: asOf * 1000 });
+    const brief = await buildBrief(fakeResult(0.1), ctx, { maxTokens: 2500 });
     const shas = brief.reviewFirst.flatMap((f) => [...f.reasons, ...f.hunks.flatMap((h) => h.reasons)]).map((r) => r.sha);
     expect(shas).toContain(asOfSha);
     expect(shas).not.toContain(futureFix);

@@ -88,6 +88,19 @@ describe("focusHitRate", () => {
     repo.cleanup();
   });
 
+  it("excludes an ignored file's lines from totalChanged, so a lockfile bump does not dilute changedLineShare", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n", "pkg-lock.json": '{"v":1}\n' }, "base");
+    repo.commit({ "a.ts": "1\nBUG\n3\n", "pkg-lock.json": '{"v":2}\n' }, "introduce bug");
+    repo.commit({ "a.ts": "1\nFIXED\n3\n" }, "fix: the bug");
+    const config = defaultConfig();
+    config.paths.ignore.push("pkg-lock.json");
+    const result = await focusHitRate({ repoDir: repo.dir, config });
+    expect(result.commits).toBe(1);
+    expect(result.changedLineShare).toBe(1);
+    repo.cleanup();
+  });
+
   it("reports 0 commits (not NaN) when there are no SZZ-labelled commits", async () => {
     const repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "base");

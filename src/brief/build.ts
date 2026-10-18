@@ -18,8 +18,6 @@ const MAX_BLAME_CANDIDATES = 24;
 export interface BuildBriefOptions {
   /** Token budget for the rendered Markdown; default 2500, clamped to 6000. */
   maxTokens?: number;
-  /** Unused today: every history lookup goes through ctx.asOf. Accepted so the engine can pass its clock without an interface change. */
-  now?: number;
   /** False ignores the judge's per-hunk verdicts even when it ran. */
   llm?: boolean;
 }

@@ -48,7 +48,7 @@ export interface ScoreOptions {
    * Build a review brief (ScoreResult.brief). maxTokens defaults to config.brief.maxTokens. With
    * onError, a failure to build it is reported there and the result has no brief; without, it propagates.
    */
-  brief?: { maxTokens?: number; now?: number; llm?: boolean; onError?: (message: string) => void };
+  brief?: { maxTokens?: number; llm?: boolean; onError?: (message: string) => void };
 }
 
 /** Load the calibrated model if config.model exists in the repo; else the default priors. */
@@ -194,7 +194,6 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     try {
       result.brief = await buildBrief(result, ctx, {
         maxTokens: opts.brief.maxTokens ?? config.brief.maxTokens,
-        now: opts.brief.now ?? opts.now,
         llm: opts.brief.llm,
       });
     } catch (e) {

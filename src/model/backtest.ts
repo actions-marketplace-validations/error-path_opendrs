@@ -80,14 +80,14 @@ export async function focusHitRate(opts: HistoryRunOptions & { maxTokens?: numbe
         diff: { base: diff.base, head: diff.head, files: diff.files.length, added: 0, deleted: 0 },
         model: "default", version: VERSION,
       };
-      const brief = await buildBrief(result, ctx, { maxTokens: opts.maxTokens ?? 2_500, now: c.time * 1000, llm: false });
+      const brief = await buildBrief(result, ctx, { maxTokens: opts.maxTokens ?? 2_500, llm: false });
       evaluated++;
 
       const inFocus = (path: string, line: number) =>
         brief.reviewFirst.some((f) => f.file === path && f.hunks.some((h) => line >= h.newStart && line < h.newStart + h.newLines));
       if (lines.some((l) => inFocus(l.path, l.line))) hits++;
 
-      const totalChanged = diff.files.reduce((n, f) => n + f.added + f.deleted, 0);
+      const totalChanged = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + f.added + f.deleted, 0);
       // Changed (+/-) lines of the focus hunks, looked up by id: a hunk's newLines counts its context too.
       const byId = new Map(candidateHunks(ctx).map((c) => [c.id, c.hunk]));
       const focusChanged = brief.reviewFirst.reduce((n, f) => n + f.hunks.reduce((m, h) => m + [...changedLines(byId.get(h.id)!)].length, 0), 0);

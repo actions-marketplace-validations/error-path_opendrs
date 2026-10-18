@@ -42,6 +42,8 @@ both; this plan does not repeat the spec's reasoning, only what to build.
    counts/categories only (e.g. "4 bug fixes in this file in the last year"), never a quoted
    subject.
 3. The experiment amendment (arm 2 token cap, §10.1) is handled separately, **not** in this plan.
+   The bench wiring for experiment arm 2 (spec §13 phase 4) is **deferred by decision**: it is not
+   built by this plan. It gets built when the user approves the paid experiment.
 4. **Focus hit rate is report-only** (`opendrs backtest --brief`); it never gates anything.
 5. **Integration docs priority:** `anthropics/claude-code-action` documented fully first; Bugbot
    gets a short note; CodeRabbit gets the limited `path_instructions` recipe; Copilot/Codex get the
@@ -163,13 +165,13 @@ export interface ScoreResult {
 // src/engine.ts (addition to ScoreOptions)
 export interface ScoreOptions {
   // ...existing fields unchanged...
-  brief?: { maxTokens?: number; now?: number; llm?: boolean };
+  brief?: { maxTokens?: number; llm?: boolean };
 }
 ```
 
 ```ts
 // src/brief/build.ts
-export interface BuildBriefOptions { maxTokens?: number; now?: number; llm?: boolean }
+export interface BuildBriefOptions { maxTokens?: number; llm?: boolean }
 export async function buildBrief(result: ScoreResult, ctx: ScoringContext, options?: BuildBriefOptions): Promise<ReviewBrief>;
 ```
 
@@ -1690,7 +1692,7 @@ describe("buildBrief", () => {
     const asOf = 1_800_000_000; // between the two fixes
     const ctx = makeContext(repo.dir, diff, config, history, undefined, asOf);
 
-    const brief = await buildBrief(fakeResult(0.1), ctx, { maxTokens: 2500, now: asOf * 1000 });
+    const brief = await buildBrief(fakeResult(0.1), ctx, { maxTokens: 2500 });
     const shas = brief.reviewFirst.flatMap((f) => [...f.reasons, ...f.hunks.flatMap((h) => h.reasons)]).map((r) => r.sha).filter(Boolean);
     expect(shas).not.toContain(futureFix);
     repo.cleanup();
@@ -1733,7 +1735,7 @@ const MAX_FILES = 8;
 const MAX_HUNKS_PER_FILE = 3;
 const MAX_BLAME_CANDIDATES = 24;
 
-export interface BuildBriefOptions { maxTokens?: number; now?: number; llm?: boolean }
+export interface BuildBriefOptions { maxTokens?: number; llm?: boolean }
 
 export async function buildBrief(result: ScoreResult, ctx: ScoringContext, options: BuildBriefOptions = {}): Promise<ReviewBrief> {
   const candidates = candidateHunks(ctx);
@@ -1836,7 +1838,7 @@ describe("scoreDiff brief option", () => {
 - [ ] **Step 2: Run it to verify it fails.**
 
 - [ ] **Step 3: Implement.** In `src/engine.ts`, import `buildBrief` from `./brief/build.js`, change
-  `ScoreOptions` to add `brief?: { maxTokens?: number; now?: number; llm?: boolean };`, and change
+  `ScoreOptions` to add `brief?: { maxTokens?: number; llm?: boolean };`, and change
   `scoreDiff`'s `return { ... }` to build the result object first, then conditionally attach the
   brief:
 
@@ -1864,7 +1866,6 @@ describe("scoreDiff brief option", () => {
   if (opts.brief) {
     result.brief = await buildBrief(result, ctx, {
       maxTokens: opts.brief.maxTokens ?? config.brief.maxTokens,
-      now: opts.brief.now ?? opts.now,
       llm: opts.brief.llm,
     });
   }
@@ -3116,7 +3117,7 @@ export async function focusHitRate(opts: HistoryRunOptions & { maxTokens?: numbe
         diff: { base: diff.base, head: diff.head, files: diff.files.length, added: 0, deleted: 0 },
         model: "default", version: VERSION,
       };
-      const brief = await buildBrief(result, ctx, { maxTokens: opts.maxTokens ?? 2_500, now: c.time * 1000, llm: false });
+      const brief = await buildBrief(result, ctx, { maxTokens: opts.maxTokens ?? 2_500, llm: false });
       evaluated++;
 
       const inFocus = (path: string, line: number) =>
