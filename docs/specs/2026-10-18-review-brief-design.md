@@ -679,3 +679,13 @@ This is the tuning signal for the §5.3 weights. Weight changes are pre-register
    changed lines" the right bar, or should we only report it for now?
 5. **Integration priority.** After the CLI, MCP and Action, which reviewer comes first:
    claude-code-action, Bugbot or CodeRabbit?
+
+**Resolved 2026-10-18** (decided by the orchestrator on the user's delegation):
+1. On by default; `brief: false` restores the old comment.
+2. Past fix subjects appear only in the collapsed brief, the CLI and MCP output; the top "Review
+   focus" bullets use counts and categories only.
+3. Amended: arm 2 tests the product default, 2,500 tokens, with a +30 % input cap (see
+   docs/experiments.md). The 900-token variant is dropped.
+4. Report-only for now; not a gate.
+5. claude-code-action first, documented in full; Bugbot, CodeRabbit (limited), Copilot and Codex
+   get shorter recipes.
