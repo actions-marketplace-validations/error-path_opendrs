@@ -4,6 +4,12 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+- Re-scores are now visible: when the Action re-scores a PR and a valid previous run exists (a
+  hidden `<!-- opendrs-state: ... -->` marker in its own comment), the comment gains a
+  "Re-scored for `<sha>` (run N) · was ... → now ..." line, and a tier or decision change also
+  posts a short separate comment pointing back at the updated report. The new `notify-changes`
+  input (default `true`) turns the separate comment off; `brief: false` still keeps the comment
+  byte-equal to today's output, with no state marker, re-score line or notice.
 - New `/opendrs-review` Claude Code plugin command, a "Brief before you review" section in the
   agent skill, and [docs/llm-reviewers.md](docs/llm-reviewers.md): recipes for claude-code-action,
   Cursor Bugbot, CodeRabbit's `path_instructions`, and the generic "paste the brief" pattern for
