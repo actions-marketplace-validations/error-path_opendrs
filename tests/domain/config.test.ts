@@ -391,7 +391,7 @@ describe("captain", () => {
     expect(captain).toEqual({
       enabled: true,
       moduleDepth: 2,
-      coupling: { enabled: true, minSupport: 5, minConfidence: 0.6 },
+      coupling: { enabled: true, minSupport: 8, minConfidence: 0.6 },
       contracts: { paths: [] },
     });
   });
