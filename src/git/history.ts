@@ -27,20 +27,25 @@ interface Lineage {
   adds: Array<{ time: number; email: string }>;
 }
 
-/** One `git log` pass up to `ref`, bounded by history.maxCommits. */
+/** One `git log` pass up to `ref`, bounded by history.maxCommits and timed out at history.gitTimeoutMs. */
 export async function buildHistoryIndex(repoDir: string, ref: string, config: OpendrsConfig): Promise<HistoryIndex> {
   const fixRe = compileFixPattern(config.history.fixPattern);
   const patterns = agentPatterns(config);
-  const out = await git(repoDir, [
-    "log",
-    `-n${config.history.maxCommits}`,
-    "--name-status",
-    "-M",
-    "--no-show-signature",
-    `--format=${FORMAT}`,
-    "--end-of-options",
-    ref,
-  ]);
+  let out: string;
+  try {
+    out = await git(
+      repoDir,
+      ["log", `-n${config.history.maxCommits}`, "--name-status", "-M", "--no-show-signature", `--format=${FORMAT}`, "--end-of-options", ref],
+      { timeoutMs: config.history.gitTimeoutMs },
+    );
+  } catch (e) {
+    // A blobless or otherwise slow clone can make this one-time scan outrun the timeout; say so and
+    // name the two knobs that fix it, instead of surfacing git's own opaque "Command failed" message.
+    if (e instanceof OpendrsError && e.code === "git" && /timed out/.test(e.message)) {
+      throw new OpendrsError(`${e.message} while reading history; raise history.gitTimeoutMs or lower history.maxCommits`, "git");
+    }
+    throw e;
+  }
 
   const commits: CommitInfo[] = [];
   const changes: Change[][] = [];

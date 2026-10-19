@@ -275,6 +275,20 @@ describe("history.labelHorizonDays", () => {
   });
 });
 
+describe("history.gitTimeoutMs", () => {
+  it("defaults to a timeout well above the old fixed 120s, for large or blobless clones", () => {
+    expect(defaultConfig().history.gitTimeoutMs).toBeGreaterThan(120_000);
+  });
+
+  it("is overridable", () => {
+    expect(parseConfig({ history: { gitTimeoutMs: 5_000 } }).history.gitTimeoutMs).toBe(5_000);
+  });
+
+  it("rejects a non-positive timeout", () => {
+    expect(configError({ history: { gitTimeoutMs: 0 } })).toMatch(/gitTimeoutMs/);
+  });
+});
+
 describe("content.block", () => {
   it("defaults to no patterns and accepts valid regular expressions", () => {
     expect(defaultConfig().content.block).toEqual([]);

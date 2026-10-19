@@ -13,7 +13,7 @@ description: "Every key in .opendrs.yml with its default: thresholds, auto-appro
 | `autoApprove` | Whether auto-approval is on, the AI-review checks that must have passed, the merge method, the share of eligible PRs still routed to a human and the changed-lines ceiling |
 | `paths` | Blocked, unblocked, critical, ignored and test globs (see [Why the default block list is long](#why-the-default-block-list-is-long) and [Your lists add to the defaults](#your-lists-add-to-the-defaults)) |
 | `llm` | The optional LLM judge: provider, model, endpoint, API key variable, whether the PR body is included, diff size limit |
-| `history` | Lookback window, fix-commit pattern, commit cap and the label horizon that `calibrate` and `backtest` skip |
+| `history` | Lookback window, fix-commit pattern, commit cap, the `git log` timeout and the label horizon that `calibrate` and `backtest` skip |
 | `graph` | The import graph: on or off, depth and file cap |
 | `model` | Where `opendrs calibrate` writes the fitted model; priors are used until it exists |
 | `brief` | Token budget for the review brief's Markdown |
@@ -88,6 +88,8 @@ history:
   lookbackDays: 365
   fixPattern: "\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"
   maxCommits: 20000
+  gitTimeoutMs: 600000   # timeout for the one-time `git log` history scan; raise this (or lower maxCommits)
+                         # if brief/score fails with "git log timed out ..." on a large or blobless clone
   labelHorizonDays: 60   # calibrate/backtest skip the newest 60 days: their bugs may not be found yet (0 = off)
 
 graph:
