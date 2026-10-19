@@ -196,4 +196,35 @@ describe("buildBrief", () => {
     expect(md).not.toContain("## Safe to skim");
     repo.cleanup();
   });
+
+  it("builds a quick-confirm captain brief when no detector reports a fact; drift says it is not tracked outside the Action", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    repo.commit({ "a.ts": "2\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.captain).toEqual({ priority: "quick", why: [], facts: [], notes: ["drift: not tracked here"] });
+    repo.cleanup();
+  });
+
+  it("omits the captain brief when captain.enabled is false", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    repo.commit({ "a.ts": "2\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    ctx.config.captain.enabled = false;
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.captain).toBeUndefined();
+    repo.cleanup();
+  });
+
+  it("is careful for a changed file matching paths.critical, even at a quiet tier", async () => {
+    const repo = makeRepo();
+    repo.commit({ "src/auth/token.ts": "1\n" }, "base");
+    repo.commit({ "src/auth/token.ts": "2\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.captain?.priority).toBe("careful");
+    repo.cleanup();
+  });
 });

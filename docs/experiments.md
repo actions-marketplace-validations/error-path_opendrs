@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| 2026-10-19 | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Yes to shipping: test lift 1.931× at the tuned `minSupport: 8`/`minConfidence: 0.6`. No to the score: AUC 0.823 → 0.823, 95 % CI -0.0003 to -0.0001 (significant, but negative) | Merged (brief-only) | [details](#change-coupling-on-apachejit) |
 | Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
 | 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Not merged | [details](#review-heuristic-signals) |
@@ -25,6 +26,76 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Change coupling on ApacheJIT
+
+**Question.** Does `coupling.missing` (spec §6.1 of
+[`docs/specs/2026-10-19-captain-brief-design.md`](specs/2026-10-19-captain-brief-design.html):
+files that historically change together, where a PR changed only one of them) predict ApacheJIT
+bugs enough to ship as a captain-brief fact with specific thresholds, and does it also add ranking
+signal to the calibrated score? Pre-registered 2026-10-19, before any run; the question, setup and
+decision rule below are unchanged from the pre-registration.
+
+**Setup.**
+- Data: the dataset's official split (train 2003–2016, test 2017–2019), pooled excluding
+  `apache/hadoop` (no positive labels) — the same commits as every other ApacheJIT row in this
+  log: 41,969 train, 24,686 of 24,690 test (4 commits' shas were not found in any of the 15
+  cloned histories).
+- Compute `coupling.missing` per commit from the history strictly before it (the commit's own
+  parent stands in for "the PR's base"), with `couplingPairs` (`src/architecture/coupling.ts`):
+  the exact pure function the detector calls, so the experiment measures the shipped code, not a
+  re-implementation of it. Per-commit file lists come from one blobless clone
+  (`git clone --filter=blob:none --no-checkout`) and one `git log --name-only --no-renames` spawn
+  per project (15 clones total, apache/hadoop included for the hadoop-hdfs/hadoop-mapreduce
+  fallback); never one spawn per commit.
+- Tuned `minSupport` ∈ {3, 5, 8} × `minConfidence` ∈ {0.5, 0.6, 0.75} (9 combinations) on the train
+  split only (by train lift), then reported the test split once, at the combination chosen on
+  train.
+- **Lift:** the buggy rate of test commits where the fact fires, against the test split's base
+  rate.
+- **Score:** the calibrated model (the existing row cache's signals, no re-replay needed) with and
+  without a `coupling.missing` signal (count of firing files, log1p), compared on test AUC with a
+  paired bootstrap (2,000 resamples, test commits resampled together).
+
+**Result.**
+
+| minSupport | minConfidence | Fires (train) | Train lift |
+|---:|---:|---:|---:|
+| 3 | 0.5 | 16,051/41,969 | 1.144 |
+| 3 | 0.6 | 12,651/41,969 | 1.170 |
+| 3 | 0.75 | 8,715/41,969 | 1.188 |
+| 5 | 0.5 | 9,531/41,969 | 1.189 |
+| 5 | 0.6 | 6,850/41,969 | 1.203 |
+| 5 | 0.75 | 3,647/41,969 | 1.195 |
+| 8 | 0.5 | 5,156/41,969 | 1.219 |
+| **8** | **0.6** | **3,415/41,969** | **1.221 (chosen)** |
+| 8 | 0.75 | 1,546/41,969 | 1.196 |
+
+At `minSupport: 8`, `minConfidence: 0.6` on the test split: fires on 1,800 of 24,686 commits
+(7.3 %), 819 of them buggy (45.5 %), against a 23.6 % base rate — **lift 1.931×**. Calibrated test
+AUC: 0.823 without `coupling.missing`, 0.823 with it (count of firing files, log1p); paired
+bootstrap mean -0.0002, 95 % CI -0.0003 to -0.0001 — significant, but negative.
+
+**Decision rule (spec §10.1), applied exactly.**
+- Lift 1.931× ≥ 1.2× → **the fact ships**, with `minSupport: 8`, `minConfidence: 0.6` as the new
+  defaults (`src/domain/config.ts`; `captain.coupling.enabled` stays `true`).
+- AUC-gain 95 % CI -0.0003 to -0.0001 excludes 0, but in the negative direction: the rule asks for
+  a significant *positive* gain, and this is a significant (if tiny) negative one → **it stays
+  brief-only**. No signal or model-weight change.
+
+**Caveats.** The per-commit file lists skip rename detection (`--no-renames`, for speed on the
+larger histories; the shipped detector itself still uses `-M`), and the backtest never checks
+whether a partner file still exists afterward (the shipped detector drops a fact when it does
+not) — both make this backtest's firing count a slight overcount of what the real detector would
+show on the same history. Full detail, including the "stays brief-only" wording's reasoning, is in
+`bench/apachejit/coupling-experiment.md`.
+
+**Verdict.** Merged, brief-only. `coupling.missing` ships as a captain-brief fact at its tuned
+thresholds; it does not enter the calibrated score.
+
+**Where.** `bench/apachejit/coupling-experiment.ts` and
+[`bench/apachejit/coupling-experiment.md`](../bench/apachejit/coupling-experiment.html). No LLM
+calls; no API spend. The 15 blobless clones were deleted after the run.
 
 ## Planned: LLM plus opendrs vs the LLM alone
 

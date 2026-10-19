@@ -66,7 +66,7 @@ opendrs checks out and reads the PR's code. opendrs scores on events that carry 
 | `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. When `false`, the `llm` section and the `model` path still come from the base commit, so a PR cannot send the LLM key to its own `llm.baseUrl` or export another secret through `llm.apiKeyEnv`. |
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). A landing delay needs it: the comment records when the head commit became eligible. |
-| `labels` | `true` | Set the risk label and remove stale ones. opendrs creates its labels (`risk:*`, `opendrs:landing`, `opendrs:hold`, `opendrs:review-after-merge`) with their own colours and descriptions, and recolours one GitHub auto-created in default grey; a colour you chose is kept. |
+| `labels` | `true` | Set the risk label, and (when `captain.enabled`) one of `captain:careful`, `captain:standard` or `captain:quick`, and remove stale ones. opendrs creates its labels (`risk:*`, `captain:*`, `opendrs:landing`, `opendrs:hold`, `opendrs:review-after-merge`) with their own colours and descriptions, and recolours one GitHub auto-created in default grey; a colour you chose is kept. |
 | `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 | `brief` | `true` | Build the review brief and fold it into the PR comment (a **Review focus** summary plus a collapsed "Review brief for AI reviewers" section), the `brief`/`brief-file` outputs, and the job summary. `false` restores today's comment layout byte for byte, leaves `brief`/`brief-file` empty, and omits the hidden state marker, the re-score line and the change notice: see [Re-scoring on new commits](#re-scoring-on-new-commits). |
 | `notify-changes` | `true` | When a re-score changes the tier or the decision, post one short new comment pointing back at the updated report. `false` keeps the re-score line in the main comment but skips the extra comment. Needs `brief` and `comment` to both be true. |
@@ -76,6 +76,7 @@ opendrs checks out and reads the PR's code. opendrs scores on events that carry 
 | `score` | 0 to 1, four decimals |
 | `tier` | `green`, `yellow`, `red` |
 | `decision` | `auto-approve`, `deferred-review`, `waiting-ai-review`, `human-review` (the policy decision, even when approval is disabled or a landing delay is still running) |
+| `captain` | `careful`, `standard` or `quick`: how much attention the captain brief says this PR needs. Empty when `captain.enabled` is false or `brief: false`. See [the captain brief](captain.html). |
 | `brief` | The review brief as Markdown (empty when `brief: false`) |
 | `brief-file` | Path to the review brief as JSON, under `$RUNNER_TEMP` (empty when `brief: false`) |
 
@@ -362,8 +363,14 @@ On a sweep the `score`, `tier` and `decision` outputs are those of the last PR s
 ## Re-scoring on new commits
 
 Every run that updates the comment also writes a hidden machine marker into it, for example
-`<!-- opendrs-state: v1 head=<sha> score=0.76 tier=yellow decision=human-review run=2 -->`,
-recording this run's result. The next run reads that marker from opendrs's own comment (never from
+`<!-- opendrs-state: v1 head=<sha> first=<sha> score=0.76 tier=yellow decision=human-review run=2 -->`,
+recording this run's result. `first=` is the head of opendrs's first run on this PR, which the
+[captain brief](captain.html)'s drift detector compares against: it is written from a run's own
+head on the first run, and kept unchanged on every later run. It is optional only when reading, so
+a marker written by 0.3.x (no `first=`) still parses; a `first=` present but malformed rejects the
+whole marker, the same as any other malformed field.
+
+The next run reads that marker from opendrs's own comment (never from
 another comment or the PR body, and never a forged or malformed one: anything that does not match
 the fixed shape exactly counts as no marker, i.e. a first run) and, when one is found:
 

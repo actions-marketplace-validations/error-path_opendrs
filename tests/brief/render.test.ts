@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { quoteUntrusted } from "../../src/brief/quote.js";
 import { renderBriefMarkdown, renderFocusBullets } from "../../src/brief/render.js";
 import type { ReviewBrief } from "../../src/domain/types.js";
+import { untrusted } from "../../src/report/escape.js";
 
 function brief(over: Partial<ReviewBrief> = {}): ReviewBrief {
   return {
@@ -130,13 +131,51 @@ describe("renderBriefMarkdown", () => {
   });
 });
 
+describe("renderBriefMarkdown: For the captain", () => {
+  it("adds the section with the priority, every fact and then the notes, right after the verdict line", () => {
+    const md = renderBriefMarkdown(
+      brief({
+        captain: {
+          priority: "careful",
+          why: ["new import edge"],
+          facts: [{ id: "layers.edge", weight: "strong", file: "src/api/users.ts", line: 3, text: "`src/api` now imports `src/db` for the first time (`src/api/users.ts:3`)." }],
+          notes: ["coupling: could not run: no history"],
+        },
+      }),
+    );
+    const lines = md.split("\n");
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toBe("## For the captain");
+    expect(lines[4]).toBe("Priority: careful review");
+    expect(lines[5]).toBe("- `src/api` now imports `src/db` for the first time (`src/api/users.ts:3`).");
+    expect(lines[6]).toBe("Note: coupling: could not run: no history");
+  });
+
+  it("is omitted when the brief has no captain", () => {
+    expect(renderBriefMarkdown(brief())).not.toContain("For the captain");
+  });
+
+  it("renders an already-escaped hostile fact text verbatim, without unescaping it", () => {
+    const nasty = untrusted("a<b>`c`.ts");
+    const md = renderBriefMarkdown(brief({ captain: { priority: "standard", why: [], facts: [{ id: "contract.env", weight: "strong", file: "x", text: nasty }], notes: [] } }));
+    expect(md).toContain(`- ${nasty}`);
+    expect(md).not.toContain("<b>");
+  });
+});
+
 describe("renderFocusBullets", () => {
   it("returns at most 3 bullets: review-first, the top check, then needs-human when a rule fired", () => {
     expect(renderFocusBullets(brief())).toEqual([
-      "**Review first:** `Queue.java` [hunk 4, 7]: 3 fix or revert commits in this file; 37 files depend on it",
+      "**Review first:** `Queue.java` [hunk 4, 7]: 3 fix or revert commits in this file",
       "**Check:** Fix `a1b2c3d` changed these lines. Does this change bring that problem back?",
       "**Needs a human:** hard block: broker/migrations/V12.sql matches paths.block",
     ]);
+  });
+
+  it("drops the dependents reason: editor trivia that stays in the fenced brief, not the comment bullets", () => {
+    const b = brief({ human: [] });
+    b.reviewFirst[0]!.reasons = [{ kind: "dependents", text: "37 files depend on it" }];
+    expect(renderFocusBullets(b)[0]).toBe("**Review first:** `Queue.java` [hunk 4, 7]");
   });
 
   it("falls back to the second-ranked file when no rule fired, and honours max", () => {

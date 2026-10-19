@@ -384,3 +384,26 @@ describe("brief", () => {
     expect(parseConfig({ brief: { maxTokens: 300 } }).brief.maxTokens).toBe(300);
   });
 });
+
+describe("captain", () => {
+  it("defaults to enabled with moduleDepth 2 and the coupling/contracts defaults", () => {
+    const captain = defaultConfig().captain;
+    expect(captain).toEqual({
+      enabled: true,
+      moduleDepth: 2,
+      coupling: { enabled: true, minSupport: 8, minConfidence: 0.6 },
+      contracts: { paths: [] },
+    });
+  });
+
+  it("rejects a moduleDepth outside 1..6", () => {
+    expect(configError({ captain: { moduleDepth: 0 } })).toMatch(/captain.*moduleDepth/i);
+    expect(configError({ captain: { moduleDepth: 7 } })).toMatch(/captain.*moduleDepth/i);
+    expect(parseConfig({ captain: { moduleDepth: 1 } }).captain.moduleDepth).toBe(1);
+  });
+
+  it("rejects a coupling.minConfidence outside 0..1", () => {
+    expect(configError({ captain: { coupling: { minConfidence: 1.5 } } })).toMatch(/coupling.*minConfidence/i);
+    expect(parseConfig({ captain: { coupling: { minConfidence: 0.75 } } }).captain.coupling.minConfidence).toBe(0.75);
+  });
+});

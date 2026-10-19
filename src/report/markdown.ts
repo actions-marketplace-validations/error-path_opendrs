@@ -1,4 +1,4 @@
-import type { Authorship, Contribution, Decision, LlmJudgement, ScoreResult, Tier } from "../domain/types.js";
+import type { Authorship, CaptainPriority, Contribution, Decision, LlmJudgement, ReviewBrief, ScoreResult, Tier } from "../domain/types.js";
 import { renderBriefMarkdown, renderFocusBullets } from "../brief/render.js";
 import { cell, code, untrusted } from "./escape.js";
 
@@ -8,6 +8,7 @@ const TOP_CONTRIBUTIONS = 6;
 const MAX_UNKNOWNS = 5;
 const MAX_SNIPPETS = 3;
 const MAX_RATIONALE = 400;
+const MAX_CAPTAIN_FACTS = 5;
 
 const TIER_EMOJI: Record<Tier, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
 const DECISION_TEXT: Record<Decision, string> = {
@@ -16,6 +17,19 @@ const DECISION_TEXT: Record<Decision, string> = {
   "waiting-ai-review": "waiting for AI review",
   "human-review": "human review",
 };
+const CAPTAIN_LABEL: Record<CaptainPriority, string> = { careful: "careful review", standard: "standard review", quick: "quick confirm" };
+
+/** Spec §8.1: the captain line, plus (unless quick confirm, or there are no facts) the "For the captain" block. */
+function renderCaptain(captain: NonNullable<ReviewBrief["captain"]>): string[] {
+  const reviewer = captain.reviewer ? ` · @${captain.reviewer}` : "";
+  const why = captain.priority !== "quick" && captain.why.length > 0 ? ` · why: ${captain.why.join("; ")}` : "";
+  const lines = [`**Captain: ${CAPTAIN_LABEL[captain.priority]}**${reviewer}${why}`];
+  if (captain.priority !== "quick" && captain.facts.length > 0) {
+    lines.push("**For the captain**", ...captain.facts.slice(0, MAX_CAPTAIN_FACTS).map((f) => `- ${f.text}`));
+    if (captain.facts.length > MAX_CAPTAIN_FACTS) lines.push(`- +${captain.facts.length - MAX_CAPTAIN_FACTS} more in the brief below`);
+  }
+  return lines;
+}
 
 /** Terminal text: drop control characters so a summary cannot inject escape sequences. */
 const plain = (text: string) => text.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim();
@@ -96,8 +110,10 @@ export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean;
 
   const brief = result.brief;
   const focus = renderFocusBullets(brief).map((b) => `- ${b}`);
+  const captain = brief.captain ? [...renderCaptain(brief.captain), ""] : [];
   const sections = [
     ...head,
+    ...captain,
     ...(focus.length > 0 ? ["**Review focus**", ...focus, ""] : []),
     "<details><summary>Review brief for AI reviewers (opendrs)</summary>",
     "",

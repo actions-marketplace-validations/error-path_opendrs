@@ -3,6 +3,8 @@ import type { Decision, Tier } from "../domain/types.js";
 /** opendrs's own re-score state, kept in its comment so a re-run can tell what changed. */
 export interface OpendrsState {
   head: string;
+  /** The head of opendrs's first run on this PR (spec §6.4, §7.3). Absent only when read from a 0.3.x marker. */
+  first?: string;
   score: number;
   tier: Tier;
   decision: Decision;
@@ -11,13 +13,17 @@ export interface OpendrsState {
 
 /** Any substring shaped like a state marker, used only to check there is exactly one before parsing it strictly. */
 const STATE_ANY_RE = /<!-- opendrs-state:[^>]*-->/g;
-/** The one allowed shape, anchored so nothing before, after or extra inside it can smuggle another value in. */
+/**
+ * The one allowed shape, anchored so nothing before, after or extra inside it can smuggle another value in.
+ * `first=` is optional so a marker written by 0.3.x (no `first=`) still parses; present but malformed, it
+ * fails the whole match rather than being dropped silently.
+ */
 const STATE_STRICT_RE =
-  /^<!-- opendrs-state: v1 head=([0-9a-f]{40}) score=(0(?:\.\d{1,4})?|1(?:\.0{1,4})?) tier=(green|yellow|red) decision=(auto-approve|deferred-review|waiting-ai-review|human-review) run=([1-9]\d{0,5}|1000000) -->$/;
+  /^<!-- opendrs-state: v1 head=([0-9a-f]{40})(?: first=([0-9a-f]{40}))? score=(0(?:\.\d{1,4})?|1(?:\.0{1,4})?) tier=(green|yellow|red) decision=(auto-approve|deferred-review|waiting-ai-review|human-review) run=([1-9]\d{0,5}|1000000) -->$/;
 
-/** The hidden machine marker this Action writes into its own comment, recording this run's result. */
+/** The hidden machine marker this Action writes into its own comment, recording this run's result. Always carries `first=` from now on. */
 export const stateMarker = (s: OpendrsState): string =>
-  `<!-- opendrs-state: v1 head=${s.head} score=${s.score.toFixed(4)} tier=${s.tier} decision=${s.decision} run=${s.run} -->`;
+  `<!-- opendrs-state: v1 head=${s.head} first=${s.first ?? s.head} score=${s.score.toFixed(4)} tier=${s.tier} decision=${s.decision} run=${s.run} -->`;
 
 /**
  * The previous run's state, read strictly from opendrs's own comment body (callers must pass only that
@@ -29,7 +35,7 @@ export function readState(body: string | undefined): OpendrsState | undefined {
   if (candidates.length !== 1) return undefined;
   const m = STATE_STRICT_RE.exec(candidates[0]!);
   if (!m) return undefined;
-  return { head: m[1]!, score: Number(m[2]), tier: m[3] as Tier, decision: m[4] as Decision, run: Number(m[5]) };
+  return { head: m[1]!, first: m[2], score: Number(m[3]), tier: m[4] as Tier, decision: m[5] as Decision, run: Number(m[6]) };
 }
 
 /** "Re-scored for `<head7>` (run N) · was <prev> → now <current>": one line for the PR comment. */

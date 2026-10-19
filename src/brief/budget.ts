@@ -8,8 +8,8 @@ const MAX_NOTE_CHARS = 200;
 
 /**
  * Trim the brief to `maxTokens` of rendered Markdown in spec §6.2's fill order: verdict, needs a
- * human and not ranked are fixed; then review-first (file by file, hunk by hunk), checks, skim,
- * and last the notes (at most 5, each clipped to 200 characters).
+ * human, not ranked and the captain section (spec §8.2) are fixed; then review-first (file by
+ * file, hunk by hunk), checks, skim, and last the notes (at most 5, each clipped to 200 characters).
  * Each candidate is measured by rendering it, so `estimatedTokens` is the real rendered size.
  */
 export function fitBudget(brief: ReviewBrief, maxTokens: number): ReviewBrief {

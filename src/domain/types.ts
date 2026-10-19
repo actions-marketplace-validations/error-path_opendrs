@@ -270,6 +270,42 @@ export interface BriefReason {
   sha?: string;
 }
 
+/** How much attention the captain (the final human reviewer) should give this PR (spec §7.1). */
+export type CaptainPriority = "careful" | "standard" | "quick";
+
+/** One deterministic architecture or history fact for the captain (spec §6). */
+export type ArchitectureFactId =
+  | "coupling.missing"
+  | "layers.edge"
+  | "layers.cycle"
+  | "contract.dependency"
+  | "contract.api"
+  | "contract.schema"
+  | "contract.env"
+  | "drift.scope";
+
+export interface ArchitectureFact {
+  id: ArchitectureFactId;
+  weight: "strong" | "info";
+  file: string;
+  line?: number;
+  /** Rendered sentence; untrusted parts already escaped. */
+  text: string;
+}
+
+/** The captain brief (spec §5): priority, reviewer and the facts that back them. */
+export interface CaptainBrief {
+  priority: CaptainPriority;
+  /** A GitHub login when one is known (Action only; spec §7.2). */
+  reviewer?: string;
+  /** Up to two facts' texts, shortened to their first clause, for the one-line "why". */
+  why: string[];
+  /** Every fact, strong first, in the fixed detector order (spec §6.5). */
+  facts: ArchitectureFact[];
+  /** Detectors that could not run, one sentence each. */
+  notes: string[];
+}
+
 /** The review brief (docs/specs/2026-10-18-review-brief-design.md §6.1). Fields are only added inside version 1. */
 export interface ReviewBrief {
   version: 1;
@@ -292,6 +328,8 @@ export interface ReviewBrief {
   notRanked: { hunks: number; files: number };
   budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number; notes: number } };
   notes: string[];
+  /** Absent when captain.enabled is false. */
+  captain?: CaptainBrief;
 }
 
 export interface ScoreResult {

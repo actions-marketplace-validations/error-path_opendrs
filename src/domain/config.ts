@@ -304,6 +304,29 @@ export const configSchema = z.object({
       maxTokens: z.number().int().min(300, "brief.maxTokens must be at least 300 (the mandatory sections alone cost roughly that many tokens)").max(6_000).default(2_500),
     })
     .prefault({}),
+  captain: z
+    .object({
+      /** false: no captain line, block, labels, output or brief section (spec §9). */
+      enabled: z.boolean().default(true),
+      /** Path segments that make a module for the layers detector (spec §6.2). */
+      moduleDepth: z.number().int().min(1).max(6).default(2),
+      coupling: z
+        .object({
+          // Tuned on ApacheJIT (spec §10.1; docs/experiments.md, "Change coupling on ApacheJIT"):
+          // test lift 1.931x at minSupport 8 / minConfidence 0.6, chosen by train lift.
+          enabled: z.boolean().default(true),
+          minSupport: z.number().int().min(2).default(8),
+          minConfidence: z.number().min(0).max(1).default(0.6),
+        })
+        .prefault({}),
+      contracts: z
+        .object({
+          /** Extra schema/contract globs, added to the defaults (spec §6.3). */
+          paths: globs([]),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   freezes: z.array(freezeSchema).default([]),
   sources: z
     .object({

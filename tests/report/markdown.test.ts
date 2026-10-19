@@ -337,3 +337,36 @@ describe("renderMarkdown with a brief", () => {
     expect(md.trimEnd().split("\n").at(-1)).toContain("opendrs 0.1.5");
   });
 });
+
+describe("renderMarkdown captain line and block", () => {
+  it("shows one line and no block for a quick confirm", () => {
+    const md = renderMarkdown(result({ brief: { ...brief(), captain: { priority: "quick", reviewer: "bob", why: [], facts: [], notes: [] } } }));
+    expect(md).toContain("**Captain: quick confirm** · @bob\n");
+    expect(md).not.toContain("**For the captain**");
+  });
+
+  it("shows the line and block, with up to 5 facts and a +N more bullet, for a careful review", () => {
+    const facts = Array.from({ length: 6 }, (_, i) => ({ id: "layers.edge" as const, weight: "strong" as const, file: `src/f${i}.ts`, text: `fact ${i}` }));
+    const md = renderMarkdown(result({ brief: { ...brief(), captain: { priority: "careful", reviewer: "alice", why: ["fact 0", "fact 1"], facts, notes: [] } } }));
+    expect(md).toContain("**Captain: careful review** · @alice · why: fact 0; fact 1\n");
+    expect(md).toContain("**For the captain**\n- fact 0\n- fact 1\n- fact 2\n- fact 3\n- fact 4\n- +1 more in the brief below\n");
+  });
+
+  it("shows the line with no block when standard has no facts, and omits @login and why when absent", () => {
+    const md = renderMarkdown(result({ brief: { ...brief(), captain: { priority: "standard", why: [], facts: [], notes: [] } } }));
+    expect(md).toContain("**Captain: standard review**\n");
+    expect(md).not.toContain("**For the captain**");
+    expect(md).not.toContain(" · @");
+    expect(md).not.toContain(" · why:");
+  });
+
+  it("places the captain block right after the <sub> lines and before Review focus", () => {
+    const md = renderMarkdown(result({ brief: { ...brief(), captain: { priority: "careful", why: [], facts: [], notes: [] } } }));
+    expect(md.indexOf("**Captain:")).toBeGreaterThan(md.indexOf("<sub>Source:"));
+    expect(md.indexOf("**Captain:")).toBeLessThan(md.indexOf("**Review focus**"));
+  });
+
+  it("omits the captain line entirely when the brief has no captain", () => {
+    expect(renderMarkdown(result({ brief: brief() }))).not.toContain("**Captain:");
+  });
+});
