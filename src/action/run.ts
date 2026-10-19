@@ -256,10 +256,12 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   // Re-score visibility needs the state marker, which the brief:false byte-equal guarantee forbids adding.
   const previousState = d.inputs.brief ? readState(mine?.body ?? undefined) : undefined;
   const runNumber = previousState ? previousState.run + 1 : 1;
-  // Spec §6.4/§7.3: first run → first = this head; later runs keep the stored first; a 0.3.x marker
-  // (no `first`) → first = its head and firstRun = its run, so the drift text says "since run k".
+  // Spec §6.4/§7.3: first run → first = this head, firstRun = 1; later runs keep the stored first and
+  // firstRun, now persisted in the marker so it survives past the run that migrates a 0.3.x marker
+  // (no `first`); a marker from before `firstRun=` existed falls back to the old guess (spec §6.4).
   const firstHead = previousState === undefined ? pr.head.sha : previousState.first ?? previousState.head;
-  const firstRun = previousState === undefined || previousState.first !== undefined ? 1 : previousState.run;
+  const firstRun =
+    previousState === undefined ? 1 : previousState.firstRun ?? (previousState.first !== undefined ? 1 : previousState.run);
 
   const result = await io.group("Score", async () => {
     const r = await scoreDiff({
@@ -339,7 +341,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
   const state = d.inputs.brief
-    ? `\n${stateMarker({ head: pr.head.sha, first: firstHead, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
+    ? `\n${stateMarker({ head: pr.head.sha, first: firstHead, firstRun, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
     : "";
   const assemble = (report: string) =>
     `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;

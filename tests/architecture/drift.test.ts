@@ -134,6 +134,16 @@ describe("detectDrift", () => {
     expect(result).toEqual({ facts: [], notes: [] });
   });
 
+  it("phrases a fresh PR's firstRun=1 as 'opendrs first scored this PR ... (run 1)'", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "src/auth/a.ts": lines(3, "a") }, "base");
+    const first = repo.commit({ "src/auth/gen1.ts": lines(5, "g1") }, "first");
+    const head = repo.commit({ "src/auth/gen1.ts": lines(5, "g1"), "src/other/c.ts": lines(2, "c") }, "head");
+
+    const result = await detectDrift(ctxFor(repo, base, head), { firstHead: first, firstRun: 1 });
+    expect(result.facts[0]!.text).toContain(`Since opendrs first scored this PR at \`${first.slice(0, 7)}\` (run 1)`);
+  });
+
   it("phrases an old marker's firstRun as 'since run k'", async () => {
     repo = makeRepo();
     const base = repo.commit({ "src/auth/a.ts": lines(3, "a") }, "base");
