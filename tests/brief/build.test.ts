@@ -197,13 +197,13 @@ describe("buildBrief", () => {
     repo.cleanup();
   });
 
-  it("builds a quick-confirm captain brief by default, since the stub detectors report no facts", async () => {
+  it("builds a quick-confirm captain brief when no detector reports a fact; drift says it is not tracked outside the Action", async () => {
     const repo = makeRepo();
     repo.commit({ "a.ts": "1\n" }, "base");
     repo.commit({ "a.ts": "2\n" }, "change");
     const ctx = await ctxFor(repo, "HEAD~1");
     const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
-    expect(brief.captain).toEqual({ priority: "quick", why: [], facts: [], notes: [] });
+    expect(brief.captain).toEqual({ priority: "quick", why: [], facts: [], notes: ["drift: not tracked here"] });
     repo.cleanup();
   });
 
