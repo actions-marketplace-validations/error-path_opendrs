@@ -21,6 +21,35 @@ describe("default paths.ignore", () => {
   });
 });
 
+describe("default paths.tests", () => {
+  const isTest = (path: string) => matchAny(defaultConfig().paths.tests, path);
+
+  it.each([
+    "spec/models/user_spec.rb", // RSpec directory
+    "lib/foo/thing_spec.rb", // RSpec file suffix, no spec/ directory
+    "Tests/VaporTests/EnvironmentTests.swift", // Swift XCTest directory (capital T)
+    "Sources/Vapor/Utilities/DotEnvTests.swift", // Swift XCTest file suffix
+    "pkg/cart/cart_test.go", // Go
+    "pkg/test_mod.py", // Python test_*.py
+    "pkg/mod_test.py", // Python *_test.py
+    "tests/test_integration.py", // Python tests/** directory
+    "src/foo.test.ts", // JS/TS
+    "src/foo.spec.ts",
+    "src/__tests__/foo.ts",
+    "src/test/java/com/acme/FooTest.java", // Kotlin/Java src/test/**
+  ])("recognises %s as a test path", (path) => {
+    expect(isTest(path)).toBe(true);
+  });
+
+  it.each([
+    "src/foo.ts",
+    "Sources/Vapor/Utilities/DotEnv.swift",
+    "lib/foo.rb",
+  ])("does not treat %s as a test path", (path) => {
+    expect(isTest(path)).toBe(false);
+  });
+});
+
 describe("default paths.block", () => {
   const blocked = (path: string) => matchAny(defaultConfig().paths.block, path);
 

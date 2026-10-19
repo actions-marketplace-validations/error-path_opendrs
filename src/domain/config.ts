@@ -251,6 +251,10 @@ export const configSchema = z.object({
         "**/*.spec.*",
         "**/*_test.*",
         "**/test_*.py",
+        "**/spec/**",
+        "**/*_spec.rb",
+        "**/Tests/**",
+        "**/*Tests.swift",
       ]),
     })
     // block and critical extend the defaults (ignore and tests replace theirs); unblock wins over both.
