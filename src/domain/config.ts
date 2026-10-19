@@ -287,6 +287,8 @@ export const configSchema = z.object({
       maxCommits: z.number().int().positive().default(20_000),
       /** calibrate/backtest leave out commits this many days younger than the newest: their bugs may not be found yet. 0 = off. */
       labelHorizonDays: z.number().int().min(0).default(60),
+      /** Timeout for the one-time `git log` history scan, in ms. Raise this (or lower maxCommits) if it times out on a large or blobless clone. */
+      gitTimeoutMs: z.number().int().positive().default(600_000),
     })
     .prefault({}),
   graph: z
