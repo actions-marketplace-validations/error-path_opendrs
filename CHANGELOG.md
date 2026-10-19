@@ -4,6 +4,10 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+The fixes below come out of running opendrs on real repositories; see
+[docs/research/2026-10-19-field-test.md](docs/research/2026-10-19-field-test.md) for the field test
+that found them.
+
 ### Fixed
 
 - A `.patch`/`.diff` file is now classified as docs, like `.md`: it lists under "Safe to skim", is
@@ -12,6 +16,31 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - The drift fact's "since run k" wording now survives past the run that migrates a 0.3.x state
   marker: the first run's number is persisted in the marker's new `firstRun=` field instead of
   being re-derived (and wrongly reset to "run 1") on every later run.
+- The contracts detector now parses `pyproject.toml` requirements that nest a PEP 508 marker in
+  quotes (e.g. `"winloop>=0.5.0; sys_platform == 'win32'"`) without producing fake dependency
+  names, treats a `go.mod` dependency promoted from `// indirect` to direct as a new runtime
+  dependency, recognizes `Cargo.toml`'s `[target.'cfg(...)'.dependencies]` and
+  `[workspace.dependencies]` tables, parses `Package.swift`'s `.package(...)` declarations, and
+  recognizes more environment-variable reads (Go's `os.LookupEnv`, Python's
+  `os.environ.setdefault`, Swift's `ProcessInfo.processInfo.environment`, and `Environment.get`).
+- Go import resolution no longer sends every import under a module path to a test fixture's
+  `go.mod` (e.g. under `.github/codeql/tests/**`) when it declares the same module path as the
+  real root go.mod; the resolver now tries every matching module in path order and ignores
+  fixture-like `go.mod` files under `testdata/` or `.github/`.
+- RSpec (`**/spec/**`, `**/*_spec.rb`) and Swift (`**/Tests/**`, `**/*Tests.swift`) test files are
+  now recognized by the default `paths.tests` globs, so Ruby and Swift changes get the "source
+  changed without tests" check.
+- Ruby and Swift now get public-declaration detection (`contract.api`, `blast.public_surface`).
+  Both are approximations: Ruby counts top-level `class`/`module`/`def` and `def self.x` but can't
+  track a `private` call on an earlier line, and Swift requires an explicit `public`/`open`
+  keyword but still has no import-graph extractor, so `blast.public_surface`/`contract.api` keep
+  reporting unknown for it.
+- The captain "why" line no longer truncates to a bare backtick when a fact's text contains a file
+  path or line number; it now only splits into a short summary at a sentence boundary outside
+  backtick spans, falling back to a fact-type-based summary when needed.
+- The git history scan's timeout is now configurable via the new `history.gitTimeoutMs` setting
+  (default 600000ms), and a timeout is now reported distinctly from a git error, telling you to
+  raise `history.gitTimeoutMs` or lower `history.maxCommits`.
 
 ## 0.4.0 - 2026-10-19
 
