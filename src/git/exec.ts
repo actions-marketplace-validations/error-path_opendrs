@@ -17,7 +17,10 @@ export function git(repoDir: string, args: string[], opts: { timeoutMs?: number;
         env: opts.env && { ...process.env, ...opts.env },
       },
       (err, stdout, stderr) => {
-        if (err) reject(new OpendrsError(`git ${args[0]} failed: ${(stderr || err.message).trim()}`, "git"));
+        if (err?.killed) {
+          const seconds = Math.round((opts.timeoutMs ?? 120_000) / 1000);
+          reject(new OpendrsError(`git ${args[0]} timed out after ${seconds}s`, "git"));
+        } else if (err) reject(new OpendrsError(`git ${args[0]} failed: ${(stderr || err.message).trim()}`, "git"));
         else resolve(stdout);
       },
     );

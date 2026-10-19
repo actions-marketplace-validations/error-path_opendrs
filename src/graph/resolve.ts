@@ -51,11 +51,17 @@ export function createResolver(files: readonly string[], contents: ReadonlyMap<s
   }
 
   function go(spec: string): string[] {
-    const mod = goModules.find((m) => spec === m.path || spec.startsWith(`${m.path}/`));
-    if (!mod) return [];
-    const dir = joinPath(mod.dir, spec.slice(mod.path.length + 1) || ".");
-    if (dir === undefined) return [];
-    return (dirFiles.get(dir) ?? []).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go"));
+    // Several go.mod files can declare the same module path (e.g. a CodeQL/test fixture that
+    // copies the real module declaration); try every candidate, in longest-path/shallowest-dir
+    // order, and take the first whose directory actually holds the imported package.
+    for (const mod of goModules) {
+      if (spec !== mod.path && !spec.startsWith(`${mod.path}/`)) continue;
+      const dir = joinPath(mod.dir, spec.slice(mod.path.length + 1) || ".");
+      if (dir === undefined) continue;
+      const hit = (dirFiles.get(dir) ?? []).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go"));
+      if (hit.length) return hit;
+    }
+    return [];
   }
 
   function rust(from: string, spec: string): string[] {
@@ -135,13 +141,25 @@ export function createResolver(files: readonly string[], contents: ReadonlyMap<s
   };
 }
 
+/** A go.mod under one of these is a test fixture, not a real module (Go itself ignores testdata/). */
+function isFixtureGoMod(f: string): boolean {
+  const segs = f.split("/");
+  return segs.includes("testdata") || segs.includes(".github");
+}
+
 function goModuleIndex(files: readonly string[], contents: ReadonlyMap<string, string>): Array<{ path: string; dir: string }> {
   const mods: Array<{ path: string; dir: string }> = [];
   for (const f of files) {
-    if (baseName(f) !== "go.mod") continue;
+    if (baseName(f) !== "go.mod" || isFixtureGoMod(f)) continue;
     const m = /^module\s+"?([^\s"]+)"?/m.exec(contents.get(f) ?? "");
     if (m) mods.push({ path: m[1]!, dir: dirOf(f) });
   }
-  // Longest module path first, so nested modules win over their parents.
-  return mods.sort((a, b) => b.path.length - a.path.length);
+  // Longest module path first, so nested modules win over their parents. When two declare the
+  // identical path (a duplicate/fixture that slipped past isFixtureGoMod), prefer the shallower
+  // directory: the real module is far more likely to sit near the repo root than a nested one.
+  return mods.sort((a, b) => b.path.length - a.path.length || dirDepth(a.dir) - dirDepth(b.dir));
+}
+
+function dirDepth(dir: string): number {
+  return dir === "" ? 0 : dir.split("/").length;
 }

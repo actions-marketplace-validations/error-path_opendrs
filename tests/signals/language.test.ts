@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { languageFamily, languageSignals } from "../../src/signals/language.js";
+import { isPatchFile, languageFamily, languageSignals } from "../../src/signals/language.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
 import { contextFor } from "./context.js";
 
@@ -28,10 +28,24 @@ describe("languageFamily", () => {
     ["README.md", "docs"],
     ["notes.txt", "docs"],
     ["index.rst", "docs"],
+    ["archive/change.patch", "docs"],
+    ["archive/change.diff", "docs"],
     ["Makefile", "other"],
     ["logo.png", "other"],
   ])("%s -> %s", (path, family) => {
     expect(languageFamily(path)).toBe(family);
+  });
+});
+
+describe("isPatchFile", () => {
+  it.each([
+    ["archive/2026-10-18-review-signals.patch", true],
+    ["fix.diff", true],
+    ["fix.PATCH", true],
+    ["README.md", false],
+    ["a.ts", false],
+  ])("%s -> %s", (path, expected) => {
+    expect(isPatchFile(path)).toBe(expected);
   });
 });
 

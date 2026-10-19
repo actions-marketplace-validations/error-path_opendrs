@@ -27490,6 +27490,7 @@ var DEFAULT_BLOCK = [
   "**/Cargo.toml",
   "**/build.rs",
   "**/go.mod",
+  "**/Package.swift",
   "**/Gemfile",
   "**/Rakefile",
   "**/*.gemspec",
@@ -27638,7 +27639,11 @@ var configSchema = external_exports.object({
       "**/*.test.*",
       "**/*.spec.*",
       "**/*_test.*",
-      "**/test_*.py"
+      "**/test_*.py",
+      "**/spec/**",
+      "**/*_spec.rb",
+      "**/Tests/**",
+      "**/*Tests.swift"
     ])
   }).transform((p) => ({
     ...p,
@@ -27666,7 +27671,9 @@ var configSchema = external_exports.object({
     fixPattern: external_exports.string().default("\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"),
     maxCommits: external_exports.number().int().positive().default(2e4),
     /** calibrate/backtest leave out commits this many days younger than the newest: their bugs may not be found yet. 0 = off. */
-    labelHorizonDays: external_exports.number().int().min(0).default(60)
+    labelHorizonDays: external_exports.number().int().min(0).default(60),
+    /** Timeout for the one-time `git log` history scan, in ms. Raise this (or lower maxCommits) if it times out on a large or blobless clone. */
+    gitTimeoutMs: external_exports.number().int().positive().default(6e5)
   }).prefault({}),
   graph: external_exports.object({
     enabled: external_exports.boolean().default(true),
@@ -27874,7 +27881,10 @@ function git(repoDir, args, opts = {}) {
         env: opts.env && { ...process.env, ...opts.env }
       },
       (err, stdout, stderr) => {
-        if (err) reject(new OpendrsError(`git ${args[0]} failed: ${(stderr || err.message).trim()}`, "git"));
+        if (err?.killed) {
+          const seconds = Math.round((opts.timeoutMs ?? 12e4) / 1e3);
+          reject(new OpendrsError(`git ${args[0]} timed out after ${seconds}s`, "git"));
+        } else if (err) reject(new OpendrsError(`git ${args[0]} failed: ${(stderr || err.message).trim()}`, "git"));
         else resolve(stdout);
       }
     );
@@ -28448,9 +28458,16 @@ var RULES = {
   // Kotlin defaults to public, so unmodified top-level declarations count too.
   kotlin: (l) => /\bpublic\b/.test(l) || KOTLIN_DECL.test(l),
   rust: (l) => /^\s*pub\b/.test(l),
-  ruby: () => false
+  // Ruby has no file-local way to track a `private` call made on an earlier line, so this is a
+  // conservative approximation rather than true visibility tracking: top-level (unindented)
+  // class/module and def, plus `def self.x` (a class method, which stays public even after a bare
+  // `private` call, unlike instance methods). An ordinary indented instance method is not counted,
+  // since whether it is still public depends on context this per-line rule cannot see.
+  ruby: (l) => /^(?:class|module)\s+[A-Z]/.test(l) || /^\s*def\s+self\.[A-Za-z_]/.test(l) || /^def\s+[A-Za-z_]/.test(l)
 };
+var SWIFT_DECL = /^\s*(?:public|open)\b\s*(?:(?:final|static|class|mutating|override|required|convenience|dynamic)\s+)*(?:func|class|struct|enum|protocol|var|let|typealias|init)\b/;
 function isPublicDeclaration(path, line2) {
+  if (path.endsWith(".swift")) return SWIFT_DECL.test(line2);
   const lang = languageOf(path);
   return lang !== void 0 && RULES[lang](line2);
 }
@@ -28509,13 +28526,16 @@ var EXTENSIONS2 = {
   ini: "config",
   md: "docs",
   rst: "docs",
-  txt: "docs"
+  txt: "docs",
+  patch: "docs",
+  diff: "docs"
 };
 function languageFamily(path) {
   const name = path.slice(path.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");
   return dot > 0 && EXTENSIONS2[name.slice(dot + 1).toLowerCase()] || "other";
 }
+var isPatchFile = (path) => /\.(patch|diff)$/i.test(path);
 var isCodeFamily = (family) => family !== "config" && family !== "docs" && family !== "other";
 var languageSignals = async (ctx) => {
   const byFamily = /* @__PURE__ */ new Map();
@@ -28600,6 +28620,7 @@ function manifestKind(path) {
   if (name === "pom.xml") return "pom.xml";
   if (name === "build.gradle" || name === "build.gradle.kts") return "build.gradle";
   if (name === "Gemfile") return "Gemfile";
+  if (name === "Package.swift") return "Package.swift";
   return void 0;
 }
 var isManifestPath = (path) => manifestKind(path) !== void 0;
@@ -28622,8 +28643,14 @@ function parsePackageJson(text) {
   };
 }
 function parseGoMod(text) {
-  const runtime = /* @__PURE__ */ new Set();
+  const direct = /* @__PURE__ */ new Set();
+  const indirect = /* @__PURE__ */ new Set();
   let inBlock = false;
+  const addEntry = (line2) => {
+    const m = /^(\S+)\s+\S+/.exec(line2);
+    if (!m) return;
+    (/\/\/\s*indirect\b/.test(line2) ? indirect : direct).add(m[1]);
+  };
   for (const raw2 of text.split("\n")) {
     const line2 = raw2.trim();
     if (line2.startsWith("require (")) {
@@ -28635,14 +28662,15 @@ function parseGoMod(text) {
         inBlock = false;
         continue;
       }
-      const m2 = /^(\S+)\s+\S+/.exec(line2);
-      if (m2) runtime.add(m2[1]);
+      addEntry(line2);
       continue;
     }
-    const m = /^require\s+(\S+)\s+\S+/.exec(line2);
-    if (m) runtime.add(m[1]);
+    const m = /^require\s+(.+)$/.exec(line2);
+    if (m) addEntry(m[1]);
   }
-  return { runtime, dev: /* @__PURE__ */ new Set() };
+  if (inBlock) return { error: "unclosed require block" };
+  for (const name of direct) indirect.delete(name);
+  return { runtime: direct, dev: indirect };
 }
 function parseRequirementsTxt(text) {
   const runtime = /* @__PURE__ */ new Set();
@@ -28698,7 +28726,7 @@ function splitTomlSections(text) {
   if (pendingArray) return { error: "unclosed array" };
   return sections;
 }
-var quotedStrings = (line2) => [...line2.matchAll(/["']([^"']+)["']/g)].map((m) => m[1]);
+var quotedStrings = (line2) => [...line2.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2]);
 var stripVersionSpec = (spec) => /^([A-Za-z0-9._-]+)/.exec(spec.trim())?.[1] ?? spec.trim();
 var assignmentKey = (line2) => /^([A-Za-z0-9_-]+)\s*=/.exec(line2.trim())?.[1];
 function parsePyprojectToml(text) {
@@ -28726,14 +28754,24 @@ function parsePyprojectToml(text) {
   }
   return { runtime, dev };
 }
+var CARGO_TABLE = /^(?:target\.[^.]+\.|workspace\.)?(dependencies|dev-dependencies|build-dependencies)$/;
+var WORKSPACE_INHERITED = /=\s*\{\s*workspace\s*=\s*true\b/;
 function parseCargoToml(text) {
   const sections = splitTomlSections(text);
   if ("error" in sections) return sections;
-  const names = (section) => new Set((sections.get(section) ?? []).map(assignmentKey).filter((n) => n !== void 0));
-  return {
-    runtime: names("dependencies"),
-    dev: /* @__PURE__ */ new Set([...names("dev-dependencies"), ...names("build-dependencies")])
-  };
+  const runtime = /* @__PURE__ */ new Set();
+  const dev = /* @__PURE__ */ new Set();
+  for (const [header, lines] of sections) {
+    const kind = CARGO_TABLE.exec(header)?.[1];
+    if (!kind) continue;
+    const bucket = kind === "dependencies" ? runtime : dev;
+    for (const line2 of lines) {
+      if (WORKSPACE_INHERITED.test(line2)) continue;
+      const name = assignmentKey(line2);
+      if (name) bucket.add(name);
+    }
+  }
+  return { runtime, dev };
 }
 function parsePomXml(text) {
   const opens = text.match(/<dependency>/g)?.length ?? 0;
@@ -28785,6 +28823,26 @@ function parseGemfile(text) {
   }
   return { runtime, dev };
 }
+function parsePackageSwift(text) {
+  const runtime = /* @__PURE__ */ new Set();
+  const marker = ".package(";
+  let from = 0;
+  for (let idx = text.indexOf(marker, from); idx !== -1; idx = text.indexOf(marker, from)) {
+    const open2 = idx + marker.length - 1;
+    let depth = 0;
+    let end = open2;
+    for (; end < text.length; end++) {
+      if (text[end] === "(") depth++;
+      else if (text[end] === ")" && --depth === 0) break;
+    }
+    if (depth !== 0) return { error: "unterminated .package(...) call" };
+    const args = text.slice(open2 + 1, end);
+    const name = /\bname\s*:\s*"([^"]+)"/.exec(args)?.[1] ?? /\burl\s*:\s*"([^"]+)"/.exec(args)?.[1]?.split("/").pop()?.replace(/\.git$/, "");
+    if (name) runtime.add(name);
+    from = end + 1;
+  }
+  return { runtime, dev: /* @__PURE__ */ new Set() };
+}
 function parseManifest(kind, text) {
   switch (kind) {
     case "package.json":
@@ -28803,6 +28861,8 @@ function parseManifest(kind, text) {
       return parseGradle(text);
     case "Gemfile":
       return parseGemfile(text);
+    case "Package.swift":
+      return parsePackageSwift(text);
   }
 }
 function addedPackages(path, base, head) {
@@ -28840,7 +28900,11 @@ var ENV_PATTERNS = [
   /\bSystem\.getenv\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
   /\bos\.Getenv\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
   /\bENV\[["']([A-Za-z_][A-Za-z0-9_]*)["']\]/,
-  /\bENV\.fetch\(["']([A-Za-z_][A-Za-z0-9_]*)["']/
+  /\bENV\.fetch\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bos\.LookupEnv\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bos\.environ\.setdefault\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bEnvironment\.get\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bProcessInfo\.processInfo\.environment\[["']([A-Za-z_][A-Za-z0-9_]*)["']\]/
 ];
 function findLine(text, token) {
   const lines = text.split("\n");
@@ -29278,11 +29342,14 @@ function createResolver(files, contents) {
     return [];
   }
   function go(spec) {
-    const mod = goModules.find((m) => spec === m.path || spec.startsWith(`${m.path}/`));
-    if (!mod) return [];
-    const dir = joinPath(mod.dir, spec.slice(mod.path.length + 1) || ".");
-    if (dir === void 0) return [];
-    return (dirFiles.get(dir) ?? []).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go"));
+    for (const mod of goModules) {
+      if (spec !== mod.path && !spec.startsWith(`${mod.path}/`)) continue;
+      const dir = joinPath(mod.dir, spec.slice(mod.path.length + 1) || ".");
+      if (dir === void 0) continue;
+      const hit = (dirFiles.get(dir) ?? []).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go"));
+      if (hit.length) return hit;
+    }
+    return [];
   }
   function rust(from, spec) {
     if (spec.startsWith("mod:")) {
@@ -29356,14 +29423,21 @@ function createResolver(files, contents) {
     return out.filter((f) => f !== from);
   };
 }
+function isFixtureGoMod(f) {
+  const segs = f.split("/");
+  return segs.includes("testdata") || segs.includes(".github");
+}
 function goModuleIndex(files, contents) {
   const mods = [];
   for (const f of files) {
-    if (baseName(f) !== "go.mod") continue;
+    if (baseName(f) !== "go.mod" || isFixtureGoMod(f)) continue;
     const m = /^module\s+"?([^\s"]+)"?/m.exec(contents.get(f) ?? "");
     if (m) mods.push({ path: m[1], dir: dirOf(f) });
   }
-  return mods.sort((a, b) => b.path.length - a.path.length);
+  return mods.sort((a, b) => b.path.length - a.path.length || dirDepth(a.dir) - dirDepth(b.dir));
+}
+function dirDepth(dir) {
+  return dir === "" ? 0 : dir.split("/").length;
 }
 
 // src/graph/tree.ts
@@ -29986,16 +30060,19 @@ var REVERTS = /This reverts commit ([0-9a-f]{7,64})/i;
 async function buildHistoryIndex(repoDir, ref, config2) {
   const fixRe = compileFixPattern(config2.history.fixPattern);
   const patterns = agentPatterns(config2);
-  const out = await git(repoDir, [
-    "log",
-    `-n${config2.history.maxCommits}`,
-    "--name-status",
-    "-M",
-    "--no-show-signature",
-    `--format=${FORMAT}`,
-    "--end-of-options",
-    ref
-  ]);
+  let out;
+  try {
+    out = await git(
+      repoDir,
+      ["log", `-n${config2.history.maxCommits}`, "--name-status", "-M", "--no-show-signature", `--format=${FORMAT}`, "--end-of-options", ref],
+      { timeoutMs: config2.history.gitTimeoutMs }
+    );
+  } catch (e) {
+    if (e instanceof OpendrsError && e.code === "git" && /timed out/.test(e.message)) {
+      throw new OpendrsError(`${e.message} while reading history; raise history.gitTimeoutMs or lower history.maxCommits`, "git");
+    }
+    throw e;
+  }
   const commits = [];
   const changes = [];
   for (const record2 of out.split(RECORD)) {
@@ -30147,7 +30224,7 @@ function candidateHunks(ctx) {
   for (const file2 of orderedFiles(ctx.diff)) {
     for (const [index, hunk] of file2.hunks.entries()) {
       id++;
-      if (!file2.binary) out.push({ id, file: file2, hunk, index });
+      if (!file2.binary && !isPatchFile(file2.path)) out.push({ id, file: file2, hunk, index });
     }
   }
   return out;
@@ -30382,13 +30459,55 @@ var HARD_CEILING = 6e3;
 var MAX_FILES = 8;
 var MAX_HUNKS_PER_FILE = 3;
 var MAX_BLAME_CANDIDATES = 24;
-var firstClause = (text) => text.split(/[;.]/, 1)[0].trim();
+var MAX_WHY_CHARS = 100;
+function sentenceBoundary(text) {
+  let inCode = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "`") {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    if ((ch === "." || ch === ";") && (i === text.length - 1 || text[i + 1] === " ")) return i;
+  }
+  return void 0;
+}
+function fallbackWhy(fact) {
+  const spans = [...fact.text.matchAll(/`([^`]*)`/g)].map((m) => m[1]);
+  switch (fact.id) {
+    case "layers.edge":
+      return spans.length >= 2 ? `new import edge ${spans[0]} \u2192 ${spans[1]}` : `new import edge in ${fact.file}`;
+    case "layers.cycle":
+      return spans.length >= 2 ? `new import cycle ${spans.join(" \u2192 ")}` : `new import cycle in ${fact.file}`;
+    case "contract.api":
+      return spans.length >= 1 ? `exported API change: ${spans[0]}` : `exported API change in ${fact.file}`;
+    case "contract.dependency":
+      return spans.length >= 1 ? `new dependency ${spans[0]}` : `dependency change in ${fact.file}`;
+    case "contract.schema":
+      return `schema/contract file changed: ${fact.file}`;
+    case "contract.env":
+      return spans.length >= 1 ? `new env var ${spans[0]}` : `new environment variable in ${fact.file}`;
+    case "coupling.missing":
+      return `missing historical co-change partner for ${fact.file}`;
+    case "drift.scope":
+      return `review scope drifted for ${fact.file}`;
+    default:
+      return `change in ${fact.file}`;
+  }
+}
+function shortenWhy(fact) {
+  const boundary = sentenceBoundary(fact.text);
+  const candidate = (boundary === void 0 ? fact.text : fact.text.slice(0, boundary)).trim();
+  if (candidate.length > 0 && candidate.length <= MAX_WHY_CHARS) return candidate;
+  return fallbackWhy(fact);
+}
 async function buildCaptain(result, ctx, opts) {
   const { facts, notes } = await detectArchitecture(ctx, { firstHead: opts.firstHead, firstRun: opts.firstRun });
   const criticalTouched = ctx.diff.files.some((f) => matchAny(ctx.config.paths.critical, f.path));
   const firedRules = (result.policy.rules ?? []).map((r) => r.rule);
   const priority = captainPriority({ tier: result.tier, facts, firedRules, criticalTouched });
-  const why = facts.slice(0, 2).map((f) => firstClause(f.text));
+  const why = facts.slice(0, 2).map((f) => shortenWhy(f));
   return { priority, why, facts, notes };
 }
 async function buildBrief(result, ctx, options = {}) {
@@ -32079,14 +32198,22 @@ async function enableMerge({ client, io, pr, result }) {
 
 // src/action/state.ts
 var STATE_ANY_RE = /<!-- opendrs-state:[^>]*-->/g;
-var STATE_STRICT_RE = /^<!-- opendrs-state: v1 head=([0-9a-f]{40})(?: first=([0-9a-f]{40}))? score=(0(?:\.\d{1,4})?|1(?:\.0{1,4})?) tier=(green|yellow|red) decision=(auto-approve|deferred-review|waiting-ai-review|human-review) run=([1-9]\d{0,5}|1000000) -->$/;
-var stateMarker = (s) => `<!-- opendrs-state: v1 head=${s.head} first=${s.first ?? s.head} score=${s.score.toFixed(4)} tier=${s.tier} decision=${s.decision} run=${s.run} -->`;
+var STATE_STRICT_RE = /^<!-- opendrs-state: v1 head=([0-9a-f]{40})(?: first=([0-9a-f]{40})(?: firstRun=([1-9]\d{0,5}|1000000))?)? score=(0(?:\.\d{1,4})?|1(?:\.0{1,4})?) tier=(green|yellow|red) decision=(auto-approve|deferred-review|waiting-ai-review|human-review) run=([1-9]\d{0,5}|1000000) -->$/;
+var stateMarker = (s) => `<!-- opendrs-state: v1 head=${s.head} first=${s.first ?? s.head}${s.firstRun === void 0 ? "" : ` firstRun=${s.firstRun}`} score=${s.score.toFixed(4)} tier=${s.tier} decision=${s.decision} run=${s.run} -->`;
 function readState(body) {
   const candidates = body?.match(STATE_ANY_RE) ?? [];
   if (candidates.length !== 1) return void 0;
   const m = STATE_STRICT_RE.exec(candidates[0]);
   if (!m) return void 0;
-  return { head: m[1], first: m[2], score: Number(m[3]), tier: m[4], decision: m[5], run: Number(m[6]) };
+  return {
+    head: m[1],
+    first: m[2],
+    firstRun: m[3] === void 0 ? void 0 : Number(m[3]),
+    score: Number(m[4]),
+    tier: m[5],
+    decision: m[6],
+    run: Number(m[7])
+  };
 }
 var rescoreLine = (prev, run, head, score, tier) => `Re-scored for \`${head.slice(0, 7)}\` (run ${run}) \xB7 was ${prev.score.toFixed(2)} ${prev.tier} \u2192 now ${score.toFixed(2)} ${tier}`;
 var changeNotice = (prev, score, tier, decision) => `opendrs: risk changed ${prev.tier} ${prev.score.toFixed(2)} \u2192 ${tier} ${score.toFixed(2)} \xB7 decision ${prev.decision} \u2192 ${decision} \xB7 see the updated report \u2191`;
@@ -32224,7 +32351,7 @@ async function scorePullRequest(d, pr) {
   const previousState = d.inputs.brief ? readState(mine?.body ?? void 0) : void 0;
   const runNumber = previousState ? previousState.run + 1 : 1;
   const firstHead = previousState === void 0 ? pr.head.sha : previousState.first ?? previousState.head;
-  const firstRun = previousState === void 0 || previousState.first !== void 0 ? 1 : previousState.run;
+  const firstRun = previousState === void 0 ? 1 : previousState.firstRun ?? (previousState.first !== void 0 ? 1 : previousState.run);
   const result = await io.group("Score", async () => {
     const r = await scoreDiff({
       repoDir: d.repoDir,
@@ -32297,7 +32424,7 @@ ${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `
 **Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
   const state = d.inputs.brief ? `
-${stateMarker({ head: pr.head.sha, first: firstHead, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}` : "";
+${stateMarker({ head: pr.head.sha, first: firstHead, firstRun, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}` : "";
   const assemble = (report) => `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}
 ${report}`}${warning}
 

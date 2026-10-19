@@ -81,6 +81,13 @@ describe("tests.deleted", () => {
     repo = makeRepo();
     expect((await both(repo, {}, { "src/a.ts": src(10), "src/a.test.ts": src(10) })).deleted.value).toBe(0);
   });
+
+  it("is 1 when a whole Swift XCTest file is deleted", async () => {
+    repo = makeRepo();
+    const { deleted } = await both(repo, { "Tests/VaporTests/EnvironmentTests.swift": src(10) }, { "Tests/VaporTests/EnvironmentTests.swift": null });
+    expect(deleted).toMatchObject({ id: "tests.deleted", value: 1, status: "observed" });
+    expect(deleted.evidence.map((e) => e.file)).toEqual(["Tests/VaporTests/EnvironmentTests.swift"]);
+  });
 });
 
 describe("testsSignals", () => {
@@ -102,6 +109,18 @@ describe("testsSignals", () => {
   it("recognises test directories and python test files", async () => {
     repo = makeRepo();
     expect((await missing(repo, { "pkg/mod.py": "a\n", "pkg/test_mod.py": "t\n" })).value).toBe(0);
+  });
+
+  it("recognises an added RSpec file as tests, not just an untested source change", async () => {
+    repo = makeRepo();
+    expect((await missing(repo, { "lib/foo.rb": src(50), "spec/foo_spec.rb": src(20) })).value).toBe(0);
+  });
+
+  it("recognises a Swift XCTest-only PR as having no source change (not untested source)", async () => {
+    repo = makeRepo();
+    const s = await missing(repo, { "Tests/VaporTests/CancellationTests.swift": src(10), "Tests/VaporTests/OtherTests.swift": src(5) });
+    expect(s.value).toBe(0);
+    expect(s.summary).toMatch(/no source/i);
   });
 
   it("is 0 when only docs and config changed", async () => {

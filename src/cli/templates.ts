@@ -62,6 +62,7 @@ paths:
     - "**/Cargo.toml"
     - "**/build.rs"
     - "**/go.mod"
+    - "**/Package.swift"
     - "**/Gemfile"
     - "**/Rakefile"
     - "**/*.gemspec"
@@ -138,6 +139,10 @@ paths:
     - "**/*.spec.*"
     - "**/*_test.*"
     - "**/test_*.py"
+    - "**/spec/**"
+    - "**/*_spec.rb"
+    - "**/Tests/**"
+    - "**/*Tests.swift"
 
 # JS regular expressions matched against each added line; a match is never auto-approved.
 # No inline flags such as (?i): write [Dd]rop instead.

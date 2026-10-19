@@ -44,6 +44,30 @@ describe("detectContracts: contract.dependency", () => {
   });
 });
 
+describe("detectContracts: contract.dependency for go.mod // indirect", () => {
+  it("promoting an indirect dependency to direct is strong; a new indirect-only dependency is info", async () => {
+    repo = makeRepo();
+    const base = repo.commit(
+      { "go.mod": "module example.com/app\n\nrequire (\n\tgithub.com/charmbracelet/x/ansi v1.2.3 // indirect\n)\n" },
+      "base",
+    );
+    repo.commit(
+      {
+        "go.mod":
+          "module example.com/app\n\nrequire (\n\tgithub.com/charmbracelet/x/ansi v1.2.3\n\tgithub.com/new/indirect v0.1.0 // indirect\n)\n",
+      },
+      "head",
+    );
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const depFacts = facts.filter((f) => f.id === "contract.dependency");
+    expect(depFacts).toHaveLength(2);
+    expect(depFacts.find((f) => f.text.includes("charmbracelet"))).toMatchObject({ weight: "strong" });
+    expect(depFacts.find((f) => f.text.includes("github.com/new/indirect"))).toMatchObject({ weight: "info" });
+  });
+});
+
 describe("detectContracts: contract.api", () => {
   it("removing an exported declaration from a file with a dependent is a strong fact", async () => {
     repo = makeRepo();
@@ -239,5 +263,53 @@ describe("detectContracts: contract.env", () => {
     const { facts } = await detectContracts(await contextFor(repo, base), {});
 
     expect(facts.filter((f) => f.id === "contract.env")).toEqual([]);
+  });
+
+  it("recognizes Go's os.LookupEnv", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "main.go": "package main\n" }, "base");
+    repo.commit({ "main.go": 'package main\nfunc f() { v, _ := os.LookupEnv("NEW_GO_VAR") }\n' }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const envFacts = facts.filter((f) => f.id === "contract.env");
+    expect(envFacts).toHaveLength(1);
+    expect(envFacts[0]!.text).toContain("NEW_GO_VAR");
+  });
+
+  it("recognizes Swift's Environment.get", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "main.swift": "// nothing\n" }, "base");
+    repo.commit({ "main.swift": 'let v = Environment.get("NEW_SWIFT_VAR")\n' }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const envFacts = facts.filter((f) => f.id === "contract.env");
+    expect(envFacts).toHaveLength(1);
+    expect(envFacts[0]!.text).toContain("NEW_SWIFT_VAR");
+  });
+
+  it("recognizes Swift's ProcessInfo.processInfo.environment[...]", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "main.swift": "// nothing\n" }, "base");
+    repo.commit({ "main.swift": 'let v = ProcessInfo.processInfo.environment["NEW_PI_VAR"]\n' }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const envFacts = facts.filter((f) => f.id === "contract.env");
+    expect(envFacts).toHaveLength(1);
+    expect(envFacts[0]!.text).toContain("NEW_PI_VAR");
+  });
+
+  it("recognizes Python's os.environ.setdefault", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "app.py": "x = 1\n" }, "base");
+    repo.commit({ "app.py": 'x = 1\nos.environ.setdefault("NEW_PY_VAR", "x")\n' }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const envFacts = facts.filter((f) => f.id === "contract.env");
+    expect(envFacts).toHaveLength(1);
+    expect(envFacts[0]!.text).toContain("NEW_PY_VAR");
   });
 });

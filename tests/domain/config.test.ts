@@ -21,6 +21,35 @@ describe("default paths.ignore", () => {
   });
 });
 
+describe("default paths.tests", () => {
+  const isTest = (path: string) => matchAny(defaultConfig().paths.tests, path);
+
+  it.each([
+    "spec/models/user_spec.rb", // RSpec directory
+    "lib/foo/thing_spec.rb", // RSpec file suffix, no spec/ directory
+    "Tests/VaporTests/EnvironmentTests.swift", // Swift XCTest directory (capital T)
+    "Sources/Vapor/Utilities/DotEnvTests.swift", // Swift XCTest file suffix
+    "pkg/cart/cart_test.go", // Go
+    "pkg/test_mod.py", // Python test_*.py
+    "pkg/mod_test.py", // Python *_test.py
+    "tests/test_integration.py", // Python tests/** directory
+    "src/foo.test.ts", // JS/TS
+    "src/foo.spec.ts",
+    "src/__tests__/foo.ts",
+    "src/test/java/com/acme/FooTest.java", // Kotlin/Java src/test/**
+  ])("recognises %s as a test path", (path) => {
+    expect(isTest(path)).toBe(true);
+  });
+
+  it.each([
+    "src/foo.ts",
+    "Sources/Vapor/Utilities/DotEnv.swift",
+    "lib/foo.rb",
+  ])("does not treat %s as a test path", (path) => {
+    expect(isTest(path)).toBe(false);
+  });
+});
+
 describe("default paths.block", () => {
   const blocked = (path: string) => matchAny(defaultConfig().paths.block, path);
 
@@ -54,6 +83,8 @@ describe("default paths.block", () => {
     "Cargo.toml",
     "crates/x/build.rs",
     "go.mod",
+    "Package.swift",
+    "sub/Package.swift",
     "Gemfile",
     "Rakefile",
     "lib/x.gemspec",
@@ -243,6 +274,20 @@ describe("history.labelHorizonDays", () => {
 
   it("rejects a negative horizon", () => {
     expect(configError({ history: { labelHorizonDays: -1 } })).toMatch(/labelHorizonDays/);
+  });
+});
+
+describe("history.gitTimeoutMs", () => {
+  it("defaults to a timeout well above the old fixed 120s, for large or blobless clones", () => {
+    expect(defaultConfig().history.gitTimeoutMs).toBeGreaterThan(120_000);
+  });
+
+  it("is overridable", () => {
+    expect(parseConfig({ history: { gitTimeoutMs: 5_000 } }).history.gitTimeoutMs).toBe(5_000);
+  });
+
+  it("rejects a non-positive timeout", () => {
+    expect(configError({ history: { gitTimeoutMs: 0 } })).toMatch(/gitTimeoutMs/);
   });
 });
 
