@@ -2,9 +2,10 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.4.1 - 2026-10-19
 
-The fixes below come out of running opendrs on real repositories; see
+A patch release from the field test on six new repositories (Python, Go, Rust, TypeScript
+monorepo, Ruby and Swift), fixing captain and review-brief accuracy across languages. See
 [docs/research/2026-10-19-field-test.md](docs/research/2026-10-19-field-test.md) for the field test
 that found them.
 
