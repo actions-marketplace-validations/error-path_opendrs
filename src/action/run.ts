@@ -248,6 +248,19 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   if (viewer === undefined) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
   const changesRequestedBy = await changesRequested(client, pr.number, viewer);
 
+  // opendrs's own comment carries the previous run's state; read now so the drift detector has its
+  // baseline (first/firstRun) before scoring runs, and reused below for the landing delay and the rescore line.
+  const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : undefined;
+  // The newest one: GitHub lists comments oldest first.
+  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
+  // Re-score visibility needs the state marker, which the brief:false byte-equal guarantee forbids adding.
+  const previousState = d.inputs.brief ? readState(mine?.body ?? undefined) : undefined;
+  const runNumber = previousState ? previousState.run + 1 : 1;
+  // Spec §6.4/§7.3: first run → first = this head; later runs keep the stored first; a 0.3.x marker
+  // (no `first`) → first = its head and firstRun = its run, so the drift text says "since run k".
+  const firstHead = previousState === undefined ? pr.head.sha : previousState.first ?? previousState.head;
+  const firstRun = previousState === undefined || previousState.first !== undefined ? 1 : previousState.run;
+
   const result = await io.group("Score", async () => {
     const r = await scoreDiff({
       repoDir: d.repoDir,
@@ -268,7 +281,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
         draft: pr.draft,
         changesRequestedBy,
       },
-      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens, onError: (m) => io.warning(m) } : undefined,
+      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens, firstHead, firstRun, onError: (m) => io.warning(m) } : undefined,
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -312,9 +325,6 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
 
   // opendrs's own comment carries the time this head became eligible, so a landing delay survives across runs.
-  const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : undefined;
-  // The newest one: GitHub lists comments oldest first.
-  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
   const labels = pr.labels.map((l) => l.name);
   if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
     io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
@@ -323,16 +333,13 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment }),
   );
 
-  // Re-score visibility needs the state marker, which the brief:false byte-equal guarantee forbids adding.
-  const previousState = d.inputs.brief ? readState(mine?.body ?? undefined) : undefined;
-  const runNumber = previousState ? previousState.run + 1 : 1;
   const rescore = previousState ? rescoreLine(previousState, runNumber, pr.head.sha, result.score, result.tier) : undefined;
 
   const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
   const state = d.inputs.brief
-    ? `\n${stateMarker({ head: pr.head.sha, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
+    ? `\n${stateMarker({ head: pr.head.sha, first: firstHead, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
     : "";
   const assemble = (report: string) =>
     `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;
