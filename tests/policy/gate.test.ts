@@ -66,6 +66,11 @@ describe("decide: rule 7 (auto-approve)", () => {
     expect(out.reasons[0]).toContain("score 0.2996 < green 0.30");
     expect(out.reasons[0]).not.toContain("0.30 < green 0.30");
   });
+
+  it("shows enough decimals on both sides when the threshold itself has more than two decimals", () => {
+    const out = decide(input({ cfg: { thresholds: { green: 0.3012 } }, score: 0.3004 }));
+    expect(out.reasons[0]).toContain("score 0.3004 < green 0.3012");
+  });
 });
 
 describe("decide: rule 1 (hard block)", () => {

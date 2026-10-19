@@ -151,7 +151,8 @@ export function decide(input: GateInput): PolicyOutcome {
     input.score < deferredBelow &&
     (kinds.length > 0 ? kinds : ["human" as const]).every((k) => deferredReview.sources.includes(k));
   if (tier !== "green" && !deferrable) {
-    fire("human-review", `tier ${tier}: score ${formatScore(input.score, thresholds.green)} ≥ green threshold ${thresholds.green.toFixed(2)}`, "tier");
+    const [scoreStr, greenStr] = formatScore(input.score, thresholds.green);
+    fire("human-review", `tier ${tier}: score ${scoreStr} ≥ green threshold ${greenStr}`, "tier");
   }
 
   // 3b. freeze windows: suspend auto-approval, or hold it to a stricter green; the tier stays
@@ -165,7 +166,8 @@ export function decide(input: GateInput): PolicyOutcome {
     if (green === undefined) {
       fire("human-review", `freeze "${f.name}": percentile green ${f.green} needs a calibrated model; auto-approval suspended`, "freeze");
     } else if (input.score >= green) {
-      fire("human-review", `freeze "${f.name}": score ${formatScore(input.score, green)} ≥ freeze green ${green.toFixed(2)}`, "freeze");
+      const [scoreStr, greenStr] = formatScore(input.score, green);
+      fire("human-review", `freeze "${f.name}": score ${scoreStr} ≥ freeze green ${greenStr}`, "freeze");
     }
   }
 
@@ -181,7 +183,8 @@ export function decide(input: GateInput): PolicyOutcome {
       if (green === undefined) {
         fire("human-review", `source ${kind}: percentile green ${source.green} needs a calibrated model; auto-approval suspended`, "source");
       } else if (input.score >= green) {
-        fire("human-review", `source ${kind}: score ${formatScore(input.score, green)} ≥ source green ${green.toFixed(2)}`, "source");
+        const [scoreStr, greenStr] = formatScore(input.score, green);
+        fire("human-review", `source ${kind}: score ${scoreStr} ≥ source green ${greenStr}`, "source");
       }
     }
     // Landed commits of this source in the last `ms`: in the index, at or before now, not in this PR.
@@ -287,14 +290,16 @@ export function decide(input: GateInput): PolicyOutcome {
   const decision: Decision = fired[0]?.decision ?? (deferrable ? "deferred-review" : "auto-approve");
   const lands = decision === "auto-approve" || decision === "deferred-review";
   if (decision === "auto-approve") {
+    const [scoreStr, greenStr] = formatScore(input.score, thresholds.green);
     fired.push({
       decision,
-      reason: `auto-approve: score ${formatScore(input.score, thresholds.green)} < green ${thresholds.green.toFixed(2)} and every gate passed (merge: ${auto.mergeMethod})`,
+      reason: `auto-approve: score ${scoreStr} < green ${greenStr} and every gate passed (merge: ${auto.mergeMethod})`,
     });
   } else if (decision === "deferred-review") {
+    const [scoreStr, greenStr] = formatScore(input.score, thresholds.green);
     fired.push({
       decision,
-      reason: `deferred review: score ${formatScore(input.score, thresholds.green)} is in the deferred band (${thresholds.green.toFixed(2)}–${deferredBelow!.toFixed(2)}); lands now, reviewed after merge`,
+      reason: `deferred review: score ${scoreStr} is in the deferred band (${greenStr}–${deferredBelow!.toFixed(2)}); lands now, reviewed after merge`,
     });
   }
   // Only the tier rule stood in the way, but a percentile `below` has no calibrated model to map it.
@@ -386,15 +391,20 @@ function percentileScore(table: Record<string, number> | undefined, p: number): 
 
 const list = (paths: string[]) => (paths.length > 3 ? `${paths.slice(0, 3).join(", ")} (+${paths.length - 3} more)` : paths.join(", "));
 
-/**
- * Score formatted for a reason that compares it against `threshold`: two decimals, unless that
- * would render equal to the threshold's two decimals (e.g. 0.3004 vs 0.30), in which case up to
- * four decimals with trailing zeros trimmed, so the comparison still reads as true.
- */
-function formatScore(score: number, threshold: number): string {
-  const short = score.toFixed(2);
-  if (short !== threshold.toFixed(2)) return short;
-  let precise = score.toFixed(4);
+/** Up to four decimals of `n`, trailing zeros trimmed, never below two decimals. */
+function preciseScore(n: number): string {
+  const short = n.toFixed(2);
+  let precise = n.toFixed(4);
   while (precise.endsWith("0") && precise.length > short.length) precise = precise.slice(0, -1);
   return precise;
+}
+
+/**
+ * Score and threshold formatted for a reason that compares them: two decimals each, unless they'd
+ * render equal at two decimals (e.g. 0.3004 vs 0.3012, or 0.3004 vs 0.30), in which case each gets
+ * up to four decimals with its own trailing zeros trimmed, so the comparison still reads as true.
+ */
+function formatScore(score: number, threshold: number): [string, string] {
+  if (score.toFixed(2) !== threshold.toFixed(2)) return [score.toFixed(2), threshold.toFixed(2)];
+  return [preciseScore(score), preciseScore(threshold)];
 }
