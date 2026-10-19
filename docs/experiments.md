@@ -20,7 +20,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-19 | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Yes to shipping: test lift 1.931× at the tuned `minSupport: 8`/`minConfidence: 0.6`. No to the score: AUC 0.823 → 0.823, 95 % CI -0.0003 to -0.0001 (significant, but negative) | Merged (brief-only) | [details](#change-coupling-on-apachejit) |
 | Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
-| 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Not merged | [details](#review-heuristic-signals) |
+| 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Rejected (archived as a patch) | [details](#review-heuristic-signals) |
 | 2026-10-18 | Do the missing Kamei features (ent, age, nuc, sexp) close the gap? | No. AUC 0.819 → 0.817 | Rejected (archived as a patch) | [details](#kamei-features) |
 | 2026-10-16 | Do structured outputs fix the judge's malformed replies? | Judge failures 36 → 0 of 1,600 | Merged | [details](#structured-outputs-for-the-llm-judge) |
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
@@ -294,12 +294,49 @@ recommendations R4–R6.
 | spark | 0.756 | 0.756 |
 | zeppelin | 0.672 | 0.671 |
 
-**Verdict.** Not merged. The signals separate buggy from clean commits on their own, but add
-nothing once size, history and the other signals are in the model. `tests.weakened` gets a negative
-weight everywhere. It could still serve as a hard gate rule, which this benchmark does not test.
+**Verdict.** Rejected as score signals. They separate buggy from clean commits on their own, but
+gave no improvement once size, history and the other signals were in the model: pooled calibrated
+AUC was 0.782 with and without them, and per project the change ranged from −0.002 to +0.008.
+`tests.weakened` was fitted a negative weight in all five projects. Whether they work as hard gate
+rules or as review hints was not tested.
 
-**Where.** Branch `feat/review-signals`, not merged: commits `36a36c7` (signals and tests) and
-`4587edf` (subset results).
+**Configuration.** So the experiment can be repeated exactly or deliberately varied:
+
+- **Code.** opendrs 0.2.0 at commit `36a36c7` (bench build `d6ef98ecfa7a`), on top of `main` at
+  `0699a9c`. The implementation is archived as
+  [`bench/apachejit/archive/2026-10-18-review-signals.patch`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/archive/2026-10-18-review-signals.patch)
+  (`src/` and `tests/` only), and the full benchmark report as
+  [`2026-10-18-review-signals-results.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/archive/2026-10-18-review-signals-results.md).
+  On `main` as of 2026-10-19, `git apply -3` applies it with one conflict in
+  `src/signals/tests.ts`, which has since gained the exported `isTestPath`.
+- **Signals.** Each reads only the diff's changed, non-comment lines in code files, outside test
+  files unless stated:
+
+  | Signal | Value | Default weight | Range |
+  |---|---|---:|---|
+  | `change.concurrency` | 1 when a changed line uses a concurrency primitive: Java's `synchronized`, `volatile`, locks, executors, atomics and concurrent collections, `wait`/`notify`/`lock`/`unlock` calls, `new Thread`, Go's `go func`, `Mutex`/`RwLock`/`WaitGroup`, Python's `threading`/`multiprocessing` | 0.2 | 0 or 1 |
+  | `change.safety_removed` | `log1p` of deleted error-handling and guard lines, net of added ones per hunk: `catch`/`except`/`rescue`/`finally`, `throw`/`raise`, `assert`, null and `None` comparisons, Guava `check*` and `requireNonNull`, `Validate.*` | 0.2 | 0 to `log1p(10)` |
+  | `tests.weakened` | 1 when test files lose more assertion lines than they gain (`assert*`, `expect(`, `verify(`, `.should`), or a skip marker is added (`@Ignore`, `@Disabled`, `pytest.mark.skip`, `xit`, `it.skip`, `t.Skip` and similar) | 0.3 | 0 or 1 |
+
+- **Model.** The 0.2.0 `calibrate`: L2 logistic regression fitted on the oldest 80 % of labelled
+  commits, with the newest 20 % held out to choose the penalty and whether to keep the priors.
+- **Data.** A 5-project ApacheJIT subset (zookeeper, groovy, kafka, spark, zeppelin) on the
+  official split, train 2003–2016 and test 2017–2019, chosen to keep the replay short. 9,708
+  labelled commits, 44.6 % buggy; 4,299 test commits. No LLM judge.
+
+**When to revisit.** Re-run with the archived patch if any of these change:
+
+- **As captain facts rather than score signals.** The captain brief ships a fact when commits
+  showing it are buggy at ≥ 1.2× the base rate. On this subset `change.concurrency` reached 1.54×
+  (68.7 % against 44.6 %) and `change.safety_removed` 1.35×; `tests.weakened` only 1.08×. That rule
+  did not exist when this ran, so a lift test on the full test split is the obvious next step.
+- **As hard gate rules.** "Never auto-approve a PR that disables a test" is a policy, not a
+  ranking question. This benchmark cannot test it.
+- **The model.** These signals overlap size and churn. A model that handles correlated or
+  non-linear features might use them where an L2 logistic regression could not.
+- **The data.** The patterns are mostly Java-centric, and ApacheJIT is Java only. Repositories in
+  other languages, or AI-written changes, may behave differently.
+- **The baseline.** Compare against the current `calibrate` refit, not the 0.2.0 fit used here.
 
 ## Kamei features
 
