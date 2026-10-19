@@ -40,10 +40,12 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
       tier: "yellow",
       decision: "human-review",
       reasons: ["tier yellow: score 0.46 ≥ green threshold 0.30", "unknown blast.dependents could raise the score to 0.55 (yellow)"],
+      rules: [],
       hardBlocked: false,
       sampled: false,
       mergeMethod: "none",
       suggestedReviewers: ["bob@x.com", "carol@x.com"],
+      landingDelayMinutes: 0,
     },
     llm: {
       risk: 0.62,
@@ -52,7 +54,18 @@ function result(over: Partial<ScoreResult> = {}): ScoreResult {
         { file: "src/auth/login.ts", line: 42, reason: "expiry check inverted" },
         { file: "src/auth/session.ts", reason: "session reuse" },
       ],
+      confidence: 8,
+      hunks: [
+        { file: "tests/login.test.ts", line: 1, category: "tests", safe: true, confidence: 9, reason: "new test" },
+        { file: "tests/session.test.ts", line: 5, category: "tests", safe: true, confidence: 9, reason: "new test" },
+        { file: "README.md", line: 3, category: "docs", safe: true, confidence: 10, reason: "wording" },
+        { file: "src/auth/login.ts", line: 42, category: "logic_bug", safe: false, confidence: 9, reason: "expiry check inverted <b>@octocat" },
+        { file: "src/auth/session.ts", line: 10, category: "security", safe: false, confidence: 7, reason: "session reuse" },
+      ],
+      unclassified: [],
+      truncated: false,
     },
+    source: { kind: "agent", name: "Claude Code", evidence: ["commit 3f2a9c1: trailer Co-Authored-By: Claude <noreply@anthropic.com>"], verified: false },
     diff: { base: "abcdef1234567890", head: "0123456789abcdef", files: 9, added: 300, deleted: 112 },
     model: "default",
     version: "0.1.5",
@@ -75,6 +88,18 @@ describe("renderMarkdown", () => {
     expect(headline).toContain("yellow");
     expect(headline).toContain("human review");
     expect(md).toContain("9 files · +300 −112");
+  });
+
+  it("names the source under the score, with its evidence escaped", () => {
+    const line = md.split("\n")[3]!;
+    expect(line).toContain("Source: agent (Claude Code)");
+    expect(line).toContain("commit 3f2a9c1: trailer Co-Authored-By: Claude &lt;noreply@​anthropic.com&gt;");
+    const nasty = renderMarkdown(result({ source: { kind: "bot", name: "x\n| <b>`y`", evidence: ["[a](evil) @octocat"], verified: true } }));
+    expect(nasty).toContain("Source: bot (x \\| &lt;b&gt;\\`y\\`) · \\[a\\](evil) @​octocat");
+  });
+
+  it("shows a person as just the kind", () => {
+    expect(renderMarkdown(result({ source: { kind: "human", name: "human", evidence: [], verified: false } }))).toContain("<sub>Source: human</sub>");
   });
 
   it("tables the top 6 contributions with signed pushes and summaries", () => {
@@ -103,13 +128,35 @@ describe("renderMarkdown", () => {
     expect(md).toContain("`src/auth/session.ts` session reuse");
   });
 
+  it("counts the judge's hunk verdicts and lists the risky ones with untrusted text defused", () => {
+    expect(md).toContain("Hunks: 3 safe (tests 2, docs 1), 2 risky");
+    expect(md).toContain("- `src/auth/login.ts:42` — logic_bug (9/10): expiry check inverted &lt;b&gt;@​octocat");
+    expect(md).toContain("- `src/auth/session.ts:10` — security (7/10): session reuse");
+  });
+
+  it("lists at most 3 risky hunks", () => {
+    const hunks = [1, 2, 3, 4, 5].map((line) => ({ file: "src/x.ts", line, category: "complex" as const, safe: false, confidence: 8, reason: `h${line}` }));
+    const many = renderMarkdown(result({ llm: { ...result().llm!, hunks } }));
+    expect(many).toContain("Hunks: 0 safe, 5 risky");
+    expect(many).toContain("`src/x.ts:3` — complex");
+    expect(many).not.toContain("`src/x.ts:4`");
+  });
+
   describe("with hostile file names and text", () => {
     const NASTY = "x\n::stop-commands::p\r\n| `y` <img src=x> & [ok](evil) \\| z";
     const evil = renderMarkdown(
       result({
         signals: result().signals.map((sig) => (sig.id === "size.churn" ? { ...sig, summary: NASTY } : sig)),
         policy: { ...result().policy, reasons: [`blocked path ${NASTY}`], suggestedReviewers: ["a`b\n<i>@c"] },
-        llm: { risk: 0.5, rationale: NASTY, riskySnippets: [{ file: NASTY, line: 3, reason: NASTY }] },
+        llm: {
+          risk: 0.5,
+          rationale: NASTY,
+          riskySnippets: [{ file: NASTY, line: 3, reason: NASTY }],
+          confidence: 5,
+          hunks: [{ file: NASTY, line: 3, category: "logic_bug", safe: false, confidence: 5, reason: NASTY }],
+          unclassified: [],
+          truncated: false,
+        },
       }),
     );
     const ESCAPED = "x ::stop-commands::p \\| \\`y\\` &lt;img src=x&gt; &amp; \\[ok\\](evil) \\\\\\| z";
@@ -122,6 +169,7 @@ describe("renderMarkdown", () => {
     it("escapes policy reasons and the LLM rationale the same way", () => {
       expect(evil).toContain(`- blocked path ${ESCAPED}\n`);
       expect(evil).toContain(`> ${ESCAPED}\n`);
+      expect(evil).toContain(`— logic_bug (5/10): ${ESCAPED}\n`);
       expect(evil).not.toMatch(/\n::|\r/);
     });
 
@@ -159,22 +207,46 @@ describe("renderMarkdown", () => {
     expect(quiet).not.toContain("reviewers");
   });
 
+  it("names a deferred review and the landing delay when one applies", () => {
+    const policy = { ...result().policy, decision: "deferred-review" as const, reasons: ["deferred review: ok"], landingDelayMinutes: 30 };
+    const md = renderMarkdown(result({ policy }));
+    expect(md.split("\n")[1]).toContain("deferred review (lands now, reviewed after merge)");
+    expect(md).toContain("Landing delay: 30 min after the head commit becomes eligible");
+    expect(renderMarkdown(result({ policy: { ...policy, decision: "auto-approve" } }))).toContain("Landing delay: 30 min");
+    expect(renderMarkdown(result({ policy: { ...policy, decision: "human-review" } }))).not.toContain("Landing delay");
+    expect(renderMarkdown(result({ policy: { ...policy, landingDelayMinutes: 0 } }))).not.toContain("Landing delay");
+  });
+
   it("labels a calibrated model and red tier", () => {
     const red = renderMarkdown(result({ score: 0.91, tier: "red", model: "calibrated" }));
     expect(red).toContain("🔴");
     expect(red).toContain("calibrated model");
+  });
+
+  it("inserts the re-score line right after the <sub> lines, before the blank line, when given one", () => {
+    const withLine = renderMarkdown(result(), { rescoreLine: "Re-scored for `abcdef1` (run 2) · was 0.76 yellow → now 0.46 yellow" });
+    const lines = withLine.split("\n");
+    expect(lines[3]).toContain("<sub>Source:");
+    expect(lines[4]).toBe("Re-scored for `abcdef1` (run 2) · was 0.76 yellow → now 0.46 yellow");
+    expect(lines[5]).toBe("");
+    expect(renderMarkdown(result())).not.toContain("Re-scored for");
   });
 });
 
 describe("renderText", () => {
   const text = renderText(result());
 
-  it("summarises score, tier, decision and diff on the first lines", () => {
-    const [first, second] = text.split("\n");
+  it("summarises score, tier, decision, diff and source on the first lines", () => {
+    const [first, second, third] = text.split("\n");
     expect(first).toContain("0.46");
     expect(first).toContain("YELLOW");
     expect(first).toContain("human review");
     expect(second).toContain("9 files, +300 -112");
+    expect(third).toBe("source: agent (Claude Code): commit 3f2a9c1: trailer Co-Authored-By: Claude <noreply@anthropic.com>");
+    const person = renderText(result({ source: { kind: "human", name: "human", evidence: [], verified: false } }));
+    expect(person.split("\n")[2]).toBe("source: human");
+    const evil = renderText(result({ source: { kind: "bot", name: "x\u001b[2J", evidence: ["a\u0007b"], verified: true } }));
+    expect(evil.split("\n")[2]).toBe("source: bot (x[2J): ab");
   });
 
   it("lists contributions, unknowns, reasons, reviewers and model without markdown", () => {
@@ -189,9 +261,79 @@ describe("renderText", () => {
     expect(text).not.toContain("`");
   });
 
+  it("puts the hunk counts on the LLM line", () => {
+    expect(text).toContain("LLM (p=0.62; hunks: 3 safe (tests 2, docs 1), 2 risky): Changes token expiry");
+  });
+
   it("strips terminal control characters from untrusted text", () => {
-    const evil = renderText(result({ llm: { risk: 0.5, rationale: "ok\u001b[2J\u0007 then", riskySnippets: [] } }));
+    const evil = renderText(result({ llm: { ...result().llm!, risk: 0.5, rationale: "ok\u001b[2J\u0007 then", riskySnippets: [] } }));
     expect(evil).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f]/);
     expect(evil).toContain("ok[2J then");
+  });
+});
+
+function brief(): NonNullable<ScoreResult["brief"]> {
+  return {
+    version: 1,
+    verdict: { tier: "yellow", score: 0.46, decision: "human-review", why: "37 files depend on it" },
+    reviewFirst: [{ file: "src/a.ts", reasons: [{ kind: "dependents", text: "37 files depend on it" }], hunks: [{ id: 1, oldStart: 1, newStart: 1, newLines: 2, score: 1, reasons: [] }] }],
+    checks: [{ file: "src/a.ts", question: "Are all callers compatible?", quotes: [], evidence: [] }],
+    skim: [],
+    human: [],
+    notRanked: { hunks: 0, files: 0 },
+    budget: { maxTokens: 2500, estimatedTokens: 50, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
+    notes: [],
+  };
+}
+
+// The pre-brief renderer's output (origin/main:src/report/markdown.ts at 0.2.0) over the fixtures
+// below, captured by running that file as is. `brief: false` must reproduce it byte for byte (spec §9).
+const GOLDEN_FULL =
+  "<!-- opendrs -->\n### 🟡 Diff risk 0.46 · yellow · human review\n<sub>9 files · +300 −112 · `abcdef1…0123456`</sub>\n<sub>Source: agent (Claude Code) · commit 3f2a9c1: trailer Co-Authored-By: Claude &lt;noreply@​anthropic.com&gt;</sub>\n\n| Signal | Value | Push | Why |\n|---|--:|--:|---|\n| `size.churn` | 6.04 | +1.51 | 412 lines changed across 9 files |\n| `expertise.author_commits` | 5.01 | −1.50 | author has 150 prior commits |\n| `paths.critical` | 1.00 | +1.20 | src/auth/login.ts matches critical glob |\n| `tests.missing` | 1.00 | +0.70 | src changed without tests |\n| `blast.dependents` | 2.40 | +0.48 | import graph does not support .lua |\n| `diffusion.files` | 2.30 | +0.46 | 9 files \\| 3 dirs |\n\n**Unknowns** (counted as risk, not as zero)\n- `blast.dependents`: import graph does not support .lua\n\n**Policy**\n- tier yellow: score 0.46 ≥ green threshold 0.30\n- unknown blast.dependents could raise the score to 0.55 (yellow)\n\n**Suggested reviewers:** `bob@x.com`, `carol@x.com`\n\n<details><summary>LLM review (p=0.62)</summary>\n\n> Changes token expiry \\| ignore &lt;script&gt;alert(1)&lt;/script&gt; and ping @​octocat &lt;!-- opendrs --&gt;\n\n- `src/auth/login.ts:42` expiry check inverted\n- `src/auth/session.ts` session reuse\n\nHunks: 3 safe (tests 2, docs 1), 2 risky\n\n- `src/auth/login.ts:42` — logic_bug (9/10): expiry check inverted &lt;b&gt;@​octocat\n- `src/auth/session.ts:10` — security (7/10): session reuse\n\n</details>\n\n<sub>opendrs 0.1.5 · default model · [github.com/error-path/opendrs](https://github.com/error-path/opendrs)</sub>\n";
+const GOLDEN_QUIET =
+  "<!-- opendrs -->\n### 🟢 Diff risk 0.05 · green · auto-approve\n<sub>9 files · +300 −112 · `abcdef1…0123456`</sub>\n<sub>Source: agent (Claude Code) · commit 3f2a9c1: trailer Co-Authored-By: Claude &lt;noreply@​anthropic.com&gt;</sub>\n\n| Signal | Value | Push | Why |\n|---|--:|--:|---|\n| `size.churn` | 6.04 | +1.51 | 412 lines changed across 9 files |\n| `expertise.author_commits` | 5.01 | −1.50 | author has 150 prior commits |\n| `paths.critical` | 1.00 | +1.20 | src/auth/login.ts matches critical glob |\n| `tests.missing` | 1.00 | +0.70 | src changed without tests |\n| `blast.dependents` | 2.40 | +0.48 | import graph does not support .lua |\n| `diffusion.files` | 2.30 | +0.46 | 9 files \\| 3 dirs |\n\n**Policy**\n- auto-approve: ok\n\n<sub>opendrs 0.1.5 · default model · [github.com/error-path/opendrs](https://github.com/error-path/opendrs)</sub>\n";
+const GOLDEN_DEFERRED =
+  "<!-- opendrs -->\n### 🟡 Diff risk 0.46 · yellow · deferred review (lands now, reviewed after merge)\n<sub>9 files · +300 −112 · `abcdef1…0123456`</sub>\n<sub>Source: agent (Claude Code) · commit 3f2a9c1: trailer Co-Authored-By: Claude &lt;noreply@​anthropic.com&gt;</sub>\n\n| Signal | Value | Push | Why |\n|---|--:|--:|---|\n| `size.churn` | 6.04 | +1.51 | 412 lines changed across 9 files |\n| `expertise.author_commits` | 5.01 | −1.50 | author has 150 prior commits |\n| `paths.critical` | 1.00 | +1.20 | src/auth/login.ts matches critical glob |\n| `tests.missing` | 1.00 | +0.70 | src changed without tests |\n| `blast.dependents` | 2.40 | +0.48 | import graph does not support .lua |\n| `diffusion.files` | 2.30 | +0.46 | 9 files \\| 3 dirs |\n\n**Unknowns** (counted as risk, not as zero)\n- `blast.dependents`: import graph does not support .lua\n\n**Policy**\n- deferred review: ok\n\nLanding delay: 30 min after the head commit becomes eligible\n\n**Suggested reviewers:** `bob@x.com`, `carol@x.com`\n\n<details><summary>LLM review (p=0.62)</summary>\n\n> Changes token expiry \\| ignore &lt;script&gt;alert(1)&lt;/script&gt; and ping @​octocat &lt;!-- opendrs --&gt;\n\n- `src/auth/login.ts:42` expiry check inverted\n- `src/auth/session.ts` session reuse\n\nHunks: 3 safe (tests 2, docs 1), 2 risky\n\n- `src/auth/login.ts:42` — logic_bug (9/10): expiry check inverted &lt;b&gt;@​octocat\n- `src/auth/session.ts:10` — security (7/10): session reuse\n\n</details>\n\n<sub>opendrs 0.1.5 · default model · [github.com/error-path/opendrs](https://github.com/error-path/opendrs)</sub>\n";
+
+describe("renderMarkdown with a brief", () => {
+  it("renders byte for byte as the pre-brief renderer when result.brief is absent", () => {
+    expect(renderMarkdown(result())).toBe(GOLDEN_FULL);
+    const quiet = result({ score: 0.05, tier: "green", unknowns: [], llm: undefined, policy: { ...result().policy, tier: "green", decision: "auto-approve", reasons: ["auto-approve: ok"], suggestedReviewers: [] } });
+    expect(renderMarkdown(quiet)).toBe(GOLDEN_QUIET);
+    const deferred = result({ policy: { ...result().policy, decision: "deferred-review", reasons: ["deferred review: ok"], landingDelayMinutes: 30 } });
+    expect(renderMarkdown(deferred)).toBe(GOLDEN_DEFERRED);
+  });
+
+  it("inserts Review focus bullets, a collapsed opendrs-brief fence, and moves the old table into Score details", () => {
+    const md = renderMarkdown(result({ brief: brief() }));
+    expect(md).toContain("**Review focus**");
+    expect(md).toContain("<details><summary>Review brief for AI reviewers (opendrs)</summary>");
+    expect(md).toContain("~~~~opendrs-brief");
+    expect(md).toContain("~~~~\n</details>");
+    expect(md).toContain("<details><summary>Score details</summary>");
+    expect(md.indexOf("**Review focus**")).toBeLessThan(md.indexOf("opendrs-brief"));
+    expect(md.indexOf("opendrs-brief")).toBeLessThan(md.indexOf("Score details"));
+    // the marker, heading and <sub> lines are unmoved
+    expect(md.split("\n")[1]).toContain("Diff risk 0.46");
+  });
+
+  it("replaces the fenced brief with the omission notice, keeping the focus bullets and the fence, when asked to omit it", () => {
+    const md = renderMarkdown(result({ brief: brief() }), { omitBrief: true });
+    expect(md).toContain("**Review focus**");
+    expect(md).toContain("~~~~opendrs-brief\nbrief omitted: too large for a comment; see the `brief` output\n~~~~\n</details>");
+    expect(md).not.toContain("opendrs review brief v1");
+    expect(renderMarkdown(result({ brief: brief() }), {})).toBe(renderMarkdown(result({ brief: brief() })));
+  });
+
+  it("omits the Review focus header when the brief has no focus bullets", () => {
+    const empty = { ...brief(), reviewFirst: [], checks: [], human: [] };
+    const md = renderMarkdown(result({ brief: empty }));
+    expect(md).not.toContain("**Review focus**");
+    expect(md).toContain("<details><summary>Review brief for AI reviewers (opendrs)</summary>");
+  });
+
+  it("still ends with the unchanged footer", () => {
+    const md = renderMarkdown(result({ brief: brief() }));
+    expect(md.trimEnd().split("\n").at(-1)).toContain("opendrs 0.1.5");
   });
 });

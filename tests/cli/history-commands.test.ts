@@ -80,6 +80,13 @@ describe("opendrs calibrate", () => {
     expect(calibrate).not.toHaveBeenCalled();
   });
 
+  it("rejects --brief: it is not a calibrate option", async () => {
+    const t = testIo(repo.dir);
+    expect(await runCli(["calibrate", "--brief"], t.io)).toBe(2);
+    expect(t.stderr()).toContain("--brief");
+    expect(calibrate).not.toHaveBeenCalled();
+  });
+
   it("prints captured@5/10/50 and AUC", async () => {
     const t = testIo(repo.dir);
     await runCli(["calibrate"], t.io);
@@ -172,10 +179,59 @@ describe("opendrs backtest", () => {
     expect(t.stdout()).toContain("Note: No replayed commit is newer");
   });
 
+  it("prints calibrate's recorded held-out metrics as a labelled row when there are no newer commits", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({ default: metrics(0.12, 0.2, 0.7, 0.64), recorded: metrics(0.2, 0.31, 0.88, 0.74), curve: [], notes: [] });
+    const t = testIo(repo.dir);
+    await runCli(["backtest"], t.io);
+    expect(t.stdout()).toMatch(/calibrated \(recorded\)\s+20\.0 %\s+31\.0 %\s+88\.0 %\s+0\.74/);
+    expect(t.stdout()).toContain("recorded: calibrate's held-out evaluation");
+  });
+
   it("prints the raw report with --json", async () => {
     vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
     const t = testIo(repo.dir);
     await runCli(["backtest", "--json"], t.io);
     expect(JSON.parse(t.stdout()).calibrated.auc).toBe(0.74);
+  });
+
+  it("backtest --brief passes brief through and prints the focus hit rate alongside the capture table", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({
+      default: metrics(0.12, 0.2, 0.7, 0.64),
+      curve: [],
+      notes: [],
+      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25, skipped: 0 },
+    });
+    const t = testIo(repo.dir);
+    await runCli(["backtest", "--brief"], t.io);
+    expect(vi.mocked(backtest).mock.calls[0]![0]).toMatchObject({ brief: true });
+    expect(t.stdout()).toMatch(/[Ff]ocus hit rate/);
+  });
+
+  it("backtest --brief --json includes focusHitRate", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({
+      default: metrics(0.12, 0.2, 0.7, 0.64),
+      curve: [],
+      notes: [],
+      focusHitRate: { commits: 10, hits: 6, hitRate: 0.6, changedLineShare: 0.25, skipped: 0 },
+    });
+    const t = testIo(repo.dir);
+    await runCli(["backtest", "--brief", "--json"], t.io);
+    expect(JSON.parse(t.stdout()).focusHitRate).toBeDefined();
+  });
+
+  it("backtest --brief notes how many SZZ-labelled commits could not be measured", async () => {
+    vi.mocked(loadModel).mockResolvedValue({ model: MODEL, kind: "calibrated" });
+    vi.mocked(backtest).mockResolvedValue({
+      default: metrics(0.12, 0.2, 0.7, 0.64),
+      curve: [],
+      notes: [],
+      focusHitRate: { commits: 0, hits: 0, hitRate: 0, changedLineShare: 0, skipped: 3 },
+    });
+    const t = testIo(repo.dir);
+    await runCli(["backtest", "--brief"], t.io);
+    expect(t.stdout()).toMatch(/3 .*could not be measured/);
   });
 });

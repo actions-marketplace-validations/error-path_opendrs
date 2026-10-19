@@ -1,0 +1,69 @@
+import { describe, expect, it } from "vitest";
+import { changeNotice, readState, rescoreLine, stateMarker, type OpendrsState } from "../../src/action/state.js";
+
+const HEAD = "a".repeat(40);
+
+function state(over: Partial<OpendrsState> = {}): OpendrsState {
+  return { head: HEAD, score: 0.7612, tier: "yellow", decision: "human-review", run: 2, ...over };
+}
+
+describe("stateMarker / readState", () => {
+  it("round-trips a state through the marker text", () => {
+    const s = state();
+    expect(readState(`some text\n${stateMarker(s)}\nmore text`)).toEqual(s);
+  });
+
+  it("renders the documented shape", () => {
+    expect(stateMarker(state())).toBe(`<!-- opendrs-state: v1 head=${HEAD} score=0.7612 tier=yellow decision=human-review run=2 -->`);
+  });
+
+  it("returns undefined when there is no marker (first run)", () => {
+    expect(readState(undefined)).toBeUndefined();
+    expect(readState("")).toBeUndefined();
+    expect(readState("<!-- opendrs -->\n## Risk report")).toBeUndefined();
+  });
+
+  it.each([
+    ["a short sha", `<!-- opendrs-state: v1 head=${"a".repeat(39)} score=0.50 tier=green decision=auto-approve run=1 -->`],
+    ["an uppercase sha", `<!-- opendrs-state: v1 head=${"A".repeat(40)} score=0.50 tier=green decision=auto-approve run=1 -->`],
+    ["a score above 1", `<!-- opendrs-state: v1 head=${HEAD} score=1.5 tier=green decision=auto-approve run=1 -->`],
+    ["a score of 1 with nonzero decimals", `<!-- opendrs-state: v1 head=${HEAD} score=1.5000 tier=green decision=auto-approve run=1 -->`],
+    ["an unknown tier", `<!-- opendrs-state: v1 head=${HEAD} score=0.50 tier=purple decision=auto-approve run=1 -->`],
+    ["an unknown decision", `<!-- opendrs-state: v1 head=${HEAD} score=0.50 tier=green decision=maybe run=1 -->`],
+    ["a run of 0", `<!-- opendrs-state: v1 head=${HEAD} score=0.50 tier=green decision=auto-approve run=0 -->`],
+    ["a negative run", `<!-- opendrs-state: v1 head=${HEAD} score=0.50 tier=green decision=auto-approve run=-1 -->`],
+    ["an extra field", `<!-- opendrs-state: v1 head=${HEAD} score=0.50 tier=green decision=auto-approve run=1 extra=1 -->`],
+    ["a missing version", `<!-- opendrs-state: head=${HEAD} score=0.50 tier=green decision=auto-approve run=1 -->`],
+  ])("treats %s as no marker (first run)", (_, body) => {
+    expect(readState(body)).toBeUndefined();
+  });
+
+  it("is conservative: takes neither marker when the comment has more than one", () => {
+    const body = `${stateMarker(state({ run: 1 }))}\n${stateMarker(state({ run: 2 }))}`;
+    expect(readState(body)).toBeUndefined();
+  });
+
+  it("ignores a state marker in a different comment or the PR body (callers pass only opendrs's own comment)", () => {
+    // readState only ever sees the body callers hand it; a forged marker elsewhere never reaches it.
+    // This test documents that the function itself has no notion of "which comment" - it trusts its input.
+    expect(readState(stateMarker(state()))).toEqual(state());
+  });
+});
+
+describe("rescoreLine", () => {
+  it("names the head, the new run number, and the before/after score and tier", () => {
+    const prev = state({ score: 0.76, tier: "yellow" });
+    expect(rescoreLine(prev, 3, "abcdef1234567890123456789012345678901234", 0.28, "green")).toBe(
+      "Re-scored for `abcdef1` (run 3) · was 0.76 yellow → now 0.28 green",
+    );
+  });
+});
+
+describe("changeNotice", () => {
+  it("names the tier and decision change and points at the report", () => {
+    const prev = state({ score: 0.76, tier: "yellow", decision: "human-review" });
+    expect(changeNotice(prev, 0.28, "green", "auto-approve")).toBe(
+      "opendrs: risk changed yellow 0.76 → green 0.28 · decision human-review → auto-approve · see the updated report ↑",
+    );
+  });
+});

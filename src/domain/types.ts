@@ -57,6 +57,25 @@ export interface DiffInfo {
   description?: string; // PR body (untrusted; only used when llm.includeDescription)
 }
 
+/** Who wrote a change: a person, a bot account (Dependabot, Renovate), or an AI coding agent. */
+export type SourceKind = "human" | "bot" | "agent";
+
+/** How a pull request's source was recognised. */
+export interface Authorship {
+  kind: SourceKind;
+  /** What it was recognised as, e.g. "dependabot[bot]" or "Claude Code"; "human" for a person. */
+  name: string;
+  /** What gave it away, e.g. "commit trailer: Co-Authored-By: Claude <noreply@anthropic.com>". */
+  evidence: string[];
+  /** True when the kind came from the GitHub account type (CI), which the PR itself cannot change. */
+  verified: boolean;
+  /**
+   * The kind the PR is at least, from data its commits cannot change (the account type in CI);
+   * "human" when absent. The gate applies this kind's policy too, so commit text cannot escape it.
+   */
+  floor?: SourceKind;
+}
+
 /** One commit as seen by the history index. */
 export interface CommitInfo {
   sha: string;
@@ -72,6 +91,8 @@ export interface CommitInfo {
   isRevert: boolean;
   /** sha named in "This reverts commit <sha>", when present. */
   revertsSha?: string;
+  /** From the author email and the message's trailers (see policy/source.ts). */
+  source: SourceKind;
 }
 
 /**
@@ -104,16 +125,57 @@ export interface DependencyGraph {
   fileCount: number;
 }
 
+/** Change kinds the judge may call safe (RADAR's auto-accept categories). */
+export const LLM_SAFE_CATEGORIES = ["refactor", "dead_code", "defensive", "logging", "formatting", "docs", "imports", "tests", "static_resources"] as const;
+/** Change kinds the judge calls risky; each is also a ranking signal `llm.risk.<category>`. */
+export const LLM_RISK_CATEGORIES = ["logic_bug", "security", "performance", "structural", "complex"] as const;
+export type LlmCategory = (typeof LLM_SAFE_CATEGORIES)[number] | (typeof LLM_RISK_CATEGORIES)[number];
+
+/** One hunk as shown to the judge. `id` is its `[hunk N]` marker; `line` is its first new-side line (old side for a deletion). */
+export interface LlmHunkRef {
+  id: number;
+  file: string;
+  line: number;
+}
+
+export interface LlmHunkVerdict {
+  file: string;
+  line: number;
+  category: LlmCategory;
+  safe: boolean;
+  /** 0-10. */
+  confidence: number;
+  reason: string;
+}
+
 export interface LlmJudgement {
   /** Probability in [0,1] that the change causes an incident. */
   risk: number;
   rationale: string;
   riskySnippets: Array<{ file: string; line?: number; reason: string }>;
+  /** 0-10: the judge's confidence in its classification as a whole. */
+  confidence: number;
+  /** One verdict per shown hunk the judge classified (the riskiest when it answered twice). */
+  hunks: LlmHunkVerdict[];
+  /** Shown hunks the judge did not classify. */
+  unclassified: Array<{ file: string; line: number }>;
+  /** Part of the diff was cut to fit llm.maxDiffChars, so the judge did not see all of it. */
+  truncated: boolean;
+}
+
+export interface LlmJudgeInput {
+  title?: string;
+  description?: string;
+  diff: string;
+  files: string[];
+  /** The hunks shown in `diff`, by marker id. */
+  hunks: LlmHunkRef[];
+  truncated: boolean;
 }
 
 export interface LlmProvider {
   name: string;
-  judge(input: { title?: string; description?: string; diff: string; files: string[] }): Promise<LlmJudgement>;
+  judge(input: LlmJudgeInput): Promise<LlmJudgement>;
 }
 
 export interface ScoringContext {
@@ -168,17 +230,68 @@ export interface Contribution {
 
 export type Tier = "green" | "yellow" | "red";
 
-export type Decision = "auto-approve" | "waiting-ai-review" | "human-review";
+/**
+ * `deferred-review` (RADAR): approve and land now, and assign a human review after merge. Only for
+ * PRs that pass every rule except that their score is in the deferred band above green.
+ */
+export type Decision = "auto-approve" | "deferred-review" | "waiting-ai-review" | "human-review";
+
+/** The gate rules that can fire, by id (see policy/gate.ts). */
+export type PolicyRule =
+  | "paths.block" | "unread-files" | "tests.deleted" | "content.block" | "size-cap" | "tier"
+  | "freeze" | "source" | "submodule" | "control-chars" | "llm-failed" | "llm.requireSafe"
+  | "unknowns" | "draft" | "changes-requested" | "ai-review" | "sample";
 
 export interface PolicyOutcome {
   tier: Tier;
   decision: Decision;
   /** Why the decision was made, one entry per rule that fired (first is decisive). */
   reasons: string[];
+  /** The rule-tagged subset of `reasons`: every fired rule, without the decisive line or notes. Optional for callers built before it existed. */
+  rules?: Array<{ rule: PolicyRule; reason: string }>;
   hardBlocked: boolean;
   sampled: boolean;
   mergeMethod: "queue" | "auto-merge" | "none";
   suggestedReviewers: string[];
+  /**
+   * Minutes the PR must stay eligible (same head commit) before opendrs approves it: a window for a
+   * human veto. The largest of autoApprove.landingDelayMinutes and the source's own setting.
+   */
+  landingDelayMinutes: number;
+}
+
+/** One reason a file or hunk ranks where it does in the review brief. */
+export interface BriefReason {
+  kind: "fix-blame" | "fix-history" | "incident" | "exports" | "dependents" | "critical" | "no-tests" | "new-author" | "llm" | "changed-lines";
+  /** Rendered sentence; untrusted parts already escaped. */
+  text: string;
+  /** Raw untrusted fragment (commit subject, incident note, judge reason), clipped to 120 chars. */
+  quote?: string;
+  sha?: string;
+}
+
+/** The review brief (docs/specs/2026-10-18-review-brief-design.md §6.1). Fields are only added inside version 1. */
+export interface ReviewBrief {
+  version: 1;
+  verdict: { tier: Tier; score: number; decision: Decision; why: string };
+  /**
+   * "code" when at least one non-skimmable hunk exists, so Review first never lists a skim-listed
+   * file (spec §5.6). "skim-only" when every changed hunk is skim-listed, so Review first lists
+   * those files anyway and the Markdown says so explicitly. Optional for callers built before it
+   * existed; absent means "code".
+   */
+  reviewFirstScope?: "code" | "skim-only";
+  reviewFirst: Array<{
+    file: string;
+    reasons: BriefReason[];
+    hunks: Array<{ id: number; oldStart: number; newStart: number; newLines: number; score: number; reasons: BriefReason[] }>;
+  }>;
+  checks: Array<{ file: string; line?: number; question: string; quotes: string[]; evidence: string[] }>;
+  skim: Array<{ file: string; category: "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
+  human: Array<{ rule: PolicyRule; reason: string }>;
+  notRanked: { hunks: number; files: number };
+  budget: { maxTokens: number; estimatedTokens: number; truncated: boolean; omitted: { files: number; hunks: number; checks: number; notes: number } };
+  notes: string[];
 }
 
 export interface ScoreResult {
@@ -189,9 +302,12 @@ export interface ScoreResult {
   unknowns: string[]; // ids of signals with status "unknown"
   policy: PolicyOutcome;
   llm?: LlmJudgement;
+  source: Authorship;
   diff: { base: string; head: string; files: number; added: number; deleted: number };
   model: "default" | "calibrated";
   version: string;
+  /** Present only when scoreDiff was asked for it (opts.brief). */
+  brief?: ReviewBrief;
 }
 
 export interface BacktestMetrics {

@@ -17,11 +17,11 @@ async function connect() {
 }
 
 describe("MCP server", () => {
-  it("registers the three opendrs tools with descriptions and input schemas", async () => {
+  it("registers the five opendrs tools with descriptions and input schemas", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
 
-    expect(tools.map((t) => t.name).sort()).toEqual(["explain_file_risk", "score_diff", "suggest_reviewers"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["explain_file_risk", "list_hotspots", "review_brief", "score_diff", "suggest_reviewers"]);
     for (const t of tools) {
       expect(t.description!.length).toBeGreaterThan(40);
       expect(t.inputSchema.required).toContain("repoDir");

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubClient, GitHubError, isSelf } from "../../src/action/github.js";
+import { API, installFakeGitHub, type FakeGitHub } from "./fake-github.js";
 
 const client = () =>
   new GitHubClient({ token: "tok", apiUrl: "https://ghe.example/api/v3", graphqlUrl: "https://ghe.example/api/graphql", owner: "o", repo: "r" });
@@ -98,6 +99,53 @@ describe("GitHubClient", () => {
     vi.stubGlobal("fetch", fetch);
     await client().removeLabel(7, "risk:red");
     expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("https://ghe.example/api/v3/repos/o/r/issues/7/labels/risk%3Ared");
+  });
+
+  describe("addLabels makes sure opendrs's labels exist with their colours", () => {
+    const fakeClient = (init: Partial<FakeGitHub> = {}) => ({
+      gh: installFakeGitHub(init),
+      client: new GitHubClient({ token: "t", apiUrl: API, graphqlUrl: `${API}/graphql`, owner: "o", repo: "r" }),
+    });
+
+    it("creates a missing label with its colour and description, URL-encoding the name, then adds it", async () => {
+      const { gh, client } = fakeClient();
+      await client.addLabels(7, ["risk:red"]);
+      expect(gh.ops("getLabel").map((e) => e.path)).toEqual(["/repos/o/r/labels/risk%3Ared"]);
+      expect(gh.ops("createLabel").map((e) => e.body)).toEqual([{ name: "risk:red", color: "d73a4a", description: expect.any(String) }]);
+      expect(gh.labels).toEqual(["risk:red"]);
+    });
+
+    it("recolours a label GitHub auto-created in default grey", async () => {
+      const { gh, client } = fakeClient({ repoLabels: { "opendrs:landing": { color: "ededed" } } });
+      await client.addLabels(7, ["opendrs:landing"]);
+      expect(gh.ops("updateLabel").map((e) => [e.path, e.body])).toEqual([["/repos/o/r/labels/opendrs%3Alanding", { color: "1d76db", description: expect.any(String) }]]);
+      expect(gh.ops("createLabel")).toHaveLength(0);
+      expect(gh.labels).toEqual(["opendrs:landing"]);
+    });
+
+    it("never overrides a colour the user chose", async () => {
+      const { gh, client } = fakeClient({ repoLabels: { "risk:green": { color: "000000", description: "ours" } } });
+      await client.addLabels(7, ["risk:green"]);
+      expect(gh.ops("createLabel")).toHaveLength(0);
+      expect(gh.ops("updateLabel")).toHaveLength(0);
+      expect(gh.repoLabels["risk:green"]).toEqual({ color: "000000", description: "ours" });
+      expect(gh.labels).toEqual(["risk:green"]);
+    });
+
+    it("still adds the label when creating it is refused (403)", async () => {
+      const { gh, client } = fakeClient({ forbid: new Set(["createLabel"]) });
+      await client.addLabels(7, ["risk:yellow"]);
+      expect(gh.ops("createLabel")).toHaveLength(1);
+      expect(gh.labels).toEqual(["risk:yellow"]);
+    });
+
+    it("checks each label once per client and leaves other labels alone", async () => {
+      const { gh, client } = fakeClient();
+      await client.addLabels(7, ["risk:red", "needs-docs"]);
+      await client.addLabels(7, ["risk:red"]);
+      expect(gh.ops("getLabel")).toHaveLength(1);
+      expect(gh.ops("addLabels")).toHaveLength(2);
+    });
   });
 
   it("maps a GraphQL FORBIDDEN error to status 403", async () => {

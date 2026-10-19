@@ -33,6 +33,7 @@ export interface GitHubUser {
 export interface IssueComment {
   id: number;
   body?: string | null;
+  created_at?: string;
   user: GitHubUser | null;
 }
 
@@ -68,6 +69,18 @@ export interface PullCommit {
 
 export type MergeMethod = "MERGE" | "SQUASH" | "REBASE";
 
+/** The labels opendrs adds, with the colour and description they get when opendrs creates them. */
+const OPENDRS_LABELS: Record<string, { color: string; description: string }> = {
+  "risk:green": { color: "2ea44f", description: "opendrs: low-risk change" },
+  "risk:yellow": { color: "fbca04", description: "opendrs: medium-risk change" },
+  "risk:red": { color: "d73a4a", description: "opendrs: high-risk change" },
+  "opendrs:landing": { color: "1d76db", description: "opendrs: approval is waiting out the landing delay" },
+  "opendrs:hold": { color: "b60205", description: "opendrs: do not approve until this label is removed" },
+  "opendrs:review-after-merge": { color: "5319e7", description: "opendrs: landed, needs a human review after merge" },
+};
+/** The colour GitHub gives a label it creates on the fly when one is added that does not exist. */
+const DEFAULT_LABEL_COLOR = "ededed";
+
 export interface GitHubClientOptions {
   token: string;
   apiUrl: string;
@@ -77,6 +90,9 @@ export interface GitHubClientOptions {
 }
 
 export class GitHubClient {
+  /** opendrs labels already checked by `ensureLabel` in this run. */
+  private readonly ensuredLabels = new Set<string>();
+
   constructor(private readonly opts: GitHubClientOptions) {}
 
   private async send(method: string, url: string, body?: unknown): Promise<Response> {
@@ -149,7 +165,29 @@ export class GitHubClient {
     await this.rest("PATCH", `${this.repoPath}/issues/comments/${id}`, { body });
   }
 
+  /**
+   * Create a missing opendrs label with its colour, or recolour one GitHub auto-created in default
+   * grey; a colour the user chose stays. Best-effort: adding the label works without it.
+   */
+  private async ensureLabel(name: string): Promise<void> {
+    const want = OPENDRS_LABELS[name];
+    if (!want || this.ensuredLabels.has(name)) return;
+    this.ensuredLabels.add(name);
+    const path = `${this.repoPath}/labels/${encodeURIComponent(name)}`;
+    try {
+      const existing = await this.rest<{ color: string }>("GET", path).catch((e: unknown) => {
+        if (e instanceof GitHubError && e.status === 404) return undefined;
+        throw e;
+      });
+      if (!existing) await this.rest("POST", `${this.repoPath}/labels`, { name, ...want });
+      else if (existing.color.toLowerCase() === DEFAULT_LABEL_COLOR) await this.rest("PATCH", path, want);
+    } catch (e) {
+      if (!(e instanceof GitHubError)) throw e;
+    }
+  }
+
   async addLabels(pr: number, labels: string[]) {
+    for (const label of labels) await this.ensureLabel(label);
     await this.rest("POST", `${this.repoPath}/issues/${pr}/labels`, { labels });
   }
   /** Removing a label the PR does not have (404) is not an error. */
@@ -179,6 +217,10 @@ export class GitHubClient {
   }
   async dismissReview(pr: number, reviewId: number, message: string) {
     await this.rest("PUT", `${this.repoPath}/pulls/${pr}/reviews/${reviewId}/dismissals`, { message, event: "DISMISS" });
+  }
+  /** GitHub answers 422 when a login is not a collaborator or is the PR's author. */
+  async requestReviewers(pr: number, logins: string[]) {
+    await this.rest("POST", `${this.repoPath}/pulls/${pr}/requested_reviewers`, { reviewers: logins });
   }
 
   /**

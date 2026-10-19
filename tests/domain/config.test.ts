@@ -292,3 +292,95 @@ describe("freezes", () => {
     expect(() => parseConfig({ ...percentile, freezes: [{ name: "x", days: ["sat"], green: 25 }] })).not.toThrow();
   });
 });
+
+describe("sources", () => {
+  it("defaults every source to no green, no cap, no track record and requireSafe off", () => {
+    const { human, bot, agent } = defaultConfig().sources;
+    for (const policy of [human, bot, agent]) {
+      expect(policy).toMatchObject({ requireSafe: false });
+      expect(policy.green).toBeUndefined();
+      expect(policy.dailyCap).toBeUndefined();
+      expect(policy.trackRecord).toBeUndefined();
+    }
+    expect(agent.patterns).toEqual([]);
+  });
+
+  it("fills track record defaults (60 days, 10 commits, 5% reverts)", () => {
+    expect(parseConfig({ sources: { agent: { trackRecord: {} } } }).sources.agent.trackRecord).toEqual({ days: 60, minCommits: 10, maxRevertRate: 0.05 });
+  });
+
+  it("rejects a source green at or above thresholds.green: a source can only tighten", () => {
+    expect(configError({ sources: { agent: { green: 0.3 } } })).toContain("sources.agent.green 0.3 must be less than thresholds.green (0.3)");
+    expect(configError({ sources: { bot: { green: 0.5 } } })).toContain("sources.bot.green");
+    expect(() => parseConfig({ sources: { agent: { green: 0.2 } } })).not.toThrow();
+  });
+
+  it("rejects requireSafe without llm.enabled", () => {
+    expect(configError({ sources: { agent: { requireSafe: true } } })).toContain("sources.agent.requireSafe needs llm.enabled: true");
+    expect(() => parseConfig({ llm: { enabled: true }, sources: { agent: { requireSafe: true } } })).not.toThrow();
+  });
+
+  it("rejects an agent pattern that is not a valid regex", () => {
+    expect(configError({ sources: { agent: { patterns: ["(?i)bot"] } } })).toContain("invalid regex");
+    expect(parseConfig({ sources: { agent: { patterns: ["my-agent@"] } } }).sources.agent.patterns).toEqual(["my-agent@"]);
+  });
+
+  it("rejects a non-positive dailyCap", () => {
+    expect(configError({ sources: { bot: { dailyCap: 0 } } })).toMatch(/dailyCap/);
+  });
+});
+
+describe("autoApprove.landingDelayMinutes and deferredReview", () => {
+  it("default to off: no delay, deferral disabled, human sources only", () => {
+    const { landingDelayMinutes, deferredReview } = defaultConfig().autoApprove;
+    expect(landingDelayMinutes).toBe(0);
+    expect(deferredReview).toEqual({ enabled: false, sources: ["human"] });
+    for (const kind of ["human", "bot", "agent"] as const) expect(defaultConfig().sources[kind].landingDelayMinutes).toBeUndefined();
+  });
+
+  it("accept a non-negative integer delay, globally and per source", () => {
+    const cfg = parseConfig({ autoApprove: { landingDelayMinutes: 30 }, sources: { agent: { landingDelayMinutes: 60 } } });
+    expect(cfg.autoApprove.landingDelayMinutes).toBe(30);
+    expect(cfg.sources.agent.landingDelayMinutes).toBe(60);
+    expect(configError({ autoApprove: { landingDelayMinutes: -1 } })).toMatch(/landingDelayMinutes/);
+    expect(configError({ sources: { bot: { landingDelayMinutes: 1.5 } } })).toMatch(/landingDelayMinutes/);
+  });
+
+  it("require below in (green, yellow] once deferral is enabled, in the thresholds' units", () => {
+    const message = "autoApprove.deferredReview.below must be set above thresholds.green (0.3) and at most thresholds.yellow (0.6), in absolute units";
+    expect(configError({ autoApprove: { deferredReview: { enabled: true } } })).toContain(message);
+    expect(configError({ autoApprove: { deferredReview: { enabled: true, below: 0.3 } } })).toContain(message);
+    expect(configError({ autoApprove: { deferredReview: { enabled: true, below: 0.61 } } })).toContain(message);
+    expect(() => parseConfig({ autoApprove: { deferredReview: { enabled: true, below: 0.6 } } })).not.toThrow();
+    expect(() => parseConfig({ autoApprove: { deferredReview: { below: 0.3 } } })).not.toThrow();
+    const percentile = { thresholds: { mode: "percentile", green: 60, yellow: 90, red: 95 } };
+    expect(() => parseConfig({ ...percentile, autoApprove: { deferredReview: { enabled: true, below: 75 } } })).not.toThrow();
+    expect(configError({ ...percentile, autoApprove: { deferredReview: { enabled: true, below: 95 } } })).toContain("in percentile units");
+  });
+
+  it("only accept known source kinds", () => {
+    expect(configError({ autoApprove: { deferredReview: { sources: ["robot"] } } })).toMatch(/sources/);
+  });
+
+  it("reject an empty sources list once deferral is enabled: it could never apply", () => {
+    expect(configError({ autoApprove: { deferredReview: { enabled: true, below: 0.45, sources: [] } } })).toContain(
+      "autoApprove.deferredReview.sources must list at least one source kind",
+    );
+    expect(() => parseConfig({ autoApprove: { deferredReview: { sources: [] } } })).not.toThrow();
+    expect(() => parseConfig({ autoApprove: { deferredReview: { enabled: true, below: 0.45, sources: ["bot"] } } })).not.toThrow();
+  });
+});
+
+describe("brief", () => {
+  it("defaults brief.maxTokens to 2500 and caps it at 6000", () => {
+    expect(defaultConfig().brief.maxTokens).toBe(2500);
+    expect(configError({ brief: { maxTokens: 7000 } })).toMatch(/brief.*maxTokens/i);
+    expect(configError({ brief: { maxTokens: 0 } })).toMatch(/brief.*maxTokens/i);
+    expect(parseConfig({ brief: { maxTokens: 500 } }).brief.maxTokens).toBe(500);
+  });
+
+  it("rejects a maxTokens too small to fit the brief's mandatory sections", () => {
+    expect(configError({ brief: { maxTokens: 299 } })).toMatch(/brief\.maxTokens.*at least 300/i);
+    expect(parseConfig({ brief: { maxTokens: 300 } }).brief.maxTokens).toBe(300);
+  });
+});

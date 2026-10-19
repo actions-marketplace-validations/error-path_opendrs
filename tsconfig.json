@@ -14,5 +14,6 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "bench"],
+  "exclude": ["bench/**/run.ts", "bench/**/llm.ts", "bench/**/fit-experiment.ts", "bench/**/judge-sim.ts"]
 }

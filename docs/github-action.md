@@ -16,7 +16,7 @@ them to the merge queue.
 name: opendrs
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 concurrency:
   group: opendrs-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -39,6 +39,11 @@ jobs:
 computes the merge-base of the PR, and reads the config from the base commit. With a shallow clone
 the job fails with "Base commit ... is not in the checkout".
 
+The comment now leads with a **Review focus** summary (at most 3 bullets) and a collapsed
+"Review brief for AI reviewers" section; the signal table, unknowns, policy reasons and LLM block
+move into a collapsed "Score details" section. If you scrape the table, expand that section or use
+the outputs instead; `brief: false` keeps the old layout exactly.
+
 Keep the `concurrency` block. A push cancels the run still scoring the previous head, so an old
 run cannot approve or merge a commit it did not score. The Action also re-reads the PR head before
 approving, and passes the scored commit as `expectedHeadOid` when it enables auto-merge or
@@ -48,8 +53,10 @@ pushed after the approval from merging on it; that needs the branch ruleset desc
 
 Run it on `pull_request`, never on `pull_request_target`. A `pull_request_target` run uses the
 base branch's workflow with a write token and the repository's secrets, even for fork PRs, and
-opendrs checks out and reads the PR's code. opendrs only works on events that carry a
-`pull_request` payload; do not add `merge_group` or `push` triggers to this workflow.
+opendrs checks out and reads the PR's code. opendrs scores on events that carry a
+`pull_request` payload, and sweeps delayed PRs on `schedule` and `workflow_dispatch` (see
+[Deferred review and landing delay](#deferred-review-and-landing-delay)); do not add
+`merge_group` or `push` triggers to this workflow.
 
 ## Inputs and outputs
 
@@ -58,15 +65,19 @@ opendrs checks out and reads the PR's code. opendrs only works on events that ca
 | `github-token` | `${{ github.token }}` | Token for the REST and GraphQL APIs. |
 | `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. When `false`, the `llm` section and the `model` path still come from the base commit, so a PR cannot send the LLM key to its own `llm.baseUrl` or export another secret through `llm.apiKeyEnv`. |
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
-| `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). |
-| `labels` | `true` | Set the risk label and remove stale ones. |
+| `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). A landing delay needs it: the comment records when the head commit became eligible. |
+| `labels` | `true` | Set the risk label and remove stale ones. opendrs creates its labels (`risk:*`, `opendrs:landing`, `opendrs:hold`, `opendrs:review-after-merge`) with their own colours and descriptions, and recolours one GitHub auto-created in default grey; a colour you chose is kept. |
 | `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
+| `brief` | `true` | Build the review brief and fold it into the PR comment (a **Review focus** summary plus a collapsed "Review brief for AI reviewers" section), the `brief`/`brief-file` outputs, and the job summary. `false` restores today's comment layout byte for byte, leaves `brief`/`brief-file` empty, and omits the hidden state marker, the re-score line and the change notice: see [Re-scoring on new commits](#re-scoring-on-new-commits). |
+| `notify-changes` | `true` | When a re-score changes the tier or the decision, post one short new comment pointing back at the updated report. `false` keeps the re-score line in the main comment but skips the extra comment. Needs `brief` and `comment` to both be true. |
 
 | Output | Values |
 |---|---|
 | `score` | 0 to 1, four decimals |
 | `tier` | `green`, `yellow`, `red` |
-| `decision` | `auto-approve`, `waiting-ai-review`, `human-review` (the policy decision, even when approval is disabled) |
+| `decision` | `auto-approve`, `deferred-review`, `waiting-ai-review`, `human-review` (the policy decision, even when approval is disabled or a landing delay is still running) |
+| `brief` | The review brief as Markdown (empty when `brief: false`) |
+| `brief-file` | Path to the review brief as JSON, under `$RUNNER_TEMP` (empty when `brief: false`) |
 
 Use the outputs in later steps, for example to request a reviewer on red PRs:
 
@@ -181,7 +192,8 @@ auto-merge is not allowed), the approval stays and the Action logs a warning.
 Approval needs all of these:
 
 - `autoApprove.enabled: true` in `.opendrs.yml` **on the base commit**;
-- the policy decision is `auto-approve`;
+- the policy decision is `auto-approve` or `deferred-review`, and any landing delay has run
+  (see [Deferred review and landing delay](#deferred-review-and-landing-delay));
 - the PR does not add, change, delete or rename `.opendrs.yml`, `.opendrs/**`, `.github/**`,
   `action.yml`, `action.yaml`, `action/**`, or the configured model file. This guard is in code
   and no configuration turns it off;
@@ -228,7 +240,7 @@ check run is named after the job:
 name: review
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 concurrency:
   group: opendrs-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -291,6 +303,83 @@ workflow from another. A PR cannot add its own fake reviewer workflow: a PR that
 workflow that already exists on the base branch, so give the reviewer job a name no other job uses,
 such as `claude-review`, not `review` or `test`.
 
+## Deferred review and landing delay
+
+Both are off by default; see the config reference for `autoApprove.deferredReview` and
+`autoApprove.landingDelayMinutes` (and `sources.<kind>.landingDelayMinutes`).
+
+**Deferred review** lands a PR whose score is just above green now and asks for a human review
+after merge. The decision is `deferred-review`; the Action approves it like `auto-approve`, says
+so in the approval, requests the suggested reviewers when they map to GitHub logins, and adds the
+label `opendrs:review-after-merge`.
+
+**Landing delay** holds the approval of an eligible PR for `landingDelayMinutes` after its head
+commit became eligible, so a person can still veto it. While the delay runs the PR carries the
+label `opendrs:landing`, the comment says when opendrs will approve, and the clock is kept in the
+comment as `<!-- opendrs-eligible: <head sha> <time> -->`. Only opendrs's own comment counts, and
+only for the current head: a push restarts the delay. To veto, do any of these before it ends:
+
+- request changes (the decision becomes `human-review`);
+- push a commit (the new head is scored and delayed again);
+- add the label `opendrs:hold` (the PR stays on hold, and any earlier approval is withdrawn,
+  until the label is removed).
+
+Nothing runs when the delay ends unless something re-runs the Action, so add a scheduled sweep to
+the same workflow. On `schedule` and `workflow_dispatch` events the Action lists the open PRs
+labelled `opendrs:landing`, fetches `refs/pull/<n>/head` and the base branch for each into the
+checkout and runs the same per-PR flow (score, comment, labels, approval). A PR that also carries
+`opendrs:hold` is skipped, not re-scored every sweep; removing the label resumes it through the
+`unlabeled` event. One PR's error is logged as `::error::` and the sweep goes on to the next; the
+job fails at the end if any PR failed. The checkout must be the default branch with
+`fetch-depth: 0`, so the base commit and the history are present:
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: opendrs-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  opendrs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: error-path/opendrs@v0
+```
+
+The same `concurrency` block serves both: a sweep has no PR number, so sweeps share the group
+`opendrs-`, and the next one queues behind a running one instead of cancelling it, so a long sweep
+still finishes. The sweep needs the same permissions as a PR run, plus `contents: write` when it merges, and it
+uses the sweep run's `github-token`, so it cannot run on fork PRs (which are never approved anyway).
+On a sweep the `score`, `tier` and `decision` outputs are those of the last PR swept.
+
+## Re-scoring on new commits
+
+Every run that updates the comment also writes a hidden machine marker into it, for example
+`<!-- opendrs-state: v1 head=<sha> score=0.76 tier=yellow decision=human-review run=2 -->`,
+recording this run's result. The next run reads that marker from opendrs's own comment (never from
+another comment or the PR body, and never a forged or malformed one: anything that does not match
+the fixed shape exactly counts as no marker, i.e. a first run) and, when one is found:
+
+- adds one line under the heading: `` Re-scored for `<head7>` (run N) · was 0.76 yellow → now 0.46
+  yellow ``, where `N` is the previous run's number plus one. A push restarts nothing here; even a
+  re-run on the same commit still bumps `N` and shows the line.
+- when the tier or the decision changed since that previous run, also posts one short **new**
+  comment, with no table and nothing the PR controls, for example: "opendrs: risk changed yellow
+  0.76 → green 0.28 · decision human-review → auto-approve · see the updated report ↑". It never
+  carries the `<!-- opendrs -->` marker, so it is never mistaken for the main comment. Set
+  `notify-changes: false` to keep the re-score line but skip this extra comment.
+
+The first run on a PR has no previous marker, so it shows no re-score line and posts no notice; the
+marker it writes starts `run=1`. Both the marker and the re-score line need the `brief` input:
+`brief: false` keeps the comment byte-equal to today's output, with none of the three added.
+
 ## Rollout
 
 1. **Comment-only (default).** Install the workflow with `autoApprove.enabled: false`. For two to
@@ -324,4 +413,6 @@ warnings. Fork PRs are never approved, whatever the token can do. Do not switch 
 | `sampling is predictable; set sample-salt to a secret` | Pass a secret as `sample-salt`; see [Set sample-salt](#set-sample-salt). |
 | `could not confirm that ... dismisses it when new commits are pushed` | Add the branch ruleset from [Required: dismiss stale approvals on push](#required-dismiss-stale-approvals-on-push). |
 | `enabling auto-merge failed` | Enable *Allow auto-merge*, grant `contents: write`, or check the branch's merge queue. |
-| `opendrs needs a pull_request event` | Run the workflow on `pull_request` only. |
+| `opendrs needs a pull_request event` | Run the workflow on `pull_request` (and `schedule` / `workflow_dispatch` for the sweep) only. |
+| `approves at ... UTC unless ...` in the comment, but nothing happens then | Add the `schedule` trigger from [Deferred review and landing delay](#deferred-review-and-landing-delay); only the sweep re-runs the Action when the delay ends. |
+| `sweep: N of M PR(s) failed` | Each failed PR has an `::error::PR #n:` line above it in the log; the other PRs were processed. |

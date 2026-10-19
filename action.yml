@@ -30,6 +30,14 @@ inputs:
     description: Set this to a secret whenever autoApprove is enabled. It is mixed into the per-PR key that picks which eligible PRs still go to a human (autoApprove.sampleRate). With the default empty salt, sampling is predictable - anyone can compute which PR numbers are sampled - and the Action logs a warning.
     required: false
     default: ""
+  brief:
+    description: Build the review brief (ranked hunks, check questions, safe-to-skim, hard-rule reasons) and add it to the PR comment, the job summary and the brief/brief-file outputs. Set to false to keep today's comment layout byte for byte.
+    required: false
+    default: "true"
+  notify-changes:
+    description: When a re-score changes the tier or the decision, post one short new comment pointing back at the updated report. Needs brief and comment to both be true; otherwise nothing is posted.
+    required: false
+    default: "true"
 
 outputs:
   score:
@@ -37,7 +45,11 @@ outputs:
   tier:
     description: green, yellow or red.
   decision:
-    description: auto-approve, waiting-ai-review or human-review. This is the policy decision; the PR is approved only when autoApprove.enabled is true and every safety rail passes.
+    description: auto-approve, deferred-review, waiting-ai-review or human-review. This is the policy decision; the PR is approved only when autoApprove.enabled is true, every safety rail passes and any landing delay has run. On a schedule or workflow_dispatch sweep, the outputs are those of the last PR swept.
+  brief:
+    description: The review brief as Markdown (the same text shown in the PR comment's collapsed "Review brief for AI reviewers" section). Empty when the brief input is false.
+  brief-file:
+    description: Path to the review brief as JSON, written under $RUNNER_TEMP. Empty when the brief input is false.
 
 runs:
   using: node24

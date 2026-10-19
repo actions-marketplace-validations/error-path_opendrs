@@ -1,18 +1,34 @@
 import { z } from "zod";
-import { OpendrsError, type LlmJudgement } from "../domain/types.js";
+import { LLM_RISK_CATEGORIES, LLM_SAFE_CATEGORIES, OpendrsError, type LlmHunkRef, type LlmHunkVerdict, type LlmJudgement } from "../domain/types.js";
 
 const MAX_RATIONALE = 400;
 const MAX_REASON = 200;
 const MAX_SNIPPETS = 5;
 
+const SAFE = new Set<string>(LLM_SAFE_CATEGORIES);
+const finite = (name: string) => z.number().refine(Number.isFinite, `${name} must be a finite number`);
+const clampConfidence = (c: number) => Math.round(Math.min(10, Math.max(0, c)));
+const validLine = (line: number | null | undefined): line is number => line != null && Number.isInteger(line) && line > 0;
+
 const outputSchema = z.object({
-  risk: z.number().refine(Number.isFinite, "risk must be a finite number"),
+  risk: finite("risk"),
+  // Nothing reads the top-level confidence, so a prompt-only provider that omits it must not fail.
+  confidence: finite("confidence").default(0),
   rationale: z.string(),
+  hunks: z.array(
+    z.object({
+      hunk: z.number().int(),
+      category: z.enum([...LLM_SAFE_CATEGORIES, ...LLM_RISK_CATEGORIES]),
+      confidence: finite("confidence"),
+      reason: z.string(),
+    }),
+  ),
   risky_snippets: z
     .array(
       z.object({
         file: z.string(),
-        line: z.number().int().positive().nullish(),
+        // A bad line (0, negative, fractional) drops the line, not the judgement; see validLine.
+        line: z.number().nullish(),
         reason: z.string(),
       }),
     )
@@ -43,8 +59,17 @@ function topLevelObjects(text: string): string[] {
   return found;
 }
 
-/** Strictly parse the judge's reply. Snippets are kept only for files that are in the diff. */
-export function parseJudgement(text: string, files: string[]): LlmJudgement {
+/** Of two verdicts for one hunk, the one to keep: risk beats safe, then the lower confidence. */
+function riskier(a: LlmHunkVerdict, b: LlmHunkVerdict): LlmHunkVerdict {
+  if (a.safe !== b.safe) return a.safe ? b : a;
+  return b.confidence < a.confidence ? b : a;
+}
+
+/**
+ * Strictly parse the judge's reply. Snippets are kept only for files that are in the diff; hunk
+ * verdicts only for ids we showed, with `safe` derived from the category, never taken from the model.
+ */
+export function parseJudgement(text: string, files: string[], hunks: LlmHunkRef[], truncated: boolean): LlmJudgement {
   const objects = topLevelObjects(text);
   if (objects.length === 0) throw new OpendrsError("LLM reply contained no JSON object", "llm");
   // A second object (e.g. one quoted from the diff) could be the attacker's; refuse to pick one.
@@ -64,13 +89,40 @@ export function parseJudgement(text: string, files: string[]): LlmJudgement {
   }
 
   const changed = new Set(files);
-  const { risk, rationale, risky_snippets } = parsed.data;
+  const { risk, confidence, rationale, risky_snippets } = parsed.data;
+
+  const shown = new Map(hunks.map((h) => [h.id, h]));
+  const verdicts = new Map<number, LlmHunkVerdict>();
+  for (const v of parsed.data.hunks) {
+    const ref = shown.get(v.hunk);
+    if (!ref) continue;
+    const verdict: LlmHunkVerdict = {
+      file: ref.file,
+      line: ref.line,
+      category: v.category,
+      safe: SAFE.has(v.category),
+      confidence: clampConfidence(v.confidence),
+      reason: v.reason.slice(0, MAX_REASON),
+    };
+    const prev = verdicts.get(v.hunk);
+    verdicts.set(v.hunk, prev ? riskier(prev, verdict) : verdict);
+  }
+
   return {
     risk: Math.min(1, Math.max(0, risk)),
     rationale: rationale.slice(0, MAX_RATIONALE),
     riskySnippets: risky_snippets
       .filter((s) => changed.has(s.file))
       .slice(0, MAX_SNIPPETS)
-      .map((s) => ({ file: s.file, ...(s.line != null ? { line: s.line } : {}), reason: s.reason.slice(0, MAX_REASON) })),
+      .map((s) => ({ file: s.file, ...(validLine(s.line) ? { line: s.line } : {}), reason: s.reason.slice(0, MAX_REASON) })),
+    confidence: clampConfidence(confidence),
+    hunks: hunks.filter((h) => verdicts.has(h.id)).map((h) => verdicts.get(h.id)!),
+    // A file with no hunk at all (binary swap, mode-only change, pure rename) had nothing the judge
+    // could classify, so it is unclassified at line 0: requireSafe must not pass it unread.
+    unclassified: [
+      ...hunks.filter((h) => !verdicts.has(h.id)).map((h) => ({ file: h.file, line: h.line })),
+      ...files.filter((f) => !hunks.some((h) => h.file === f)).map((file) => ({ file, line: 0 })),
+    ],
+    truncated,
   };
 }

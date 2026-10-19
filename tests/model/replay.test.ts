@@ -62,6 +62,66 @@ describe("replayHistory", () => {
       expect(notes).toContain("2 commits newer than 60 days excluded from evaluation (their bugs may not be found yet)");
     }, 60_000);
   });
+
+  describe("external labels and head", () => {
+    const config = () => defaultConfig();
+
+    it("replays exactly the labelled single-parent commits with the given labels", async () => {
+      repo = makeRepo();
+      repo.commit({ "a.ts": "1\n" }, "init");
+      const b = repo.commit({ "a.ts": "2\n" }, "edit");
+      const c = repo.commit({ "a.ts": "3\n" }, "edit again");
+      repo.commit({ "a.ts": "4\n" }, "unlabelled");
+      const { rows } = await replayHistory({ repoDir: repo.dir, config: config(), labels: new Map([[b, 1], [c, 0]]) });
+      expect(rows.map((r) => [r.sha, r.label]).sort()).toEqual([[b, 1], [c, 0]].sort());
+    });
+
+    it("keeps a given 0 label where SZZ-lite would say 1", async () => {
+      repo = makeRepo();
+      repo.commit({ "a.ts": "x\n" }, "init");
+      const bad = repo.commit({ "a.ts": "x\nbad\n" }, "add bad line");
+      repo.commit({ "a.ts": "x\ngood\n" }, "fix bug in bad line");
+      const { rows } = await replayHistory({ repoDir: repo.dir, config: config(), labels: new Map([[bad, 0]]) });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.label).toBe(0);
+    });
+
+    it("reports unknown, abbreviated and merge shas once as not found", async () => {
+      repo = makeRepo();
+      repo.commit({ "a.ts": "1\n" }, "init");
+      const b = repo.commit({ "a.ts": "2\n" }, "edit");
+      repo.git("checkout", "-q", "-b", "side", "HEAD~1");
+      repo.commit({ "s.ts": "s\n" }, "side");
+      repo.git("checkout", "-q", "main");
+      repo.git("merge", "-q", "--no-edit", "side");
+      const merge = repo.git("rev-parse", "HEAD");
+      const labels = new Map<string, 0 | 1>([[b, 1], ["f".repeat(40), 1], [b.slice(0, 12), 1], [b.toUpperCase(), 1], [merge, 0]]);
+      const { rows, warnings } = await replayHistory({ repoDir: repo.dir, config: config(), labels });
+      expect(rows.map((r) => r.sha)).toEqual([b]);
+      expect(warnings).toContain("4 labelled commits not found in the history up to HEAD (or outside --since / history.maxCommits)");
+    });
+
+    it("does not apply the label horizon to labelled commits", async () => {
+      repo = makeRepo();
+      repo.commit({ "a.ts": "1\n" }, "init");
+      const newest = repo.commit({ "a.ts": "2\n" }, "edit");
+      const cfg = config();
+      cfg.history.labelHorizonDays = 3650;
+      const { rows, warnings } = await replayHistory({ repoDir: repo.dir, config: cfg, labels: new Map([[newest, 1]]) });
+      expect(rows.map((r) => r.sha)).toEqual([newest]);
+      expect(warnings.some((w) => w.includes("excluded from evaluation"))).toBe(false);
+    });
+
+    it("replays from head: later commits are not replayed and history is cut there", async () => {
+      repo = makeRepo();
+      repo.commit({ "a.ts": "1\n" }, "init");
+      const b = repo.commit({ "a.ts": "2\n" }, "edit");
+      const later = repo.commit({ "a.ts": "3\n" }, "later");
+      const { rows, warnings } = await replayHistory({ repoDir: repo.dir, config: config(), head: b, labels: new Map([[b, 1], [later, 1]]) });
+      expect(rows.map((r) => r.sha)).toEqual([b]);
+      expect(warnings).toContain(`1 labelled commits not found in the history up to ${b} (or outside --since / history.maxCommits)`);
+    });
+  });
 });
 
 function horizon(days: number) {

@@ -47,7 +47,7 @@ A logistic model turns the signals into a probability between 0 and 1. Each sign
 is shown in the PR comment, so you can see why a PR scored what it did. The default weights are
 priors; `opendrs calibrate` fits them to your repository's history. The full feature table and
 its link to Meta's Diff Risk Score are in the
-[README](https://github.com/error-path/opendrs#metas-drs-features-and-their-opendrs-signals).
+[signal reference](signals.html#metas-drs-features-and-their-opendrs-signals).
 
 ## Check a change's blast radius yourself
 

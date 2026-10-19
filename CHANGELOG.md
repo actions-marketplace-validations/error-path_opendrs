@@ -2,6 +2,109 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- The change notice is posted only after the main report comment was written, so a forbidden
+  update can no longer announce a change the report does not show.
+- Docs: the `brief` input row now says `brief: false` omits the state marker, the re-score line and
+  the change notice.
+
+## 0.3.0 - 2026-10-19
+
+The review-brief release. opendrs now tells LLM and human reviewers what to review first and why,
+not just how risky a PR is. The PR comment opens with a short "Review focus" and a collapsed brief
+for AI reviewers, and the score table moves into a collapsed section. Set the Action input
+`brief: false` to keep the old comment. Re-scores on new commits are now visible, and `calibrate`
+refits its weights on every labelled commit.
+
+- Re-scores are now visible: when the Action re-scores a PR and a valid previous run exists (a
+  hidden `<!-- opendrs-state: ... -->` marker in its own comment), the comment gains a
+  "Re-scored for `<sha>` (run N) · was ... → now ..." line, and a tier or decision change also
+  posts a short separate comment pointing back at the updated report. The new `notify-changes`
+  input (default `true`) turns the separate comment off; `brief: false` still keeps the comment
+  byte-equal to today's output, with no state marker, re-score line or notice.
+- New `/opendrs-review` Claude Code plugin command, a "Brief before you review" section in the
+  agent skill, and [docs/llm-reviewers.md](docs/llm-reviewers.md): recipes for claude-code-action,
+  Cursor Bugbot, CodeRabbit's `path_instructions`, and the generic "paste the brief" pattern for
+  GitHub Copilot and Codex.
+- `calibrate` refits its chosen setting on every labelled commit. It still chooses the penalty,
+  decides whether to keep the priors, and measures its held-out `metrics` on an 80 / 20 time split.
+  Earlier versions saved the oldest-80 % fit, which never saw the newest fifth of the history. On
+  ApacheJIT, pooled calibrated AUC goes from 0.819 to 0.823 (Kamei LR: 0.821), and recall@10/30 %
+  from 29.1 / 66.1 % to 29.7 / 66.8 %. When the priors are kept, nothing changes.
+- `trainedOn` in the model file now covers every commit the saved weights were fitted on.
+  Right after `calibrate`, `backtest` has no newer commits to test on, so it shows calibrate's
+  recorded held-out evaluation as a `calibrated (recorded)` row (`recorded` in `--json`), with a note.
+- Bench: `bench/apachejit/run.ts --cached-only` re-fits from the row cache without cloning or
+  replaying. `bench/apachejit/fit-experiment.ts` compares fit variants on the cached rows.
+- Research note: [how AI code reviewers judge PR risk](docs/research/2026-10-18-review-risk-heuristics.md).
+- [Experiment log](docs/experiments.md): every benchmark and model experiment with its numbers and verdict, the
+  ones that did not work included (Kamei features, review-heuristic signals).
+- The Action's PR comment now leads with a **Review focus** (up to 3 bullets: where to look first,
+  the top check question, and any hard-rule reason) and a collapsed "Review brief for AI reviewers"
+  section, built deterministically from signals already computed (no extra LLM call). The old
+  signal table, unknowns, policy reasons and LLM block move into a collapsed "Score details"
+  section — expand it, or read the Action's outputs, if you scrape the table. Set the new `brief`
+  input to `false` for the old layout: identical except that control, format (invisible/bidi) and
+  tilde-fence characters in untrusted text are now neutralised.
+- New Action outputs `brief` (the brief as Markdown) and `brief-file` (its JSON, under
+  `$RUNNER_TEMP`); both empty when `brief: false`. The brief is also included in the job summary.
+- New `opendrs brief` CLI command and `review_brief` MCP tool: the same token-budgeted review
+  brief (where to look first, what to check, what is safe to skim, what still needs a human), for
+  a terminal or an agent instead of the Action. `opendrs backtest --brief` reports its (free,
+  report-only) focus hit rate. Budget is `brief.maxTokens` in `.opendrs.yml` (default 2500, min
+  300, max 6000; see [docs/configuration.md](docs/configuration.md)). A budget below 300 — too
+  small for the brief's mandatory sections — is rejected with a clear error from the config,
+  `--max-tokens` and the MCP tool's `maxTokens` alike.
+
+## 0.2.0 - 2026-10-18
+
+The roadmap release: Meta's RADAR funnel and the rest of the DRS lineage. Every new policy is off
+by default, so moving from `@v0` changes no decision until you configure it. To use the landing
+delay or a hold added after approval, add `labeled, unlabeled` to the workflow's
+`pull_request` types (see [docs/github-action.md](docs/github-action.md)).
+
+- Labels opendrs adds are created with colours (`risk:green` green, `risk:yellow` yellow,
+  `risk:red` red, and the `opendrs:*` labels); a label still in GitHub's default grey is
+  recoloured, one you coloured is left alone.
+
+- `opendrs feedback` records an incident in `.opendrs/incidents.jsonl`, by commit
+  (`--inducing`, `--fix`) or by PR number (`--pr <n> --was-incident`).
+- `opendrs hotspots` (and the MCP tool `list_hotspots`) ranks files by risk at rest, after Meta's
+  metrics-driven reengineering work: ranks by fixes, churn, dependents and critical paths; shows authors.
+- Reviewer recommendation: for yellow and red PRs, authors of earlier fixes and reverts in the
+  changed files rank higher, and the Action requests a review from one of the top three experts
+  (picked per PR) instead of a team.
+- The Anthropic LLM judge uses structured outputs, so its reply always has the expected shape.
+
+- Deferred review and landing delay, after Meta's RADAR (both off by default).
+  `autoApprove.deferredReview` adds the decision `deferred-review`: a PR just above green that
+  passes every other rule is approved and lands now, with a post-merge review requested and the
+  label `opendrs:review-after-merge`. `autoApprove.landingDelayMinutes` (and
+  `sources.<kind>.landingDelayMinutes`) make an eligible PR wait on the same head commit before
+  opendrs approves it, labelled `opendrs:landing`; `opendrs:hold`, a change request or a push stops
+  it. A `schedule` or `workflow_dispatch` run of the Action re-checks waiting PRs.
+
+- Authorship and per-source policy, after Meta's RADAR: every PR is classified as human, bot or AI
+  agent (Claude Code, Copilot coding agent, Cursor, Codex, Devin, Jules, Aider, or
+  `sources.agent.patterns`) from commit trailers, author emails and, in CI, the GitHub account
+  type. `sources.<kind>` can set a stricter `green`, `requireSafe`, a `dailyCap` on landed commits
+  and a `trackRecord` (landed commits and revert rate over N days). These only tighten the gate.
+  The source appears in the comment, the terminal output and `--json`.
+
+- Structured LLM judge, after Meta's RADAR: the judge classifies every hunk into a named safe or
+  risk category with a 0-10 confidence. Each risk category is a new ranking signal
+  (`llm.risk.*`, weights never negative). With `llm.requireSafe: true`, auto-approval also requires
+  every hunk the judge saw to be safe at `llm.minConfidence` (default 8), with nothing truncated or
+  left unclassified. A reply in the old single-probability format now counts as a judge failure.
+
+- Results on the ApacheJIT benchmark (15 Apache Java projects, official 2017–2019 test years):
+  calibrated opendrs reaches AUC 0.819, on par with a regression on the classic JIT metrics. See
+  [docs/calibration.md](docs/calibration.md#results-on-apachejit). `bench/apachejit/` reproduces
+  it; it is not part of the published package.
+- `replayHistory` (library) takes an optional `head` ref and an optional `labels` map, which
+  replays exactly those commits with those labels instead of labelling history itself.
+
 ## 0.1.5 - 2026-10-16
 
 - Metadata for the official MCP registry entry `io.github.error-path/opendrs`: the npm package

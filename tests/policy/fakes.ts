@@ -15,6 +15,7 @@ export function fakeCommit(email: string, files: string[], daysAgo: number): Com
     files,
     isFix: false,
     isRevert: false,
+    source: "human",
   };
 }
 

@@ -25,6 +25,11 @@ import type { ModelWeights } from "../domain/types.js";
  * - llm.semantic is max(0, logit(p) - logit(0.2)) from the LLM judge: it only adds risk above a
  *   0.2 baseline and can never lower the score, so a judge talked into p ≈ 0 changes nothing.
  *   The weight 0.8 shrinks it toward the other evidence (p = 0.5 adds ~+1.1 logit, p = 0.9 ~+2.9).
+ * - llm.risk.<category> is 1 when the judge put any hunk in that RADAR risk category (arXiv
+ *   2605.30208 §2.8). logic_bug and security are the categories that name an incident cause, so
+ *   they get 0.6 (a bit under paths.critical); performance, structural and complex say "look
+ *   closer" rather than "this is wrong" and get 0.3. All positive: like llm.semantic, the judge can
+ *   only add risk. Calibration floors every llm.* weight at 0 for the same reason.
  * - intercept -2.85 puts an empty diff at ≈ 0.05.
  */
 export const DEFAULT_WEIGHTS: ModelWeights = {
@@ -53,6 +58,11 @@ export const DEFAULT_WEIGHTS: ModelWeights = {
     "lang.docs": -0.4,
     "lang.config": -0.3,
     "llm.semantic": 0.8,
+    "llm.risk.logic_bug": 0.6,
+    "llm.risk.security": 0.6,
+    "llm.risk.performance": 0.3,
+    "llm.risk.structural": 0.3,
+    "llm.risk.complex": 0.3,
   },
   // Used for a signal whose status is `unknown` (or that is missing). A typical value, not the
   // best case, because unknown is never zero risk.

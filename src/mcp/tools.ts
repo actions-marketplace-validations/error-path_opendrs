@@ -1,11 +1,13 @@
 import { resolve } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { renderBriefMarkdown } from "../brief/render.js";
 import { repoRoot } from "../cli/repo.js";
 import { loadConfig } from "../domain/config.js";
 import { scoreDiff } from "../engine.js";
 import { explainFile } from "../explain.js";
 import { gitMaybe } from "../git/exec.js";
 import { buildHistoryIndex } from "../git/history.js";
+import { hotspots } from "../hotspots.js";
 import { suggestReviewers } from "../policy/reviewers.js";
 
 const TOP_CONTRIBUTIONS = 6;
@@ -41,8 +43,23 @@ export async function scoreDiffTool(args: { repoDir: string; base?: string; head
       unknowns: r.unknowns,
       suggestedReviewers: r.policy.suggestedReviewers,
       llmRationale: r.llm?.rationale,
+      source: r.source,
       diff: r.diff,
     });
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** The review brief: Markdown as text content for the model, the ReviewBrief itself as structured content. */
+export async function reviewBriefTool(args: { repoDir: string; base?: string; head?: string; maxTokens?: number }): Promise<CallToolResult> {
+  try {
+    const repoDir = await repoRoot(resolve(args.repoDir));
+    const config = await loadConfig(repoDir);
+    const base = args.base ?? (await defaultBase(repoDir));
+    const r = await scoreDiff({ repoDir, base, head: args.head ?? "HEAD", config, brief: { maxTokens: args.maxTokens } });
+    const brief = r.brief!;
+    return { content: [{ type: "text", text: renderBriefMarkdown(brief) }], structuredContent: brief as unknown as Record<string, unknown> };
   } catch (e) {
     return fail(e);
   }
@@ -52,6 +69,15 @@ export async function explainFileRiskTool(args: { repoDir: string; path: string 
   try {
     const repoDir = await repoRoot(resolve(args.repoDir));
     return ok(await explainFile(repoDir, args.path, await loadConfig(repoDir)));
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function listHotspotsTool(args: { repoDir: string; top?: number }): Promise<CallToolResult> {
+  try {
+    const repoDir = await repoRoot(resolve(args.repoDir));
+    return ok(await hotspots(repoDir, await loadConfig(repoDir), args.top));
   } catch (e) {
     return fail(e);
   }

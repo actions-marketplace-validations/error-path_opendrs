@@ -20,6 +20,11 @@ autoApprove:
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human, to detect drift
   maxChangedLines: 400  # never auto-approve above this, whatever the score
+  landingDelayMinutes: 0  # minutes an eligible PR waits, on the same head commit, before approval
+  deferredReview:       # RADAR: land now, review after merge, for scores just above green
+    enabled: false
+    # below: 0.45       # upper end of the deferred band (thresholds.mode units)
+    sources: [human]
 
 paths:
   # Hard block: a PR touching any of these always needs a human. Matched ignoring case.
@@ -176,6 +181,18 @@ freezes: []
 #    from: "2026-11-26"           # inclusive local dates
 #    to: "2026-11-30"
 #    green: 0.15
+
+# Per-source policy (RADAR): PRs are classified as human, bot or agent (AI coding agent) from commit
+# trailers, author emails and, in CI, the GitHub account type. Every setting only tightens the gate.
+sources:
+  agent: {}
+#    green: 0.2               # stricter green for AI-agent PRs
+#    requireSafe: true        # LLM judge must call every hunk safe (needs llm.enabled)
+#    dailyCap: 20             # at most 20 agent commits landed in the last 24 hours
+#    trackRecord: { days: 60, minCommits: 10, maxRevertRate: 0.05 }
+#    patterns: []             # extra regexes over commit messages and author emails
+  bot: {}
+  human: {}
 `;
 
 export const WORKFLOW_TEMPLATE = `# opendrs: comment a risk score on every pull request.
@@ -185,7 +202,7 @@ name: opendrs
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 
 # A newer push cancels the run for the older head, so it cannot approve or merge a stale commit.
 concurrency:

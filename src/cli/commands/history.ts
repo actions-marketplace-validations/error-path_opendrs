@@ -22,7 +22,13 @@ const META_LR = { "5": 0.187, "10": 0.279, "50": 0.846 };
 async function historyRun(args: string[], io: CliIo, label: string) {
   const { values } = parseArgs({
     args,
-    options: { since: { type: "string" }, "max-commits": { type: "string" }, "label-horizon-days": { type: "string" }, json: { type: "boolean" } },
+    options: {
+      since: { type: "string" },
+      "max-commits": { type: "string" },
+      "label-horizon-days": { type: "string" },
+      json: { type: "boolean" },
+      brief: { type: "boolean" },
+    },
   });
   const maxCommits = parsePositiveInt("--max-commits", values["max-commits"]);
   const horizon = values["label-horizon-days"];
@@ -39,7 +45,7 @@ async function historyRun(args: string[], io: CliIo, label: string) {
     maxCommits,
     onProgress: (done, total) => io.progress(`${label}: ${done}/${total} commits`),
   };
-  return { opts, json: values.json === true };
+  return { opts, json: values.json === true, brief: values.brief === true };
 }
 
 export const calibrateCommand: Command = {
@@ -55,7 +61,8 @@ Options:
 ${HISTORY_OPTIONS}`,
 
   async run(args, io) {
-    const { opts } = await historyRun(args, io, "calibrate");
+    const { opts, brief } = await historyRun(args, io, "calibrate");
+    if (brief) throw new OpendrsError("--brief is not a calibrate option (it stays valid on backtest)", "usage");
     const { model, warnings } = await calibrate(opts);
     io.progress("");
     for (const w of warnings) io.err(`opendrs: warning: ${w}`);
@@ -75,7 +82,7 @@ ${HISTORY_OPTIONS}`,
     const m = model.metrics;
     if (m) {
       io.out(
-        `Held-out newest 20 %:  captured@5%  ${pct(m.capturedAt["5"])}   @10%  ${pct(m.capturedAt["10"])}   @50%  ${pct(m.capturedAt["50"])}   AUC ${m.auc.toFixed(2)}`,
+        `Held-out newest 20 % (fit on the oldest 80 %; the saved model is refitted on all):  captured@5%  ${pct(m.capturedAt["5"])}   @10%  ${pct(m.capturedAt["10"])}   @50%  ${pct(m.capturedAt["50"])}   AUC ${m.auc.toFixed(2)}`,
       );
     } else {
       io.out("The model has no held-out metrics (too few labelled commits to evaluate).");
@@ -104,12 +111,15 @@ default priors and (when config.model exists) the calibrated model.
 
 Options:
 ${HISTORY_OPTIONS}
+  --brief               [Report-only; free] Add the focus hit rate (the share of SZZ-labelled
+                        buggy commits whose review brief would have ranked at least one
+                        later-fixed line into "Review first").
   --json               Print the raw report as JSON`,
 
   async run(args, io) {
-    const { opts, json } = await historyRun(args, io, "backtest");
+    const { opts, json, brief } = await historyRun(args, io, "backtest");
     const { model, kind } = await loadModel(opts.repoDir, opts.config);
-    const report = await backtest({ ...opts, model: kind === "calibrated" ? model : undefined });
+    const report = await backtest({ ...opts, model: kind === "calibrated" ? model : undefined, brief });
     io.progress("");
     if (json) {
       io.out(JSON.stringify(report, null, 2));
@@ -119,11 +129,19 @@ ${HISTORY_OPTIONS}
     io.out(row("default priors", report.default.capturedAt, report.default));
     if (report.calibrated) io.out(row("calibrated (held-out)", report.calibrated.capturedAt, report.calibrated));
     if (report.defaultOnHeldOut) io.out(row("default priors (held-out)", report.defaultOnHeldOut.capturedAt, report.defaultOnHeldOut));
+    if (report.recorded) io.out(row("calibrated (recorded)", report.recorded.capturedAt, report.recorded));
     io.out(row("Meta LR baseline *", META_LR));
+    if (report.focusHitRate) {
+      const f = report.focusHitRate;
+      io.out("");
+      io.out(`Focus hit rate (report-only, not a gate): ${pct(f.hitRate)} of ${f.commits} SZZ-labelled commits had a later-fixed line inside "Review first" (${pct(f.changedLineShare)} of changed lines were in focus, on average).`);
+      if (f.skipped > 0) io.out(`Note: ${f.skipped} SZZ-labelled commit(s) could not be measured (diff or scoring failed) and are not counted above.`);
+    }
     io.out("");
     if (kind !== "calibrated") io.out(`No calibrated model at ${opts.config.model}. Run \`opendrs calibrate\` to fit one.`);
     io.out("captured@X%: share of incident-linked commits that fall in the riskiest X % of commits.");
     if (report.calibrated) io.out("held-out: commits newer than the calibrated model's training window; compare the two held-out rows.");
+    if (report.recorded) io.out("recorded: calibrate's held-out evaluation of its fit on the oldest 80 % (no newer commits to test on yet).");
     for (const note of report.notes) io.out(`Note: ${note}`);
     io.out(
       "* Meta's in-house results for its LR baseline on Meta's own diffs and SEVs (arXiv 2410.06351). " +

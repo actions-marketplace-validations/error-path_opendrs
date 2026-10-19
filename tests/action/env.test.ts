@@ -23,17 +23,29 @@ describe("readInputs", () => {
       labels: true,
       llmApiKey: undefined,
       sampleSalt: "",
+      brief: true,
+      notifyChanges: true,
     });
   });
 
   it("parses YAML-style booleans and the LLM key", () => {
     expect(
       readInputs({ "INPUT_GITHUB-TOKEN": "t", "INPUT_BASE-CONFIG": "False", INPUT_COMMENT: "FALSE", INPUT_LABELS: "true", "INPUT_LLM-API-KEY": " k " }),
-    ).toEqual({ token: "t", baseConfig: false, comment: false, labels: true, llmApiKey: "k", sampleSalt: "" });
+    ).toEqual({ token: "t", baseConfig: false, comment: false, labels: true, llmApiKey: "k", sampleSalt: "", brief: true, notifyChanges: true });
+  });
+
+  it("reads INPUT_NOTIFY-CHANGES, defaulting to true", () => {
+    expect(readInputs({ "INPUT_GITHUB-TOKEN": "t" }).notifyChanges).toBe(true);
+    expect(readInputs({ "INPUT_GITHUB-TOKEN": "t", "INPUT_NOTIFY-CHANGES": "false" }).notifyChanges).toBe(false);
   });
 
   it("reads sample-salt", () => {
     expect(readInputs({ "INPUT_GITHUB-TOKEN": "t", "INPUT_SAMPLE-SALT": "pepper" }).sampleSalt).toBe("pepper");
+  });
+
+  it("reads INPUT_BRIEF, defaulting to true", () => {
+    expect(readInputs({ "INPUT_GITHUB-TOKEN": "t" }).brief).toBe(true);
+    expect(readInputs({ "INPUT_GITHUB-TOKEN": "t", INPUT_BRIEF: "false" }).brief).toBe(false);
   });
 
   it("rejects a non-boolean value", () => {

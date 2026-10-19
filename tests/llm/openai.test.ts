@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOpenAiProvider } from "../../src/llm/openai.js";
+import { JUDGEMENT_SCHEMA } from "../../src/llm/schema.js";
 
 const KEY = "sk-openai-SECRET";
-const input = { title: "t", diff: "+x", files: ["src/a.ts"] };
-const reply = JSON.stringify({ risk: 0.6, rationale: "drops auth check", risky_snippets: [] });
+const input = { title: "t", diff: "[hunk 1]\n+x", files: ["src/a.ts"], hunks: [{ id: 1, file: "src/a.ts", line: 1 }], truncated: false };
+const reply = JSON.stringify({ risk: 0.6, confidence: 9, rationale: "drops auth check", hunks: [{ hunk: 1, category: "security", confidence: 9, reason: "auth" }], risky_snippets: [] });
 const completion = (content: string) => Response.json({ choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }] });
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -14,17 +15,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("openai-compatible provider", () => {
-  it("posts chat/completions in JSON mode and parses the message content", async () => {
+  it("posts chat/completions with the strict judge schema and parses the message content", async () => {
     fetchMock.mockResolvedValue(completion(reply));
 
     const j = await createOpenAiProvider({ model: "gpt-x", apiKey: KEY }).judge(input);
 
     expect(j.risk).toBe(0.6);
+    expect(j.hunks).toEqual([{ file: "src/a.ts", line: 1, category: "security", safe: false, confidence: 9, reason: "auth" }]);
+    expect(j.truncated).toBe(false);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://api.openai.com/v1/chat/completions");
     expect(init.headers).toMatchObject({ authorization: `Bearer ${KEY}`, "content-type": "application/json" });
     const body = JSON.parse(init.body as string);
-    expect(body).toMatchObject({ model: "gpt-x", temperature: 0, response_format: { type: "json_object" } });
+    expect(body).toMatchObject({
+      model: "gpt-x",
+      temperature: 0,
+      response_format: { type: "json_schema", json_schema: { name: "judgement", schema: JUDGEMENT_SCHEMA, strict: true } },
+    });
     expect(body.messages.map((m: { role: string }) => m.role)).toEqual(["system", "user"]);
   });
 

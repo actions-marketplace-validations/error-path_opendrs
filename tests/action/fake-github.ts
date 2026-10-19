@@ -47,6 +47,9 @@ export type Op =
   | "updateComment"
   | "addLabels"
   | "removeLabel"
+  | "getLabel"
+  | "createLabel"
+  | "updateLabel"
   | "listReviews"
   | "createReview"
   | "dismissReview"
@@ -55,7 +58,8 @@ export type Op =
   | "protection"
   | "mergeSettings"
   | "enableAutoMerge"
-  | "enqueue";
+  | "enqueue"
+  | "requestReviewers";
 
 export interface FakeGitHub {
   /** GraphQL `viewer.login`. For GITHUB_TOKEN that is "github-actions", without "[bot]". */
@@ -69,7 +73,10 @@ export interface FakeGitHub {
   /** Message of the GraphQL error that disable/dequeue return; undefined = success. */
   mergeStateError?: string;
   comments: FakeComment[];
+  /** Labels on PR #7. */
   labels: string[];
+  /** The repository's labels (GET /labels/{name}); a label missing here answers 404. */
+  repoLabels: Record<string, { color: string; description?: string }>;
   reviews: FakeReview[];
   /** Check runs on the requested commit; `head_sha`, `status` and `app` default to that commit, completed, github-actions. */
   checkRuns: Array<{ name: string; conclusion: string | null; status?: string; details_url?: string; app?: { slug: string } }>;
@@ -83,6 +90,8 @@ export interface FakeGitHub {
   forbid: Set<Op>;
   /** Operations that answer 500. */
   fail: Set<Op>;
+  /** Operations that answer 422. */
+  reject: Set<Op>;
   /** Every operation performed, with its payload. */
   log: Array<{ op: Op; body?: unknown; path: string }>;
   ops(op: Op): Array<{ op: Op; body?: unknown; path: string }>;
@@ -100,6 +109,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
     commits: [],
     comments: [],
     labels: [],
+    repoLabels: {},
     reviews: [],
     checkRuns: [],
     rules: [STALE_APPROVALS_DISMISSED],
@@ -107,6 +117,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
     mergeCommitAllowed: true,
     forbid: new Set(),
     fail: new Set(),
+    reject: new Set(),
     log: [],
     ops: (op) => gh.log.filter((e) => e.op === op),
     ...init,
@@ -117,6 +128,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
     gh.log.push({ op, body, path });
     if (gh.forbid.has(op)) return json(403, { message: "Resource not accessible by integration" });
     if (gh.fail.has(op)) return json(500, { message: "Server Error" });
+    if (gh.reject.has(op)) return json(422, { message: "Validation Failed" });
     return ok();
   };
 
@@ -183,6 +195,25 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
           c.body = body.body;
           return json(200, c);
         });
+      if ((m = route.match(new RegExp(`^GET ${pr}/labels/(.+)$`))))
+        return handle("getLabel", path, undefined, () => {
+          const name = decodeURIComponent(m![1]!);
+          const l = gh.repoLabels[name];
+          return l ? json(200, { name, ...l }) : json(404, { message: "Not Found" });
+        });
+      if (route === `POST ${pr}/labels`)
+        return handle("createLabel", path, body, () => {
+          if (gh.repoLabels[body.name]) return json(422, { message: "Validation Failed" });
+          gh.repoLabels[body.name] = { color: body.color, description: body.description };
+          return json(201, body);
+        });
+      if ((m = route.match(new RegExp(`^PATCH ${pr}/labels/(.+)$`))))
+        return handle("updateLabel", path, body, () => {
+          const name = decodeURIComponent(m![1]!);
+          if (!gh.repoLabels[name]) return json(404, { message: "Not Found" });
+          Object.assign(gh.repoLabels[name]!, body);
+          return json(200, { name, ...gh.repoLabels[name] });
+        });
       if (route === `POST ${pr}/issues/7/labels`)
         return handle("addLabels", path, body, () => {
           for (const l of body.labels as string[]) if (!gh.labels.includes(l)) gh.labels.push(l);
@@ -202,6 +233,7 @@ export function installFakeGitHub(init: Partial<FakeGitHub> = {}): FakeGitHub {
           gh.reviews.push(r);
           return json(200, r);
         });
+      if (route === `POST ${pr}/pulls/7/requested_reviewers`) return handle("requestReviewers", path, body, () => json(201, { number: 7 }));
       if ((m = route.match(new RegExp(`^PUT ${pr}/pulls/7/reviews/(\\d+)/dismissals$`))))
         return handle("dismissReview", path, body, () => {
           const r = gh.reviews.find((x) => x.id === Number(m![1]));

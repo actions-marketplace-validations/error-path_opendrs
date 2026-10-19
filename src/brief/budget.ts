@@ -1,0 +1,66 @@
+import type { ReviewBrief } from "../domain/types.js";
+import { renderBriefMarkdown } from "./render.js";
+
+const CHARS_PER_TOKEN = 3.5;
+export const estimateTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
+const MAX_NOTES = 5;
+const MAX_NOTE_CHARS = 200;
+
+/**
+ * Trim the brief to `maxTokens` of rendered Markdown in spec §6.2's fill order: verdict, needs a
+ * human and not ranked are fixed; then review-first (file by file, hunk by hunk), checks, skim,
+ * and last the notes (at most 5, each clipped to 200 characters).
+ * Each candidate is measured by rendering it, so `estimatedTokens` is the real rendered size.
+ */
+export function fitBudget(brief: ReviewBrief, maxTokens: number): ReviewBrief {
+  const first = fill(brief, maxTokens, false);
+  // Something was cut, so the footer line is part of the output: refill with its room reserved.
+  return first.budget.truncated ? fill(brief, maxTokens, true) : first;
+}
+
+function fill(brief: ReviewBrief, maxTokens: number, reserveFooter: boolean): ReviewBrief {
+  const omitted = { files: 0, hunks: 0, checks: 0, notes: 0 };
+  // The footer at its longest possible counts, so the final one is never larger than what was reserved.
+  const footer = { files: brief.reviewFirst.length, hunks: brief.reviewFirst.reduce((n, f) => n + f.hunks.length, 0), checks: brief.checks.length, notes: brief.notes.length };
+  const emptySkim: ReviewBrief["skim"] = Array.isArray(brief.skim) ? [] : { counts: {} };
+  const notes = brief.notes.slice(0, MAX_NOTES).map((n) => (n.length > MAX_NOTE_CHARS ? `${n.slice(0, MAX_NOTE_CHARS)}…` : n));
+  let cur: ReviewBrief = {
+    ...brief,
+    reviewFirst: [],
+    checks: [],
+    skim: emptySkim,
+    notes: [],
+    budget: { maxTokens, estimatedTokens: 0, truncated: reserveFooter, omitted: reserveFooter ? footer : omitted },
+  };
+  // The mandatory sections (verdict, needs a human, not ranked) are never cut, so they can still
+  // outgrow a very small budget on their own, before anything optional is even considered.
+  const tooSmallForMandatory = estimateTokens(renderBriefMarkdown(cur)) > maxTokens;
+  const tryAdd = (next: ReviewBrief): boolean => {
+    if (estimateTokens(renderBriefMarkdown(next)) > maxTokens) return false;
+    cur = next;
+    return true;
+  };
+
+  for (const f of brief.reviewFirst) {
+    if (!tryAdd({ ...cur, reviewFirst: [...cur.reviewFirst, { ...f, hunks: [] }] })) {
+      omitted.files++;
+      omitted.hunks += f.hunks.length;
+      continue;
+    }
+    for (const h of f.hunks) {
+      const last = cur.reviewFirst.at(-1)!;
+      if (!tryAdd({ ...cur, reviewFirst: [...cur.reviewFirst.slice(0, -1), { ...last, hunks: [...last.hunks, h] }] })) omitted.hunks++;
+    }
+  }
+  for (const c of brief.checks) if (!tryAdd({ ...cur, checks: [...cur.checks, c] })) omitted.checks++;
+  tryAdd({ ...cur, skim: brief.skim });
+  for (const n of notes) if (!tryAdd({ ...cur, notes: [...cur.notes, n] })) omitted.notes++;
+  omitted.notes += brief.notes.length - notes.length;
+
+  const truncated = tooSmallForMandatory || omitted.files > 0 || omitted.hunks > 0 || omitted.checks > 0 || omitted.notes > 0;
+  const curNotes = tooSmallForMandatory
+    ? [...cur.notes, `budget of ${maxTokens} tokens is too small to fit even the mandatory sections; this brief is over budget`]
+    : cur.notes;
+  const out: ReviewBrief = { ...cur, notes: curNotes, budget: { maxTokens, estimatedTokens: 0, truncated, omitted } };
+  return { ...out, budget: { ...out.budget, estimatedTokens: estimateTokens(renderBriefMarkdown(out)) } };
+}

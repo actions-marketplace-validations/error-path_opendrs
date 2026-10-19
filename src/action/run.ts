@@ -1,3 +1,7 @@
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { renderBriefMarkdown } from "../brief/render.js";
 import { CONFIG_FILE, defaultConfig, loadConfig, parseConfigText, type OpendrsConfig } from "../domain/config.js";
 import type { Decision, ModelWeights, Tier } from "../domain/types.js";
 import { OpendrsError } from "../domain/types.js";
@@ -5,15 +9,21 @@ import { scoreDiff } from "../engine.js";
 import { git, gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 import { buildHistoryIndex } from "../git/history.js";
-import { suggestReviewers } from "../policy/reviewers.js";
-import { cell, renderMarkdown } from "../report/markdown.js";
-import { changesRequested, ownApprovals, reconcileApproval, stopMerge, withdraw } from "./approval.js";
-import { isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
+import { assignReviewer, suggestReviewers } from "../policy/reviewers.js";
+import { cell } from "../report/escape.js";
+import { renderMarkdown } from "../report/markdown.js";
+import { HOLD_LABEL, changesRequested, eligibleMarker, noreplyLogin, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
+import { GitHubError, type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
+import { changeNotice, readState, rescoreLine, stateMarker } from "./state.js";
 import type { WorkflowIO } from "./workflow.js";
 
 export { APPROVAL_MARKER } from "./approval.js";
 export const COMMENT_MARKER = "<!-- opendrs -->";
+/** On a PR while its landing delay runs; the scheduled sweep re-scores the PRs that carry it. */
+export const LANDING_LABEL = "opendrs:landing";
 const RISK_LABELS = ["risk:green", "risk:yellow", "risk:red"];
+const COMMENT_FORBIDDEN =
+  "Could not write the PR comment (403): the token needs `pull-requests: write`. Fork PRs get a read-only token on `pull_request` events.";
 const PREDICTABLE_SAMPLING =
   "sampling is predictable; set sample-salt to a secret. Without it, anyone can compute which PR numbers " +
   "autoApprove.sampleRate sends to a human, and time a risky PR for one that is not sampled.";
@@ -27,6 +37,10 @@ export interface ActionInputs {
   labels: boolean;
   /** Mixed into the drift-sampling key; a secret makes the sample unpredictable. */
   sampleSalt?: string;
+  /** Build the review brief and add it to the comment, job summary and brief/brief-file outputs. */
+  brief: boolean;
+  /** Post a short new comment when a re-score changes the tier or the decision. Needs `brief` and `comment`. */
+  notifyChanges: boolean;
 }
 
 /** The fields of the `pull_request` webhook payload the action uses. */
@@ -37,8 +51,9 @@ export interface PullRequest {
   body: string | null;
   labels: Array<{ name: string }>;
   draft?: boolean;
-  /** The account that opened the PR. */
-  user?: { login: string } | null;
+  /** The account that opened the PR; `type` is "Bot" for a GitHub App, "User" otherwise. */
+  user?: { login: string; type?: string } | null;
+  requested_reviewers?: Array<{ login: string }>;
   base: { sha: string; ref: string; repo: { full_name: string } };
   head: { sha: string; ref: string; repo: { full_name: string } | null };
 }
@@ -63,7 +78,7 @@ export interface ActionOutcome {
 function readPullRequest(event: unknown): PullRequest {
   const pr = (event as { pull_request?: PullRequest } | null)?.pull_request;
   if (!pr || typeof pr.number !== "number" || !pr.base?.sha || !pr.head?.sha) {
-    throw new OpendrsError("opendrs needs a pull_request event: this event has no pull_request payload", "usage");
+    throw new OpendrsError("opendrs needs a pull_request event (or a schedule / workflow_dispatch sweep): this event has no pull_request payload", "usage");
   }
   return pr;
 }
@@ -125,6 +140,27 @@ async function prAuthor(d: ActionDeps, pr: PullRequest): Promise<{ verified: boo
   return { verified, emails: new Set(emails) };
 }
 
+/**
+ * For a PR that needs a human, ask one expert (a GitHub login among the suggested reviewers, picked by
+ * PR so reruns agree) to review; best-effort. Returns the login when a review was requested.
+ */
+async function requestOneReviewer({ client, io }: ActionDeps, pr: PullRequest, reviewers: string[], decision: Decision): Promise<string | undefined> {
+  if (decision !== "human-review") return undefined;
+  const logins = reviewers.map(noreplyLogin).filter((l): l is string => l !== undefined);
+  const login = assignReviewer(logins, `${pr.base.repo.full_name}#${pr.number}`);
+  if (login === undefined || sameLogin(login, pr.user?.login) || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return undefined;
+  // Re-requesting a review resets one that was already submitted.
+  if ((await client.listReviews(pr.number)).some((r) => sameLogin(r.user?.login, login))) return undefined;
+  try {
+    await client.requestReviewers(pr.number, [login]);
+    return login;
+  } catch (e) {
+    if (!(e instanceof GitHubError && (e.status === 403 || e.status === 422))) throw e;
+    io.warning(`Could not request a review from @${login} (${e.message}). Ask them by hand.`);
+    return undefined;
+  }
+}
+
 /** Every path the PR changes, from the merge-base; renames count as delete + add. */
 async function changedFiles(repoDir: string, base: string, head: string): Promise<string[]> {
   const out = await git(repoDir, ["diff", "--name-only", "--no-renames", "-z", `${base}...${head}`]);
@@ -132,7 +168,25 @@ async function changedFiles(repoDir: string, base: string, head: string): Promis
 }
 
 export async function runAction(d: ActionDeps): Promise<ActionOutcome> {
-  const pr = readPullRequest(d.event);
+  return runPullRequest(d, readPullRequest(d.event));
+}
+
+/**
+ * The eligibility time from opendrs's own comment, unless it predates the comment by more than two
+ * minutes: a comment cannot vouch for a time before it existed, so another bot's comment that copies
+ * the marker cannot backdate the clock by more than that. The marker's time is taken seconds before
+ * the comment is written (`now` in the approval, then the comment call), so two minutes is ample.
+ */
+const MAX_RUN_MS = 2 * 60_000;
+function trustedSince(comment: IssueComment | undefined, head: string): Date | undefined {
+  const since = readEligibleSince(comment?.body ?? undefined, head);
+  const created = comment?.created_at ? Date.parse(comment.created_at) : NaN;
+  if (since === undefined || Number.isNaN(created)) return since;
+  return since.getTime() >= created - MAX_RUN_MS ? since : undefined;
+}
+
+/** Score, comment, label and reconcile the approval of one PR; the sweep calls this for each labelled PR. */
+export async function runPullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionOutcome> {
   try {
     return await scorePullRequest(d, pr);
   } catch (e) {
@@ -192,6 +246,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
       model,
       history,
       authorVerified: author.verified,
+      account: pr.user ? { login: pr.user.login, type: pr.user.type } : undefined,
       title: pr.title,
       description: pr.body ?? undefined,
       // Keyed by PR, not head sha, so pushing another commit cannot re-roll the drift sample.
@@ -202,6 +257,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
         draft: pr.draft,
         changesRequestedBy,
       },
+      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens, onError: (m) => io.warning(m) } : undefined,
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -210,48 +266,109 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   io.setOutput("score", result.score.toFixed(4));
   io.setOutput("tier", result.tier);
   io.setOutput("decision", result.policy.decision);
+  if (result.brief) {
+    io.setOutput("brief", renderBriefMarkdown(result.brief));
+    const dir = d.env.RUNNER_TEMP ?? tmpdir();
+    const file = join(dir, `opendrs-brief-${pr.number}.json`);
+    try {
+      await writeFile(file, JSON.stringify(result.brief));
+      io.setOutput("brief-file", file);
+    } catch (e) {
+      io.warning(`Could not write the brief file (${e instanceof Error ? e.message : String(e)}); the \`brief-file\` output is empty. The \`brief\` output still has the full brief.`);
+      io.setOutput("brief-file", "");
+    }
+  } else {
+    io.setOutput("brief", "");
+    io.setOutput("brief-file", "");
+  }
+
+  // A push during scoring: the comment, labels and reviewer request belong to the run for the new head.
+  const current = await client.pullHeadSha(pr.number);
+  if (current !== pr.head.sha) {
+    io.notice(`The PR head moved to ${current} while opendrs scored ${pr.head.sha}: not approving. The run for the new head decides.`);
+    return { score: result.score, tier: result.tier, decision: result.policy.decision, approved: false };
+  }
 
   const files = await changedFiles(d.repoDir, pr.base.sha, pr.head.sha);
   // Exclude the PR author's verified emails, not the head commit's claimed one, which they control.
   const paths = files.filter((f) => !matchAny(config.paths.ignore, f));
-  result.policy.suggestedReviewers = suggestReviewers(history, paths, undefined, 3 + author.emails.size)
+  result.policy.suggestedReviewers = suggestReviewers(history, paths, undefined, 3 + author.emails.size, result.tier !== "green")
     .filter((email) => !author.emails.has(email))
     .slice(0, 3);
+  const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
 
-  const approval = await io.group("Approval", () => reconcileApproval({ client, io, pr, config, result, files, viewer }));
+  // opendrs's own comment carries the time this head became eligible, so a landing delay survives across runs.
+  const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : undefined;
+  // The newest one: GitHub lists comments oldest first.
+  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
+  const labels = pr.labels.map((l) => l.name);
+  if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
+    io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
+  }
+  const approval = await io.group("Approval", () =>
+    reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment }),
+  );
 
-  const report = renderMarkdown(result);
+  // Re-score visibility needs the state marker, which the brief:false byte-equal guarantee forbids adding.
+  const previousState = d.inputs.brief ? readState(mine?.body ?? undefined) : undefined;
+  const runNumber = previousState ? previousState.run + 1 : 1;
+  const rescore = previousState ? rescoreLine(previousState, runNumber, pr.head.sha, result.score, result.tier) : undefined;
+
   const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
-  const body = `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}`;
+  const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
+  const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
+  const state = d.inputs.brief
+    ? `\n${stateMarker({ head: pr.head.sha, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
+    : "";
+  const assemble = (report: string) =>
+    `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;
+  const body = assemble(renderMarkdown(result, { rescoreLine: rescore }));
+  // Over GitHub's limit the comment is rendered again without the brief, never edited by a pattern
+  // over content the PR controls; the full brief stays in the `brief` output.
+  const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore })) : body;
 
-  if (d.inputs.comment) {
+  if (comments) {
+    let written = false;
     await unlessForbidden(
       async () => {
-        const mine = (await client.listComments(pr.number)).find(
-          (c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER),
-        );
-        if (mine) await client.updateComment(mine.id, body);
-        else await client.createComment(pr.number, body);
+        if (mine) await client.updateComment(mine.id, capped);
+        else await client.createComment(pr.number, capped);
+        written = true;
       },
-      () =>
-        io.warning(
-          "Could not write the PR comment (403): the token needs `pull-requests: write`. Fork PRs get a read-only token on `pull_request` events.",
-        ),
+      () => io.warning(COMMENT_FORBIDDEN),
+    );
+    // A short, separate notice so a re-score that changes the outcome is not missed in an updated-in-place
+    // comment; it never carries the opendrs marker, so it is never mistaken for the main comment. Only after
+    // the report itself was written, so a notice never announces a change the report does not show.
+    if (written && d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
+      await unlessForbidden(
+        () => client.createComment(pr.number, changeNotice(previousState, result.score, result.tier, result.policy.decision)),
+        () => io.warning(COMMENT_FORBIDDEN),
+      );
+    }
+  }
+
+  // The sweep finds PRs waiting out their delay by this label, so it is kept whatever the labels input
+  // says, and also while on hold, so the sweep resumes the PR once the hold label is removed.
+  const landing = approval.pendingUntil !== undefined || (labels.includes(HOLD_LABEL) && approval.eligibleSince !== undefined);
+  if (landing !== labels.includes(LANDING_LABEL)) {
+    await unlessForbidden(
+      () => (landing ? client.addLabels(pr.number, [LANDING_LABEL]) : client.removeLabel(pr.number, LANDING_LABEL)),
+      () => io.warning(`Could not ${landing ? "add" : "remove"} the ${LANDING_LABEL} label (403): the token needs \`pull-requests: write\`.`),
     );
   }
 
   if (d.inputs.labels) {
     const want = `risk:${result.tier}`;
-    const current = pr.labels.map((l) => l.name);
     await unlessForbidden(
       async () => {
-        for (const label of current) if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
-        if (!current.includes(want)) await client.addLabels(pr.number, [want]);
+        for (const label of labels) if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
+        if (!labels.includes(want)) await client.addLabels(pr.number, [want]);
       },
       () => io.warning("Could not set risk labels (403): the token needs `pull-requests: write` (and `issues: write` to create new labels)."),
     );
   }
 
-  io.summary(body);
+  io.summary(capped);
   return { score: result.score, tier: result.tier, decision: result.policy.decision, approved: approval.approved };
 }

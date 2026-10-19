@@ -141,6 +141,29 @@ function compiles(pattern: string, ctx: z.RefinementCtx): void {
 
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD date");
 
+/**
+ * Policy for PRs from one source. Every field can only tighten the gate: a source cannot loosen
+ * the base thresholds, because agent authorship comes from commit trailers the PR author controls.
+ */
+const sourcePolicySchema = z.object({
+  /** Stricter green threshold for this source (thresholds.mode units); must be below thresholds.green. */
+  green: z.number().optional(),
+  /** Like llm.requireSafe, for this source only. Needs llm.enabled. */
+  requireSafe: z.boolean().default(false),
+  /** A longer landing delay for this source; the larger of this and autoApprove.landingDelayMinutes applies. */
+  landingDelayMinutes: z.number().int().min(0).optional(),
+  /** At most this many commits of this source landed on the base branch in the last 24 hours. */
+  dailyCap: z.number().int().positive().optional(),
+  /** RADAR's track record: enough recent landed commits of this source, and few of them reverted. */
+  trackRecord: z
+    .object({
+      days: z.number().int().positive().default(60),
+      minCommits: z.number().int().min(0).default(10),
+      maxRevertRate: z.number().min(0).max(1).default(0.05),
+    })
+    .optional(),
+});
+
 /** A freeze window: active when the local date in `timezone` meets every condition it sets. */
 const freezeSchema = z
   .object({
@@ -188,6 +211,20 @@ export const configSchema = z.object({
       mergeMethod: z.enum(["queue", "auto-merge", "none"]).default("queue"),
       sampleRate: z.number().min(0).max(1).default(0.1),
       maxChangedLines: z.number().int().positive().default(400),
+      /** Minutes an eligible PR waits, on the same head commit, before opendrs approves it (a veto window). */
+      landingDelayMinutes: z.number().int().min(0).default(0),
+      /**
+       * RADAR's deferred review: a PR whose score is at or above green but below `below` (thresholds.mode
+       * units), and that passes every other rule, is approved and lands now, with a human review assigned
+       * after merge. Only for the listed sources; the trusted floor must be listed too.
+       */
+      deferredReview: z
+        .object({
+          enabled: z.boolean().default(false),
+          below: z.number().optional(),
+          sources: z.array(z.enum(["human", "bot", "agent"])).default(["human"]),
+        })
+        .prefault({}),
     })
     .prefault({}),
   paths: z
@@ -238,6 +275,9 @@ export const configSchema = z.object({
       apiKeyEnv: z.string().optional(),
       includeDescription: z.boolean().default(false),
       maxDiffChars: z.number().int().positive().default(60_000),
+      /** Auto-approve only when the judge calls every hunk it saw safe, with at least minConfidence. */
+      requireSafe: z.boolean().default(false),
+      minConfidence: z.number().int().min(0).max(10).default(8),
     })
     .prefault({}),
   history: z
@@ -258,9 +298,68 @@ export const configSchema = z.object({
     .prefault({}),
   /** Path to calibrated model JSON, relative to repo root. Used when it exists. */
   model: z.string().default(".opendrs/model.json"),
+  brief: z
+    .object({
+      /** Token budget for the review brief's Markdown (characters / 3.5); 300 is roughly the cost of the mandatory sections alone, the hard ceiling is 6000. */
+      maxTokens: z.number().int().min(300, "brief.maxTokens must be at least 300 (the mandatory sections alone cost roughly that many tokens)").max(6_000).default(2_500),
+    })
+    .prefault({}),
   freezes: z.array(freezeSchema).default([]),
+  sources: z
+    .object({
+      human: sourcePolicySchema.prefault({}),
+      bot: sourcePolicySchema.prefault({}),
+      agent: sourcePolicySchema
+        .extend({
+          /** Extra regexes (case-insensitive) over commit messages and author emails that mark agent authorship. */
+          patterns: z
+            .array(
+              z.string().superRefine((pattern, ctx) => {
+                try {
+                  new RegExp(pattern, "i");
+                } catch (e) {
+                  ctx.addIssue({ code: "custom", message: `invalid regex: ${(e as Error).message}` });
+                }
+              }),
+            )
+            .default([]),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
 })
-  .superRefine(({ thresholds, freezes }, ctx) => {
+  .superRefine(({ thresholds, freezes, llm, sources, autoApprove }, ctx) => {
+    const deferred = autoApprove.deferredReview;
+    if (deferred.enabled && (deferred.below === undefined || deferred.below <= thresholds.green || deferred.below > thresholds.yellow)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `autoApprove.deferredReview.below must be set above thresholds.green (${thresholds.green}) and at most thresholds.yellow (${thresholds.yellow}), in ${thresholds.mode} units`,
+        path: ["autoApprove", "deferredReview", "below"],
+      });
+    }
+    if (deferred.enabled && deferred.sources.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "autoApprove.deferredReview.sources must list at least one source kind (a PR from a user account is human); with none, deferral can never apply",
+        path: ["autoApprove", "deferredReview", "sources"],
+      });
+    }
+    for (const kind of ["human", "bot", "agent"] as const) {
+      const policy = sources[kind];
+      if (policy.green !== undefined && policy.green >= thresholds.green) {
+        ctx.addIssue({
+          code: "custom",
+          message: `sources.${kind}.green ${policy.green} must be less than thresholds.green (${thresholds.green}): a source can only tighten the gate`,
+          path: ["sources", kind, "green"],
+        });
+      }
+      if (policy.requireSafe && !llm.enabled) {
+        ctx.addIssue({ code: "custom", message: `sources.${kind}.requireSafe needs llm.enabled: true`, path: ["sources", kind, "requireSafe"] });
+      }
+    }
+    if (llm.requireSafe && !llm.enabled) {
+      ctx.addIssue({ code: "custom", message: "llm.requireSafe needs llm.enabled: true", path: ["llm", "requireSafe"] });
+    }
     freezes.forEach((f, i) => {
       if (f.green === undefined || f.green < thresholds.green) return;
       ctx.addIssue({

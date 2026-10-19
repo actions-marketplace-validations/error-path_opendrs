@@ -4,16 +4,18 @@ import { OpendrsError } from "../../src/domain/types.js";
 
 vi.mock("../../src/engine.js", () => ({ scoreDiff: vi.fn() }));
 vi.mock("../../src/explain.js", () => ({ explainFile: vi.fn() }));
+vi.mock("../../src/hotspots.js", () => ({ hotspots: vi.fn() }));
 vi.mock("../../src/git/history.js", () => ({ buildHistoryIndex: vi.fn() }));
 vi.mock("../../src/policy/reviewers.js", () => ({ suggestReviewers: vi.fn() }));
 vi.mock("../../src/git/exec.js", () => ({ gitMaybe: vi.fn() }));
 
 const { scoreDiff } = await import("../../src/engine.js");
 const { explainFile } = await import("../../src/explain.js");
+const { hotspots } = await import("../../src/hotspots.js");
 const { buildHistoryIndex } = await import("../../src/git/history.js");
 const { suggestReviewers } = await import("../../src/policy/reviewers.js");
 const { gitMaybe } = await import("../../src/git/exec.js");
-const { scoreDiffTool, explainFileRiskTool, suggestReviewersTool } = await import("../../src/mcp/tools.js");
+const { scoreDiffTool, explainFileRiskTool, listHotspotsTool, suggestReviewersTool } = await import("../../src/mcp/tools.js");
 
 const REPO = "/tmp/opendrs-mcp-test-repo-does-not-exist";
 
@@ -35,12 +37,15 @@ function result(): ScoreResult {
       tier: "yellow",
       decision: "human-review",
       reasons: ["tier yellow"],
+      rules: [],
       hardBlocked: false,
       sampled: false,
       mergeMethod: "queue",
       suggestedReviewers: ["ana@example.com"],
+      landingDelayMinutes: 0,
     },
-    llm: { risk: 0.6, rationale: "changes locking", riskySnippets: [] },
+    llm: { risk: 0.6, rationale: "changes locking", riskySnippets: [], confidence: 7, hunks: [], unclassified: [], truncated: false },
+    source: { kind: "agent", name: "Claude Code", evidence: ['commit 3f2a9c1: trailer "Co-Authored-By: Claude <noreply@anthropic.com>"'], verified: false },
     diff: { base: "b", head: "h", files: 3, added: 40, deleted: 2 },
     model: "default",
     version: "0.1.5",
@@ -76,6 +81,7 @@ describe("score_diff", () => {
       unknowns: ["blast.dependents"],
       suggestedReviewers: ["ana@example.com"],
       llmRationale: "changes locking",
+      source: { kind: "agent", name: "Claude Code" },
     });
     expect(out.contributions).toHaveLength(6);
     expect(out.contributions[0]).toMatchObject({ id: "sig.0", contribution: 9, summary: "summary sig.0" });
@@ -126,6 +132,23 @@ describe("explain_file_risk", () => {
   it("reports failures as a tool error", async () => {
     vi.mocked(explainFile).mockRejectedValue(new Error("not implemented"));
     expect((await explainFileRiskTool({ repoDir: REPO, path: "x" })).isError).toBe(true);
+  });
+});
+
+describe("list_hotspots", () => {
+  it("returns the ranked files and passes top through", async () => {
+    const row = { rank: 1, score: 3.2, path: "src/a.ts", commits: 4, fixCommits: 2, authors: 2, transitiveDependents: 9, critical: false, blocked: false };
+    const warnings = ["import graph failed: boom; dependents not shown"];
+    vi.mocked(hotspots).mockResolvedValue({ hotspots: [row], warnings });
+    const r = await listHotspotsTool({ repoDir: REPO, top: 5 });
+    expect(vi.mocked(hotspots).mock.calls[0]![0]).toBe(REPO);
+    expect(vi.mocked(hotspots).mock.calls[0]![2]).toBe(5);
+    expect(json(r)).toEqual({ hotspots: [row], warnings });
+  });
+
+  it("reports failures as a tool error", async () => {
+    vi.mocked(hotspots).mockRejectedValue(new Error("not implemented"));
+    expect((await listHotspotsTool({ repoDir: REPO })).isError).toBe(true);
   });
 });
 

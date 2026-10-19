@@ -23,7 +23,7 @@ const incidentSchema = z.object({
   note: z.string().optional(),
 });
 
-/** Read `.opendrs/incidents.jsonl` (one Incident per line); missing file = []. */
+/** Read `.opendrs/incidents.jsonl` from the working tree (one Incident per line); missing file = []. */
 export async function loadIncidents(repoDir: string): Promise<Incident[]> {
   let text: string;
   try {
@@ -32,6 +32,11 @@ export async function loadIncidents(repoDir: string): Promise<Incident[]> {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw new OpendrsError(`Cannot read ${INCIDENTS_FILE}: ${(e as Error).message}`, "io");
   }
+  return parseIncidents(text);
+}
+
+/** The contents of `.opendrs/incidents.jsonl`, one Incident per line, from wherever the caller read it. */
+export function parseIncidents(text: string): Incident[] {
   const incidents: Incident[] = [];
   text.split("\n").forEach((line, i) => {
     if (!line.trim()) return;
@@ -88,7 +93,7 @@ export async function labelCommits(
   }
 
   await runPool(jobs, CONCURRENCY, async ({ sha, source }) => {
-    for (const blamed of await blameFix(repoDir, sha, config.paths.ignore)) mark(resolve(blamed), source);
+    for (const hit of await blameFix(repoDir, sha, config.paths.ignore)) mark(resolve(hit.sha), source);
   });
 
   return history.commits
@@ -116,13 +121,15 @@ function shaResolver(commits: CommitInfo[]): (prefix: string) => string | undefi
   };
 }
 
-/** SZZ-lite: commits that last touched the meaningful lines `sha` deleted or modified, blamed at `sha^`. */
-async function blameFix(repoDir: string, sha: string, ignore: string[]): Promise<Set<string>> {
-  const blamed = new Set<string>();
+export interface BlameFixHit { sha: string; path: string; line: number }
+
+/** SZZ-lite: lines that last touched the meaningful lines `sha` deleted or modified, blamed at `sha^`. */
+export async function blameFix(repoDir: string, sha: string, ignore: string[]): Promise<BlameFixHit[]> {
+  const hits: BlameFixHit[] = [];
   const text = await gitMaybe(repoDir, [
     "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M", "-U0", `${sha}^`, sha,
   ]);
-  if (!text) return blamed;
+  if (!text) return hits;
   for (const file of parseUnifiedDiff(text)) {
     // Whole-file deletions are left out: blaming every line of a removed file is mostly noise.
     if (file.binary || (file.status !== "modified" && file.status !== "renamed")) continue;
@@ -130,13 +137,34 @@ async function blameFix(repoDir: string, sha: string, ignore: string[]): Promise
     if (matchAny(ignore, oldPath) || matchAny(ignore, file.path)) continue;
     const ranges = deletedRanges(file.hunks);
     if (ranges.length === 0) continue;
-    const out = await gitMaybe(repoDir, ["blame", "--porcelain", "-w", ...ranges.flatMap(([a, b]) => ["-L", `${a},${b}`]), `${sha}^`, "--", oldPath]);
+    // --line-porcelain repeats the headers for every line, so each hit's `filename` (the blamed
+    // commit's own path, across renames) follows its own header rather than an earlier commit's.
+    const out = await gitMaybe(repoDir, ["blame", "--line-porcelain", "-w", ...ranges.flatMap(([a, b]) => ["-L", `${a},${b}`]), `${sha}^`, "--", oldPath]);
     for (const line of out?.split("\n") ?? []) {
-      const m = /^([0-9a-f]{40,64}) \d+ \d+/.exec(line);
-      if (m) blamed.add(m[1]!);
+      const header = /^([0-9a-f]{40,64}) (\d+) \d+/.exec(line);
+      if (header) {
+        hits.push({ sha: header[1]!, path: oldPath, line: Number(header[2]) });
+        continue;
+      }
+      const filename = /^filename (.+)$/.exec(line);
+      if (filename) hits[hits.length - 1]!.path = filename[1]!;
     }
   }
-  return blamed;
+  return hits;
+}
+
+/** For every fix commit (isFix, non-merge), the lines it blamed on earlier commits. */
+export async function blamedLinesBySha(repoDir: string, history: HistoryIndex, config: OpendrsConfig): Promise<Map<string, BlameFixHit[]>> {
+  const out = new Map<string, BlameFixHit[]>();
+  const resolve = shaResolver(history.commits);
+  const jobs = history.commits.filter((c) => c.isFix && c.parents.length === 1).slice(0, MAX_FIX_COMMITS);
+  await runPool(jobs, CONCURRENCY, async (c) => {
+    for (const hit of await blameFix(repoDir, c.sha, config.paths.ignore)) {
+      const sha = resolve(hit.sha) ?? hit.sha;
+      out.set(sha, [...(out.get(sha) ?? []), hit]);
+    }
+  });
+  return out;
 }
 
 /** Old-side line ranges of meaningful deleted lines, merged when consecutive. */
@@ -162,7 +190,7 @@ function isMeaningful(content: string): boolean {
   return t !== "" && !COMMENT.test(t);
 }
 
-async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async () => {
     while (next < items.length) await fn(items[next++]!);

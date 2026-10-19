@@ -16,6 +16,13 @@ export interface HistoryRunOptions {
   maxCommits?: number;
   /** Progress callback for CLI output. */
   onProgress?: (done: number, total: number) => void;
+  /** Ref to replay from; also where the import graph is built. Default "HEAD". */
+  head?: string;
+  /**
+   * External labels. When set, exactly these commits are replayed, with these labels: SZZ-lite
+   * labelling and the label horizon are skipped. `since` and `maxCommits` still bound the walk.
+   */
+  labels?: Map<string, 0 | 1>;
 }
 
 /** Fit weights on the repo's own labelled history (spec §5). `warnings` are the replay's (see ReplayResult). */
@@ -28,8 +35,10 @@ const RESAMPLE_RATIO = 5;
 const RESAMPLE_SEED = 1;
 
 /**
- * Fit on the oldest 80 % (negatives resampled 5:1), evaluate on the newest 20 %. Features the
- * history never varies (e.g. llm.semantic when no LLM scores were collected) keep their prior weight.
+ * Choose the penalty and the fit-vs-priors decision on the oldest 80 % (negatives resampled 5:1) and
+ * evaluate that fit on the newest 20 % for `metrics`; then refit the chosen penalty on every row for
+ * the returned weights, so the newest history is not thrown away. Features the history never varies
+ * (e.g. llm.semantic when no LLM scores were collected) keep their prior weight.
  */
 export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHTS, repo?: string): ModelWeights {
   const { train, test } = timeSplit(rows);
@@ -53,37 +62,46 @@ export function fitModel(rows: ReplayRow[], prior: ModelWeights = DEFAULT_WEIGHT
     return { sample, fit };
   };
   const choice = chooseL2(train, ids, prior, fitOn);
-  const { sample, fit } = fitOn(train, choice.l2);
-
-  // Prior correction (King & Zeng 2001): the fit saw the resampled positive rate; shift the
-  // intercept so scores are probabilities at the repo's real base rate.
-  const sampleRate = sample.filter((r) => r.label === 1).length / sample.length;
-  const trueRate = positives / train.length;
-  const correction = trueRate < 1 && sampleRate < 1 ? Math.log(((1 - trueRate) / trueRate) * (sampleRate / (1 - sampleRate))) : 0;
   // Keep the priors when the fit could not beat them on unseen validation commits: a noisy or
   // small history should not replace a sensible default with a worse model.
   const keepPriors = choice.priorsAuc !== undefined && choice.priorsAuc >= choice.auc;
-  const model: ModelWeights = keepPriors
-    ? { version: 1, intercept: prior.intercept, weights: { ...prior.weights }, ...(prior.priors ? { priors: prior.priors } : {}) }
-    : {
-        version: 1,
-        intercept: fit.intercept - correction,
-        // The LLM may only add risk (spec §8), so its weight can never turn negative.
-        weights: Object.fromEntries(ids.map((id, j) => [id, id === "llm.semantic" ? Math.max(0, fit.weights[j]!) : fit.weights[j]!])),
-        ...(prior.priors ? { priors: prior.priors } : {}),
-      };
+  const priorsModel: ModelWeights = { version: 1, intercept: prior.intercept, weights: { ...prior.weights }, ...(prior.priors ? { priors: prior.priors } : {}) };
+  const fitted = (part: ReplayRow[]): ModelWeights => {
+    const { sample, fit } = fitOn(part, choice.l2);
+    // Prior correction (King & Zeng 2001): the fit saw the resampled positive rate; shift the
+    // intercept so scores are probabilities at the real base rate of the rows it was fitted on.
+    const sampleRate = sample.filter((r) => r.label === 1).length / sample.length;
+    const trueRate = part.filter((r) => r.label === 1).length / part.length;
+    const correction = trueRate < 1 && sampleRate < 1 ? Math.log(((1 - trueRate) / trueRate) * (sampleRate / (1 - sampleRate))) : 0;
+    return {
+      version: 1,
+      intercept: fit.intercept - correction,
+      // The LLM may only add risk (spec §8), so no llm.* weight can ever turn negative.
+      weights: Object.fromEntries(ids.map((id, j) => [id, id.startsWith("llm.") ? Math.max(0, fit.weights[j]!) : fit.weights[j]!])),
+      ...(prior.priors ? { priors: prior.priors } : {}),
+    };
+  };
+  // `metrics` always describe a model that never saw the test commits: the priors, or the fit on
+  // the oldest 80 %. The returned fit is the same setting refitted on every row.
+  const all = [...train, ...test];
+  const evaluated = keepPriors ? priorsModel : fitted(train);
+  const model = keepPriors ? priorsModel : fitted(all);
+  const window = keepPriors ? train : all;
   const score = (r: ReplayRow) => scoreSignals(r.signals, model).score;
   return {
     ...model,
     percentiles: percentiles(rows.map(score)),
     trainedOn: {
       ...(repo ? { repo } : {}),
-      commits: train.length,
-      positives,
-      from: isoTime(train[0]!.time),
-      to: isoTime(train[train.length - 1]!.time),
+      commits: window.length,
+      positives: window.filter((r) => r.label === 1).length,
+      from: isoTime(window[0]!.time),
+      to: isoTime(window[window.length - 1]!.time),
     },
-    metrics: evaluate(test.map(score), test.map((r) => r.label)),
+    metrics: evaluate(
+      test.map((r) => scoreSignals(r.signals, evaluated).score),
+      test.map((r) => r.label),
+    ),
     ...(choice.priorsAuc !== undefined
       ? { calibration: { chosen: keepPriors ? "priors" : "fitted", validationAuc: { fitted: choice.auc, priors: choice.priorsAuc } } }
       : {}),

@@ -4,6 +4,8 @@ import { OpendrsError } from "../../src/domain/types.js";
 import { backtest } from "../../src/model/backtest.js";
 import { calibrate, fitModel } from "../../src/model/calibrate.js";
 import { DEFAULT_WEIGHTS } from "../../src/model/defaults.js";
+import { scoreSignals } from "../../src/model/logistic.js";
+import { evaluate } from "../../src/model/metrics.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
 import { syntheticRows } from "./synthetic.js";
 
@@ -21,19 +23,42 @@ describe("fitModel", () => {
     expect(model.metrics!.capturedAt["50"]).toBeGreaterThan(0.7);
   });
 
-  it("records the training window, history percentiles and priors", () => {
+  it("records the training window (every row, after the refit), history percentiles and priors", () => {
     const model = fitModel(rows, DEFAULT_WEIGHTS, "acme/api");
     expect(model.version).toBe(1);
     expect(model.trainedOn).toEqual({
       repo: "acme/api",
-      commits: 2400,
-      positives: rows.slice(0, 2400).filter((r) => r.label === 1).length,
+      commits: 3000,
+      positives: rows.filter((r) => r.label === 1).length,
       from: new Date(rows[0]!.time * 1000).toISOString(),
-      to: new Date(rows[2399]!.time * 1000).toISOString(),
+      to: new Date(rows[2999]!.time * 1000).toISOString(),
     });
     expect(Object.keys(model.percentiles!)).toEqual(["50", "75", "90", "95", "99"]);
     expect(model.percentiles!["50"]).toBeLessThan(model.percentiles!["99"]!);
     expect(model.priors).toEqual(DEFAULT_WEIGHTS.priors);
+  });
+
+  it("refits the chosen setting on every row, newest 20 % included", () => {
+    // A feature that only varies in the newest 20 %, where it marks every positive. A fit on the
+    // oldest 80 % never sees it vary; the refit on every row must give it weight.
+    const late = rows.map((r, i) =>
+      i < 2400 ? r : { ...r, signals: [...r.signals, { id: "late.feature", value: r.label, status: "derived" as const, summary: "", evidence: [] }] },
+    );
+    expect(fitModel(late).weights["late.feature"]).toBeGreaterThan(0.5);
+  });
+
+  it("still reports metrics from the held-out newest 20 %, scored by the fit on the oldest 80 %", () => {
+    const late = rows.map((r, i) =>
+      i < 2400 ? r : { ...r, signals: [...r.signals, { id: "late.feature", value: r.label, status: "derived" as const, summary: "", evidence: [] }] },
+    );
+    const model = fitModel(late);
+    const newest = late.slice(2400);
+    // The returned model has seen the newest rows and ranks them almost perfectly; the recorded
+    // metrics come from the oldest-80 % fit, which never saw late.feature vary.
+    const inSample = evaluate(newest.map((r) => scoreSignals(r.signals, model).score), newest.map((r) => r.label));
+    expect(model.metrics!.commits).toBe(600);
+    expect(inSample.auc).toBeGreaterThan(0.99);
+    expect(model.metrics!.auc).toBeLessThan(0.95);
   });
 
   it("keeps prior weights for features absent from history (e.g. llm.semantic)", () => {
@@ -90,7 +115,9 @@ describe("calibrate + backtest on a real repo", () => {
 
     const report = await backtest({ repoDir: r.dir, config, model });
     expect(report.default.capturedAt["50"]).toBeGreaterThan(0.5);
-    expect(report.calibrated!.capturedAt["50"]).toBeGreaterThan(0.5);
+    // calibrate refits on every replayed commit, so backtest shows calibrate's recorded held-out metrics.
+    expect(report.calibrated).toBeUndefined();
+    expect(report.recorded).toEqual(model.metrics);
   }, 180_000);
 });
 
@@ -108,6 +135,19 @@ describe("fitModel: llm.semantic stays raise-only", () => {
     });
     expect(fitModel(rows).weights["llm.semantic"]).toBe(0);
   });
+
+  it("clamps a negative fitted llm.risk.* weight to 0 too", () => {
+    const rows = Array.from({ length: 300 }, (_, i) => {
+      const label = (i % 5 === 0 ? 1 : 0) as 0 | 1;
+      return {
+        sha: String(i),
+        time: i,
+        label,
+        signals: [{ id: "llm.risk.logic_bug", value: label ? 0 : 1, status: "inferred" as const, summary: "", evidence: [] }],
+      };
+    });
+    expect(fitModel(rows).weights["llm.risk.logic_bug"]).toBe(0);
+  });
 });
 
 describe("fitModel: keeps the priors when the fit cannot beat them", () => {
@@ -124,6 +164,10 @@ describe("fitModel: keeps the priors when the fit cannot beat them", () => {
     const m = fitModel(rows);
     expect(m.calibration?.chosen).toBe("priors");
     expect(m.weights["size.churn"]).toBe(DEFAULT_WEIGHTS.weights["size.churn"]);
+    expect(m.intercept).toBe(DEFAULT_WEIGHTS.intercept);
+    // Nothing is refitted when the priors are kept: the window and held-out metrics stay as before.
+    expect(m.trainedOn!.commits).toBe(320);
+    expect(m.metrics!.commits).toBe(80);
   });
 
   it("uses the fit when the history contradicts the priors", () => {

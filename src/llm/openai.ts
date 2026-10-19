@@ -2,6 +2,7 @@ import { OpendrsError, type LlmProvider } from "../domain/types.js";
 import { postJson } from "./http.js";
 import { parseJudgement } from "./parse.js";
 import { buildMessages } from "./prompt.js";
+import { JUDGEMENT_SCHEMA } from "./schema.js";
 
 export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
@@ -25,7 +26,7 @@ export function createOpenAiProvider(opts: { model: string; apiKey?: string; bas
         {
           model: opts.model,
           temperature: 0,
-          response_format: { type: "json_object" },
+          response_format: { type: "json_schema", json_schema: { name: "judgement", schema: JUDGEMENT_SCHEMA, strict: true } },
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
@@ -36,7 +37,7 @@ export function createOpenAiProvider(opts: { model: string; apiKey?: string; bas
 
       const content = res.choices?.[0]?.message?.content;
       if (typeof content !== "string") throw new OpendrsError("OpenAI-compatible API returned no message content", "llm");
-      return parseJudgement(content, input.files);
+      return parseJudgement(content, input.files, input.hunks, input.truncated);
     },
   };
 }
