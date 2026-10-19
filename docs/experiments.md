@@ -18,7 +18,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
 | 2026-10-19 | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Yes to shipping: test lift 1.931× at the tuned `minSupport: 8`/`minConfidence: 0.6`. No to the score: AUC 0.823 → 0.823, 95 % CI -0.0003 to -0.0001 (significant, but negative) | Merged (brief-only) | [details](#change-coupling-on-apachejit) |
-| Planned (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | Not yet run | Planned | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
+| 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
 | Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
 | 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Rejected (archived as a patch) | [details](#review-heuristic-signals) |
@@ -100,7 +100,9 @@ calls; no API spend. The 15 blobless clones were deleted after the run.
 
 ## Score saturation: fixPattern and incident granularity on ApacheJIT
 
-**Status.** Pre-registered 2026-10-19, before any run. Motivated by the field test on six new
+**Status.** Pre-registered 2026-10-19, before any run; run completed 2026-10-20. The question,
+setup and decision rule below are unchanged from the pre-registration. Motivated by the field test
+on six new
 repositories ([research note](research/2026-10-19-field-test.md)): on mature, active repos (black,
 vite) most non-trivial PRs scored red (0.80–0.96) regardless of size, and two causes were named
 specifically: `history.fixPattern`'s broad regex counts Conventional-Commit housekeeping commits
@@ -165,8 +167,87 @@ API spend.
 - Otherwise: **reject**, or **ship conditionally** (e.g. only the sub-variant that clears the bar,
   if V1 and V2 disagree) with the reasoning recorded against the specific numbers.
 
+**Result.** 66,653 row-cache commits (train 41,967 of 41,969, test 24,686 of 24,690 — the same
+coverage as every other ApacheJIT row in this log); every one also resolved to its own cloned
+history, so no row kept a stale value by fallback.
+
+| Variant | Calibrated AUC | AUC gain vs V0 (95 % CI) | Recall@10 % | Recall@30 % | Default-prior red share (≥ 0.8) | Default-prior yellow+red share (≥ 0.3) | Red share, relative change |
+|---|---:|---|---:|---:|---:|---:|---:|
+| V0 (current) | 0.823 | — | 29.7 % | 66.8 % | 25.6 % | 60.8 % | — |
+| V1 (fixPattern) | 0.823 | +0.0002 (0.0001 to 0.0002) | 29.8 % | 66.8 % | 25.3 % | 60.6 % | −0.9 % |
+| V2 (incident, file level) | 0.824 | +0.0009 (0.0005 to 0.0014) | 29.8 % | 66.9 % | 23.7 % | 57.9 % | −7.4 % |
+| V3 (both) | 0.824 | +0.0010 (0.0006 to 0.0015) | 29.8 % | 67.0 % | 23.5 % | 57.6 % | −8.3 % |
+
+Every variant's AUC-gain 95 % CI is non-negative (no loss), but none reaches the 25 % relative
+red-share reduction the decision rule requires: **V1 −0.9 %, V2 −7.4 %, V3 −8.3 %**, all short of
+the bar. V2 and V3 move the whole default-prior score distribution down slightly (mean 0.476 →
+0.454/0.451), not just the red tier; spread (SD, IQR) is essentially unchanged across all four
+variants, so neither change fixes saturation by widening the distribution, only by shifting it.
+
+**Field-repo fixPattern counts** (descriptive; one `git log --format=%s` per repo, fresh blobless
+clone, default branch HEAD):
+
+| Repo | Commits | V0 matches (share) | V1 matches (share) | Relative drop |
+|---|---:|---:|---:|---:|
+| vite | 9,799 | 3,754 (38.3 %) | 2,945 (30.1 %) | 21.6 % |
+| black | 2,401 | 472 (19.7 %) | 458 (19.1 %) | 3.0 % |
+| cli | 12,367 | 1,588 (12.8 %) | 1,537 (12.4 %) | 3.2 % |
+
+V1's share of matched commits drops by 21.6 % on vite (just under the 25 % bar on its own, and far
+more than the 0.9 % seen pooled on ApacheJIT) but only 3 % on black and cli. This explains the
+pooled ApacheJIT result: ApacheJIT is 15 mature Java projects that mostly pre-date Conventional
+Commits, so V1 has little to exclude there, while vite is a heavy, current adopter of the
+convention V1 targets. ApacheJIT alone understates V1's likely effect on a repo like vite.
+
+**Decision (per variant, the pre-registered rule applied exactly).**
+- **V1.** Red-share relative reduction 0.9 % < 25 % → **reject** as a global default on this
+  evidence. Its much larger effect on vite (21.6 %) suggests it is a real fix for Conventional-
+  Commit-heavy repos specifically, not for ApacheJIT's Java corpus — a case for a documented,
+  project-specific `history.fixPattern` override rather than a changed global default.
+- **V2.** Red-share relative reduction 7.4 % < 25 % → **reject** by the letter of the rule. But its
+  AUC-gain CI is strictly positive (0.0005 to 0.0014, the only variant whose CI excludes 0 in the
+  positive direction) and it directly fixes a *demonstrated* bug, not just a suspected one: the
+  field test confirmed one 8-file revert flagging `history.incident = 1` on hundreds of unrelated
+  files under `packages/vite/src/node/` on 5 of 8 sampled PRs. A signal that never costs AUC and
+  measurably shrinks saturation, fixing a concretely observed false-positive mechanism, is worth
+  shipping even short of the saturation bar.
+- **V3.** Red-share relative reduction 8.3 % < 25 % → **reject** by the letter of the rule; carries
+  V2's case plus V1's (weaker, Java-corpus-specific) one.
+
+**Recommendation for `src/` defaults (for the orchestrator to implement separately).**
+1. **Ship V2: match `history.incident` at file level only** (drop the folder-level branch in
+   `src/signals/history.ts`'s `matchEvent`). Non-negative on every metric measured, the only
+   variant with a strictly positive AUC-gain CI, and it fixes the one false-positive mechanism this
+   experiment and the field test agree on.
+2. **Do not change the global `history.fixPattern` default** on this evidence — the ApacheJIT
+   saturation effect is too small (0.9 %) to justify a behavior change that also narrows what the
+   regex excludes everywhere. Instead, document a `history.fixPattern` override excluding
+   Conventional-Commit housekeeping scopes (the V1 regex above, or a simpler equivalent) as a
+   suggested project-level config for repos that use the convention heavily — worth a one-line
+   mention in the config docs, not a default flip.
+3. Neither change alone resolves the field test's saturation finding (theme 1, theme 14): the
+   larger share of it is diffusion/history signals being raw, un-normalized counts on an old, busy
+   repo, which this experiment did not touch and the field test already flagged as a separate, larger
+   fix (rank 14 in its fix list).
+
+**Caveats.**
+- **No rename detection.** The per-commit file lists come from `git log --name-only --no-renames`
+  (not the shipped detector's `-M`), so a rename shows as a delete and an add rather than one path,
+  for both the current commit's own changed files and the historical file-touch index. This
+  understates `history.prior_fixes`'s true lookback count and can miss a file-level
+  `history.incident` match across a rename, in V0's reproduction and every variant equally — it does
+  not favor one variant over another, but it means every number here is a slight underestimate of
+  the true signal's reach.
+- **The AUC-gain decision rule's CI reading** treats a CI that is non-negative (includes 0, or is
+  entirely positive) as "no significant loss," the same reading used in the change-coupling
+  experiment; only V2's CI is the stronger "significant, positive" case.
+- **ApacheJIT is Java and mostly pre-dates Conventional Commits**, which is exactly why V1 reads as
+  a near-no-op pooled here despite the real, larger effect the field-repo count shows on vite.
+
 **Where.** `bench/apachejit/score-saturation-experiment.ts`; results in
 [`bench/apachejit/score-saturation-experiment.md`](../bench/apachejit/score-saturation-experiment.md).
+No LLM calls, no API spend. The 15 ApacheJIT clones and the 3 field-repo clones were deleted after
+the run.
 
 ## Planned: LLM plus opendrs vs the LLM alone
 
