@@ -17,6 +17,10 @@ const CONFIG_FILES = new Set(["package.json", "tsconfig.json", "jsconfig.json", 
 export interface RepoGraph extends DependencyGraph {
   /** Files in the graph vs. non-ignored files in the tree (they differ when graph.maxFiles is hit). */
   coverage: { files: number; total: number };
+  /** Covered files, sorted by path; what `importsOf` and `dependentsOf` resolve against (layers detector, spec §6.2). */
+  files: readonly string[];
+  /** Files that `path` imports directly (forward edges), for the layers detector (spec §6.2). */
+  importsOf(path: string): string[];
 }
 
 interface GraphData {
@@ -93,9 +97,14 @@ function toGraph(data: GraphData): RepoGraph {
   return {
     fileCount: files.length,
     coverage: { files: files.length, total: data.total },
+    files,
     dependentsOf(path) {
       const i = index.get(path);
       return i === undefined ? [] : reverse[i]!.map((j) => files[j]!);
+    },
+    importsOf(path) {
+      const i = index.get(path);
+      return i === undefined ? [] : edges[i]!.map((j) => files[j]!);
     },
     transitiveDependents(path, maxDepth) {
       const start = index.get(path);

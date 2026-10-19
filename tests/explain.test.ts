@@ -28,7 +28,9 @@ function fakeHistory(commits: CommitInfo[]): HistoryIndex {
 function fakeGraph(supported: boolean): RepoGraph {
   return {
     coverage: { files: 10, total: 10 },
+    files: [],
     dependentsOf: () => ["a.ts", "b.ts"],
+    importsOf: () => [],
     transitiveDependents: (_p, depth) => new Set(depth >= 3 ? ["a.ts", "b.ts", "c.ts", "d.ts"] : ["a.ts", "b.ts"]),
     supports: () => supported,
     fileCount: 10,
