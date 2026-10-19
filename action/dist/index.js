@@ -18429,8 +18429,8 @@ var error43 = () => {
       case "not_multiple_of":
         return `N\xFAmero inv\xE1lido: deve ser m\xFAltiplo de ${issue2.divisor}`;
       case "unrecognized_keys": {
-        const plural4 = issue2.keys.length > 1 ? "s" : "";
-        return `Chave${plural4} inv\xE1lida${plural4}: ${joinValues(issue2.keys, ", ")}`;
+        const plural5 = issue2.keys.length > 1 ? "s" : "";
+        return `Chave${plural5} inv\xE1lida${plural5}: ${joinValues(issue2.keys, ", ")}`;
       }
       case "invalid_key":
         return `Entrada inv\xE1lida n${translateOriginWithArticle(issue2.origin, "definite")}`;
@@ -18574,8 +18574,8 @@ var error44 = () => {
       case "not_multiple_of":
         return `N\xFAmero inv\xE1lido: deve ser m\xFAltiplo de ${issue2.divisor}`;
       case "unrecognized_keys": {
-        const plural4 = issue2.keys.length > 1 ? "s" : "";
-        return `Chave${plural4} inv\xE1lida${plural4}: ${joinValues(issue2.keys, ", ")}`;
+        const plural5 = issue2.keys.length > 1 ? "s" : "";
+        return `Chave${plural5} inv\xE1lida${plural5}: ${joinValues(issue2.keys, ", ")}`;
       }
       case "invalid_key":
         return `Entrada inv\xE1lida n${translateOriginWithArticle(issue2.origin, "definite")}`;
@@ -27689,8 +27689,16 @@ var configSchema = external_exports.object({
   captain: external_exports.object({
     /** false: no captain line, block, labels, output or brief section (spec §9). */
     enabled: external_exports.boolean().default(true),
-    /** Path segments that make a module for the layers detector (spec §6.2). */
-    moduleDepth: external_exports.number().int().min(1).max(6).default(2),
+    /**
+     * Path segments that make a module for the layers detector (spec §6.2), when set explicitly.
+     * Unset (the default): modules are auto-detected from each ecosystem's own package/workspace
+     * manifests (module-boundaries spec §3), falling back to a flat depth of 2 only where no
+     * manifest is found. Setting this disables auto-detection for the whole repo and goes back to
+     * today's flat-depth behaviour everywhere.
+     */
+    moduleDepth: external_exports.number().int().min(1).max(6).optional(),
+    /** Literal globs overriding auto-detection, e.g. one glob per package's source tree; highest precedence (module-boundaries spec §5). */
+    modules: globs([]),
     coupling: external_exports.object({
       // Tuned on ApacheJIT (spec §10.1; docs/experiments.md, "Change coupling on ApacheJIT"):
       // test lift 1.931x at minSupport 8 / minConfidence 0.6, chosen by train lift.
@@ -29107,58 +29115,6 @@ var detectCoupling = async (ctx) => {
   return { facts, notes: [] };
 };
 
-// src/architecture/module.ts
-function moduleOf(path, depth) {
-  const parts = path.split("/");
-  parts.pop();
-  return parts.slice(0, depth).join("/");
-}
-
-// src/architecture/drift.ts
-async function ensureCommit(repoDir, sha) {
-  if (await gitMaybe(repoDir, ["cat-file", "-e", `${sha}^{commit}`]) !== void 0) return true;
-  await gitMaybe(repoDir, ["fetch", "--no-tags", "origin", sha]);
-  return await gitMaybe(repoDir, ["cat-file", "-e", `${sha}^{commit}`]) !== void 0;
-}
-async function diffStats(repoDir, base, sha, ignore) {
-  const out = await git(repoDir, ["diff", "--numstat", "--no-renames", `${base}...${sha}`]);
-  const files = /* @__PURE__ */ new Set();
-  let churn = 0;
-  for (const line2 of out.split("\n")) {
-    if (!line2) continue;
-    const [addedStr, deletedStr, path] = line2.split("	");
-    if (path === void 0 || matchAny(ignore, path)) continue;
-    files.add(path);
-    const added = Number(addedStr);
-    const deleted = Number(deletedStr);
-    if (!Number.isNaN(added) && !Number.isNaN(deleted)) churn += added + deleted;
-  }
-  return { files, churn };
-}
-var detectDrift = async (ctx, opts) => {
-  const { firstHead, firstRun } = opts;
-  if (firstHead === void 0) return { facts: [], notes: ["drift: not tracked here"] };
-  if (firstHead === ctx.diff.head) return { facts: [], notes: [] };
-  if (!await ensureCommit(ctx.repoDir, firstHead)) return { facts: [], notes: ["drift: the first scored head is no longer reachable"] };
-  const ignore = ctx.config.paths.ignore;
-  const depth = ctx.config.captain.moduleDepth;
-  const base = ctx.diff.base;
-  const first = await diffStats(ctx.repoDir, base, firstHead, ignore);
-  const head = await diffStats(ctx.repoDir, base, ctx.diff.head, ignore);
-  const modules1 = new Set([...first.files].map((f) => moduleOf(f, depth)));
-  const newFiles = [...head.files].filter((f) => !first.files.has(f)).sort();
-  const outside = newFiles.filter((f) => !modules1.has(moduleOf(f, depth)));
-  const churnGrew = head.churn - first.churn;
-  const churnDoubled = head.churn >= first.churn * 2 && churnGrew > 100;
-  if (outside.length === 0 && !churnDoubled) return { facts: [], notes: [] };
-  const since = firstRun !== void 0 && firstRun > 1 ? `Since run ${firstRun} at \`${firstHead.slice(0, 7)}\`` : `Since opendrs first scored this PR at \`${firstHead.slice(0, 7)}\` (run 1)`;
-  const outsideText = outside.length > 0 ? `; ${outside.length} new file${outside.length === 1 ? "" : "s"} are outside the original modules: ${outside.map((f) => `\`${untrusted(f)}\``).join(", ")}` : "";
-  const text = `${since}, it grew from ${first.files.size} to ${head.files.size} files (+${first.churn} \u2192 +${head.churn} lines)${outsideText}.`;
-  const file2 = outside[0] ?? newFiles[0] ?? [...head.files].sort()[0] ?? "";
-  const fact = { id: "drift.scope", weight: outside.length >= 3 || churnDoubled ? "strong" : "info", file: file2, text };
-  return { facts: [fact], notes: [] };
-};
-
 // src/graph/graph.ts
 import { mkdir, readFile as readFile2, rename, writeFile } from "node:fs/promises";
 import { join as join2, resolve as resolvePath } from "node:path";
@@ -29170,6 +29126,93 @@ var baseName = (p) => p.slice(p.lastIndexOf("/") + 1);
 function joinPath(dir, rel) {
   const p = posix.normalize(dir ? `${dir}/${rel}` : rel).replace(/\/$/, "");
   return p === ".." || p.startsWith("../") || p.startsWith("/") ? void 0 : p === "." ? "" : p;
+}
+
+// src/architecture/module.ts
+function moduleOf(path, depth) {
+  const parts = path.split("/");
+  parts.pop();
+  return parts.slice(0, depth).join("/");
+}
+var PREFIXES = {
+  js: ["src", "lib"],
+  rust: ["src"],
+  ruby: ["lib"],
+  python: ["src"]
+};
+function enclosingRoot(dir, roots) {
+  return roots.find((r) => dir === r || dir.startsWith(`${r}/`));
+}
+function moduleUnderRoot(path, root, prefixes) {
+  const dir = dirOf(path);
+  if (dir === root) return root;
+  const rel = dir.slice(root ? root.length + 1 : 0).split("/");
+  if (!prefixes.includes(rel[0])) return root;
+  const under = rel[1] !== void 0 ? `${rel[0]}/${rel[1]}` : rel[0];
+  return root ? `${root}/${under}` : under;
+}
+function moduleViaGlobs(path, globs2) {
+  let best;
+  for (const g of globs2) {
+    if (!matchGlob(g, path)) continue;
+    const star = g.indexOf("*");
+    const prefix = (star < 0 ? g : g.slice(0, star)).replace(/\/+$/, "");
+    if (best === void 0 || prefix.length > best.length) best = prefix;
+  }
+  return best;
+}
+var AUTO_LANGS = ["js", "rust", "ruby", "python"];
+function ecosystemOf(path) {
+  if (/\.swift$/.test(path)) return "swift";
+  const lang = languageOf(path);
+  if (lang === "go") return "go";
+  return AUTO_LANGS.includes(lang ?? "") ? lang : void 0;
+}
+function plural3(n, s) {
+  return `${n} ${s}${n === 1 ? "" : "s"}`;
+}
+function rootsLine(count, what, from, fallbackDepth) {
+  return count > 0 ? `modules: auto-detected ${plural3(count, what)} from ${from}` : `modules: no ${from} found; falling back to moduleDepth: ${fallbackDepth}`;
+}
+function buildNotes(files, roots, fallbackDepth) {
+  const present = new Set(files.map(ecosystemOf).filter((e) => e !== void 0));
+  const other = files.some((f) => {
+    const l = languageOf(f);
+    return l === "java" || l === "kotlin";
+  });
+  const notes = [];
+  if (present.has("js")) notes.push(rootsLine(roots.js.length, "JS/TS package", "package.json", fallbackDepth));
+  if (present.has("go")) notes.push("modules: Go packages (one per directory)");
+  if (present.has("rust")) notes.push(rootsLine(roots.rust.length, "Rust crate", "Cargo.toml", fallbackDepth));
+  if (present.has("ruby")) notes.push(rootsLine(roots.ruby.length, "Ruby gem", "*.gemspec", fallbackDepth));
+  if (present.has("python")) notes.push(rootsLine(roots.python.length, "Python package", "pyproject.toml/setup.cfg", fallbackDepth));
+  if (present.has("swift")) notes.push(rootsLine(roots.swift.length, "Swift target", "Package.swift", fallbackDepth));
+  if (other) notes.push(`modules: no package manifest convention for this language; falling back to moduleDepth: ${fallbackDepth}`);
+  return notes;
+}
+function buildModuleResolver(files, roots, config2) {
+  const globs2 = config2.captain.modules;
+  const explicitDepth = config2.captain.moduleDepth;
+  const fallbackDepth = explicitDepth ?? 2;
+  const autoDetect = explicitDepth === void 0;
+  function resolve(path) {
+    const viaGlob = globs2.length > 0 ? moduleViaGlobs(path, globs2) : void 0;
+    if (viaGlob !== void 0) return viaGlob;
+    if (autoDetect) {
+      const eco = ecosystemOf(path);
+      if (eco === "go") return dirOf(path);
+      if (eco === "swift") {
+        const root = enclosingRoot(dirOf(path), roots.swift);
+        if (root !== void 0) return root;
+      } else if (eco !== void 0) {
+        const root = enclosingRoot(dirOf(path), roots[eco]);
+        if (root !== void 0) return moduleUnderRoot(path, root, PREFIXES[eco]);
+      }
+    }
+    return moduleOf(path, fallbackDepth);
+  }
+  const notes = globs2.length > 0 ? [`modules: captain.modules override (${plural3(globs2.length, "glob")})`] : !autoDetect ? [`modules: captain.moduleDepth is set explicitly (${fallbackDepth}); auto-detection is disabled`] : buildNotes(files, roots, fallbackDepth);
+  return { moduleOf: resolve, notes };
 }
 
 // src/graph/resolve-js.ts
@@ -29264,6 +29307,58 @@ function createJsResolver(fileSet, contents) {
     const hit = spec.startsWith(".") ? probe(joinPath(dirOf(from), spec)) : viaConfig(from, spec) ?? viaWorkspace(spec);
     return hit ? [hit] : [];
   };
+}
+
+// src/graph/package-roots.ts
+var isObj2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+function longestFirst(dirs) {
+  return [...new Set(dirs)].sort((a, b) => b.length - a.length);
+}
+function swiftTargetDirs(manifestDir, text) {
+  const dirs = [];
+  for (const marker of [".target(", ".executableTarget("]) {
+    let from = 0;
+    for (let idx = text.indexOf(marker, from); idx !== -1; idx = text.indexOf(marker, from)) {
+      const open2 = idx + marker.length - 1;
+      let depth = 0;
+      let end = open2;
+      for (; end < text.length; end++) {
+        if (text[end] === "(") depth++;
+        else if (text[end] === ")" && --depth === 0) break;
+      }
+      if (depth !== 0) break;
+      const args = text.slice(open2 + 1, end);
+      from = end + 1;
+      const name = /\bname\s*:\s*"([^"]+)"/.exec(args)?.[1];
+      if (!name) continue;
+      const rel = /\bpath\s*:\s*"([^"]+)"/.exec(args)?.[1] ?? `Sources/${name}`;
+      dirs.push(manifestDir ? `${manifestDir}/${rel}` : rel);
+    }
+  }
+  return dirs;
+}
+function computePackageRoots(files, contents) {
+  const js = [];
+  const rust = [];
+  const ruby = [];
+  const python = [];
+  const swift = [];
+  for (const f of files) {
+    const name = baseName(f);
+    if (name === "package.json") {
+      const pkg = parseJsonc(contents.get(f) ?? "");
+      if (isObj2(pkg) && typeof pkg.name === "string") js.push(dirOf(f));
+    } else if (name === "Cargo.toml") {
+      rust.push(dirOf(f));
+    } else if (name.endsWith(".gemspec")) {
+      ruby.push(dirOf(f));
+    } else if (name === "pyproject.toml" || name === "setup.cfg") {
+      python.push(dirOf(f));
+    } else if (name === "Package.swift") {
+      swift.push(...swiftTargetDirs(dirOf(f), contents.get(f) ?? ""));
+    }
+  }
+  return { js: longestFirst(js), rust: longestFirst(rust), ruby: longestFirst(ruby), python: longestFirst(python), swift: longestFirst(swift) };
 }
 
 // src/graph/resolve-jvm.ts
@@ -29456,18 +29551,18 @@ async function listTree(repoDir, treeSha) {
 
 // src/graph/graph.ts
 var MAX_FILE_BYTES = 1024 * 1024;
-var CACHE_VERSION = 1;
-var CONFIG_FILES = /* @__PURE__ */ new Set(["package.json", "tsconfig.json", "jsconfig.json", "go.mod"]);
+var CACHE_VERSION = 2;
+var CONFIG_FILES = /* @__PURE__ */ new Set(["package.json", "tsconfig.json", "jsconfig.json", "go.mod", "Package.swift"]);
 async function buildDependencyGraph(repoDir, ref, config2) {
   const treeSha = (await git(repoDir, ["rev-parse", `${ref}^{tree}`])).trim();
   const key = JSON.stringify({ ignore: config2.paths.ignore, maxFiles: config2.graph.maxFiles });
   const gitDir = resolvePath(repoDir, (await git(repoDir, ["rev-parse", "--git-common-dir"])).trim());
   const cacheFile = join2(gitDir, "opendrs-cache", `graph-${treeSha}.json`);
   const cached2 = await readCache(cacheFile, key);
-  if (cached2) return toGraph(cached2);
+  if (cached2) return toGraph(cached2, config2);
   const data = await computeGraph(repoDir, treeSha, config2, key);
   await writeCache(cacheFile, data);
-  return toGraph(data);
+  return toGraph(data, config2);
 }
 async function computeGraph(repoDir, treeSha, config2, key) {
   const all = (await listTree(repoDir, treeSha)).filter((e) => !matchAny(config2.paths.ignore, e.path)).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
@@ -29495,10 +29590,12 @@ async function computeGraph(repoDir, treeSha, config2, key) {
     for (const spec of specs.get(from) ?? []) for (const to of resolve(from, spec)) targets.add(index.get(to));
     return [...targets];
   });
-  return { version: CACHE_VERSION, key, total: all.length, files, edges };
+  const moduleRoots = computePackageRoots(files, contents);
+  return { version: CACHE_VERSION, key, total: all.length, files, edges, moduleRoots };
 }
-function toGraph(data) {
+function toGraph(data, config2) {
   const { files, edges } = data;
+  const { moduleOf: moduleOf2, notes: moduleNotes } = buildModuleResolver(files, data.moduleRoots, config2);
   const index = new Map(files.map((f, i) => [f, i]));
   const reverse = files.map(() => []);
   edges.forEach((targets, from) => {
@@ -29510,6 +29607,8 @@ function toGraph(data) {
     fileCount: files.length,
     coverage: { files: files.length, total: data.total },
     files,
+    moduleOf: moduleOf2,
+    moduleNotes,
     dependentsOf(path) {
       const i = index.get(path);
       return i === void 0 ? [] : reverse[i].map((j) => files[j]);
@@ -29546,7 +29645,7 @@ async function readCache(file2, key) {
   try {
     const data = JSON.parse(await readFile2(file2, "utf8"));
     const n = data.files.length;
-    const valid = data.version === CACHE_VERSION && data.key === key && typeof data.total === "number" && data.edges.length === n && data.edges.every((targets) => targets.every((t) => Number.isInteger(t) && t >= 0 && t < n));
+    const valid = data.version === CACHE_VERSION && data.key === key && typeof data.total === "number" && data.edges.length === n && data.edges.every((targets) => targets.every((t) => Number.isInteger(t) && t >= 0 && t < n)) && typeof data.moduleRoots === "object" && data.moduleRoots !== null;
     return valid ? data : void 0;
   } catch {
     return void 0;
@@ -29562,14 +29661,61 @@ async function writeCache(file2, data) {
   }
 }
 
+// src/architecture/drift.ts
+async function ensureCommit(repoDir, sha) {
+  if (await gitMaybe(repoDir, ["cat-file", "-e", `${sha}^{commit}`]) !== void 0) return true;
+  await gitMaybe(repoDir, ["fetch", "--no-tags", "origin", sha]);
+  return await gitMaybe(repoDir, ["cat-file", "-e", `${sha}^{commit}`]) !== void 0;
+}
+async function diffStats(repoDir, base, sha, ignore) {
+  const out = await git(repoDir, ["diff", "--numstat", "--no-renames", `${base}...${sha}`]);
+  const files = /* @__PURE__ */ new Set();
+  let churn = 0;
+  for (const line2 of out.split("\n")) {
+    if (!line2) continue;
+    const [addedStr, deletedStr, path] = line2.split("	");
+    if (path === void 0 || matchAny(ignore, path)) continue;
+    files.add(path);
+    const added = Number(addedStr);
+    const deleted = Number(deletedStr);
+    if (!Number.isNaN(added) && !Number.isNaN(deleted)) churn += added + deleted;
+  }
+  return { files, churn };
+}
+var detectDrift = async (ctx, opts) => {
+  const { firstHead, firstRun } = opts;
+  if (firstHead === void 0) return { facts: [], notes: ["drift: not tracked here"] };
+  if (firstHead === ctx.diff.head) return { facts: [], notes: [] };
+  if (!await ensureCommit(ctx.repoDir, firstHead)) return { facts: [], notes: ["drift: the first scored head is no longer reachable"] };
+  const ignore = ctx.config.paths.ignore;
+  const base = ctx.diff.base;
+  const graph = ctx.config.graph.enabled ? await buildDependencyGraph(ctx.repoDir, ctx.diff.head, ctx.config).catch(() => void 0) : void 0;
+  const fallbackDepth = ctx.config.captain.moduleDepth ?? 2;
+  const moduleOfPath = (path) => graph?.moduleOf(path) ?? moduleOf(path, fallbackDepth);
+  const first = await diffStats(ctx.repoDir, base, firstHead, ignore);
+  const head = await diffStats(ctx.repoDir, base, ctx.diff.head, ignore);
+  const modules1 = new Set([...first.files].map(moduleOfPath));
+  const newFiles = [...head.files].filter((f) => !first.files.has(f)).sort();
+  const outside = newFiles.filter((f) => !modules1.has(moduleOfPath(f)));
+  const churnGrew = head.churn - first.churn;
+  const churnDoubled = head.churn >= first.churn * 2 && churnGrew > 100;
+  if (outside.length === 0 && !churnDoubled) return { facts: [], notes: [] };
+  const since = firstRun !== void 0 && firstRun > 1 ? `Since run ${firstRun} at \`${firstHead.slice(0, 7)}\`` : `Since opendrs first scored this PR at \`${firstHead.slice(0, 7)}\` (run 1)`;
+  const outsideText = outside.length > 0 ? `; ${outside.length} new file${outside.length === 1 ? "" : "s"} are outside the original modules: ${outside.map((f) => `\`${untrusted(f)}\``).join(", ")}` : "";
+  const text = `${since}, it grew from ${first.files.size} to ${head.files.size} files (+${first.churn} \u2192 +${head.churn} lines)${outsideText}.`;
+  const file2 = outside[0] ?? newFiles[0] ?? [...head.files].sort()[0] ?? "";
+  const fact = { id: "drift.scope", weight: outside.length >= 3 || churnDoubled ? "strong" : "info", file: file2, text };
+  return { facts: [fact], notes: [] };
+};
+
 // src/architecture/layers.ts
-function moduleAdjacency(graph, depth, isTest) {
+function moduleAdjacency(graph, isTest) {
   const adjacency = /* @__PURE__ */ new Map();
   for (const file2 of graph.files) {
     if (isTest(file2)) continue;
-    const from = moduleOf(file2, depth);
+    const from = graph.moduleOf(file2);
     for (const target of graph.importsOf(file2)) {
-      const to = moduleOf(target, depth);
+      const to = graph.moduleOf(target);
       if (to === from) continue;
       if (!adjacency.has(from)) adjacency.set(from, /* @__PURE__ */ new Set());
       adjacency.get(from).add(to);
@@ -29577,11 +29723,11 @@ function moduleAdjacency(graph, depth, isTest) {
   }
   return adjacency;
 }
-function firstEdgeFile(graph, depth, isTest, from, to) {
+function firstEdgeFile(graph, isTest, from, to) {
   for (const file2 of graph.files) {
     if (isTest(file2)) continue;
-    if (moduleOf(file2, depth) !== from) continue;
-    const targets = graph.importsOf(file2).filter((t) => moduleOf(t, depth) === to);
+    if (graph.moduleOf(file2) !== from) continue;
+    const targets = graph.importsOf(file2).filter((t) => graph.moduleOf(t) === to);
     if (targets.length > 0) return { file: file2, targets };
   }
   return void 0;
@@ -29602,8 +29748,8 @@ async function findImportLine(ctx, file2, targets) {
   }
   return void 0;
 }
-async function edgeFact(ctx, depth, isTest, head, from, to) {
-  const found = firstEdgeFile(head, depth, isTest, from, to);
+async function edgeFact(ctx, isTest, head, from, to) {
+  const found = firstEdgeFile(head, isTest, from, to);
   if (!found) return void 0;
   const line2 = await findImportLine(ctx, found.file, found.targets);
   const where = line2 !== void 0 ? `${found.file}:${line2}` : found.file;
@@ -29682,10 +29828,10 @@ function shortestCycle(start, members2, adjacency) {
   path.push(start);
   return path;
 }
-async function cycleFact(ctx, depth, isTest, head, members2, adjacency) {
+async function cycleFact(ctx, isTest, head, members2, adjacency) {
   const start = [...members2].sort()[0];
   const path = shortestCycle(start, new Set(members2), adjacency);
-  const found = firstEdgeFile(head, depth, isTest, path[0], path[1]);
+  const found = firstEdgeFile(head, isTest, path[0], path[1]);
   const line2 = found ? await findImportLine(ctx, found.file, found.targets) : void 0;
   const file2 = found?.file ?? path[0];
   const text = `New import cycle: ${path.map((m) => `\`${untrusted(m)}\``).join(" \u2192 ")}.`;
@@ -29702,22 +29848,21 @@ var detectLayers = async (ctx) => {
   if (base.coverage.files < base.coverage.total || head.coverage.files < head.coverage.total) {
     return { facts: [], notes: ["layers: repository is larger than graph.maxFiles"] };
   }
-  const depth = config2.captain.moduleDepth;
   const isTest = (path) => isTestPath(config2, path);
-  const baseAdjacency = moduleAdjacency(base, depth, isTest);
-  const headAdjacency = moduleAdjacency(head, depth, isTest);
-  const baseModules = new Set(base.files.map((f) => moduleOf(f, depth)));
+  const baseAdjacency = moduleAdjacency(base, isTest);
+  const headAdjacency = moduleAdjacency(head, isTest);
+  const baseModules = new Set(base.files.map((f) => base.moduleOf(f)));
   const edgeFacts = await Promise.all(
     [...headAdjacency].flatMap(
-      ([from, tos]) => [...tos].filter((to) => baseModules.has(from) && baseModules.has(to) && !baseAdjacency.get(from)?.has(to)).map((to) => edgeFact(ctx, depth, isTest, head, from, to))
+      ([from, tos]) => [...tos].filter((to) => baseModules.has(from) && baseModules.has(to) && !baseAdjacency.get(from)?.has(to)).map((to) => edgeFact(ctx, isTest, head, from, to))
     )
   );
   const baseSccId = /* @__PURE__ */ new Map();
   stronglyConnectedComponents(baseAdjacency).forEach((component, i) => component.forEach((m) => baseSccId.set(m, i)));
   const newCycles = stronglyConnectedComponents(headAdjacency).map((component) => component.filter((m) => baseModules.has(m))).filter((oldMembers) => oldMembers.length >= 2 && !oldMembers.every((m) => baseSccId.has(m) && baseSccId.get(m) === baseSccId.get(oldMembers[0])));
-  const cycleFacts = await Promise.all(newCycles.map((oldMembers) => cycleFact(ctx, depth, isTest, head, oldMembers, headAdjacency)));
+  const cycleFacts = await Promise.all(newCycles.map((oldMembers) => cycleFact(ctx, isTest, head, oldMembers, headAdjacency)));
   const facts = [...edgeFacts, ...cycleFacts].filter((f) => f !== void 0);
-  return { facts, notes: [] };
+  return { facts, notes: [...head.moduleNotes] };
 };
 
 // src/architecture/index.ts
@@ -30247,9 +30392,9 @@ function hunkPublicDecl(c) {
   return void 0;
 }
 function fallbackReason(c, dependents, fixCount) {
-  const base = plural3(hunkChangedLines(c.hunk), "changed line");
+  const base = plural4(hunkChangedLines(c.hunk), "changed line");
   const decl = hunkPublicDecl(c);
-  const context = dependents > 0 ? `${plural3(dependents, "file")} depend${dependents === 1 ? "s" : ""} on it` : decl ? `changes exported ${code(decl)}` : fixCount > 0 ? `in a file with ${plural3(fixCount, "prior fix")}` : void 0;
+  const context = dependents > 0 ? `${plural4(dependents, "file")} depend${dependents === 1 ? "s" : ""} on it` : decl ? `changes exported ${code(decl)}` : fixCount > 0 ? `in a file with ${plural4(fixCount, "prior fix")}` : void 0;
   return { kind: "changed-lines", text: context ? `${base}, ${context}` : base };
 }
 function fixHistory(ctx, path) {
@@ -30264,7 +30409,7 @@ function newAuthor(ctx, path) {
 }
 var isRiskCategory = (category) => LLM_RISK_CATEGORIES.includes(category);
 var isoDate = (unixSeconds) => new Date(unixSeconds * 1e3).toISOString().slice(0, 10);
-var plural3 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+var plural4 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 function rankHunks(ctx, result, blame, opts = {}) {
   const useLlm = opts.llm !== false;
   const testGlobs = ctx.config.paths.tests;
@@ -30289,12 +30434,12 @@ function rankHunks(ctx, result, blame, opts = {}) {
     if (fixes.latest) {
       fileReasons.push({
         kind: "fix-history",
-        text: `${plural3(fixes.count, "fix or revert commit")} in this file; latest ${code(fixes.latest.sha.slice(0, 7))} ${quoteUntrusted(fixes.latest.subject)}`,
+        text: `${plural4(fixes.count, "fix or revert commit")} in this file; latest ${code(fixes.latest.sha.slice(0, 7))} ${quoteUntrusted(fixes.latest.subject)}`,
         quote: clipQuote(fixes.latest.subject),
         sha: fixes.latest.sha
       });
     }
-    if (dependents > 0) fileReasons.push({ kind: "dependents", text: `${plural3(dependents, "file")} depend${dependents === 1 ? "s" : ""} on it` });
+    if (dependents > 0) fileReasons.push({ kind: "dependents", text: `${plural4(dependents, "file")} depend${dependents === 1 ? "s" : ""} on it` });
     if (critical) fileReasons.push({ kind: "critical", text: "on a critical path" });
     if (!anyTestChanged && !matchAny(testGlobs, path)) fileReasons.push({ kind: "no-tests", text: "no test changed alongside it" });
     if (isNewAuthor) fileReasons.push({ kind: "new-author", text: "the author has not changed this file before" });
