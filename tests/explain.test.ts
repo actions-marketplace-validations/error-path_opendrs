@@ -34,6 +34,8 @@ function fakeGraph(supported: boolean): RepoGraph {
     transitiveDependents: (_p, depth) => new Set(depth >= 3 ? ["a.ts", "b.ts", "c.ts", "d.ts"] : ["a.ts", "b.ts"]),
     supports: () => supported,
     fileCount: 10,
+    moduleOf: (path) => path,
+    moduleNotes: [],
   };
 }
 
