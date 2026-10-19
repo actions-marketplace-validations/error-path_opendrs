@@ -17,7 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
-| Planned (pre-registered 2026-10-19) | Do `contract.dependency`, `contract.api`, `contract.schema` and `layers.edge` predict ApacheJIT bugs enough to ship as captain facts (spec §10.2)? Do the rejected review signals (`change.concurrency`, `change.safety_removed`, `tests.weakened`) qualify as captain facts on the full test split, even though they did not help the score? | Not run yet | Planned | [details](#planned-captain-fact-lift-on-apachejit) |
+| 2026-10-19 | Do `contract.dependency`, `contract.api`, `contract.schema` and `layers.edge` predict ApacheJIT bugs enough to ship as captain facts (spec §10.2)? Do the rejected review signals (`change.concurrency`, `change.safety_removed`, `tests.weakened`) qualify as captain facts on the full test split, even though they did not help the score? | 6 of 7 qualify (lift ≥ 1.2× and ≥ 50 fires): `contract.dependency` 1.467×, `contract.api` 1.718×, `contract.schema` 2.388×, `change.concurrency` 2.036×, `change.safety_removed` 1.788×, `tests.weakened` 1.202×. `layers.edge` does not: 1.117× on 19 fires of a 2,000-commit sample | Merged (facts only; review signals still excluded from the score) | [details](#captain-fact-lift-on-apachejit) |
 | 2026-10-19 | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Yes to shipping: test lift 1.931× at the tuned `minSupport: 8`/`minConfidence: 0.6`. No to the score: AUC 0.823 → 0.823, 95 % CI -0.0003 to -0.0001 (significant, but negative) | Merged (brief-only) | [details](#change-coupling-on-apachejit) |
 | Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
@@ -28,11 +28,10 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
 
-## Planned: captain-fact lift on ApacheJIT
+## Captain-fact lift on ApacheJIT
 
-**Status.** Pre-registered on 2026-10-19, before any run. No LLM calls; no API spend.
-
-**Question.** Spec §10.2 of
+**Question.** Pre-registered 2026-10-19, before any run; the question, setup and decision rule
+below are unchanged from the pre-registration. No LLM calls; no API spend. Spec §10.2 of
 [`docs/specs/2026-10-19-captain-brief-design.md`](https://github.com/error-path/opendrs/blob/main/docs/specs/2026-10-19-captain-brief-design.md)
 asks whether the captain brief's architecture facts predict ApacheJIT bugs enough to claim it in the
 docs (they ship regardless, as decisions to sign off on, but the docs may only call a fact a bug
@@ -94,10 +93,54 @@ facts; this result decides whether to add them.
 - No tuning: unlike the coupling experiment, none of these facts has a free parameter to choose on
   train, so only the test split is touched.
 
+**Result.**
+
+- Coverage: all 24,690 pooled test commits resolved to a diff (every project except
+  `apache/hadoop`; 4 more than the 24,686 this log's other ApacheJIT rows quote, because the
+  coupling experiment's separate history-walk missed those 4 shas in its own clones — this
+  experiment's `git log --stdin -p --ignore-missing` stream found them).
+- `layers.edge` sample: 2,000 of the 24,690 (seed `20261019`), 0 skipped (every graph pair built).
+
+| Fact | Fires on (test commits) | Buggy when fires | Base rate | Lift | Qualifies (≥ 1.2×, ≥ 50 fires)? |
+|---|---:|---:|---:|---:|---|
+| `contract.dependency` | 992/24,690 | 34.6 % | 23.6 % | **1.467×** | Yes |
+| `contract.api` (approximate dependents) | 8,595/24,690 | 40.5 % | 23.6 % | **1.718×** | Yes |
+| `contract.schema` | 279/24,690 | 56.3 % | 23.6 % | **2.388×** | Yes |
+| `layers.edge` (2,000-commit sample) | 19/2,000 | 26.3 % | 23.5 % | 1.117× | No |
+| `change.concurrency` | 3,196/24,690 | 48.0 % | 23.6 % | **2.036×** | Yes |
+| `change.safety_removed` | 5,127/24,690 | 42.1 % | 23.6 % | **1.788×** | Yes |
+| `tests.weakened` | 1,508/24,690 | 28.3 % | 23.6 % | **1.202×** | Yes |
+
+**Decision (spec §10.2's bar, applied exactly).**
+
+- **6 of 7 qualify** as bug-predicting captain facts: `contract.dependency`, `contract.api`,
+  `contract.schema`, `change.concurrency`, `change.safety_removed` and `tests.weakened` all clear
+  1.2× lift on at least 50 firing test commits. `tests.weakened` clears it narrowly (1.202×).
+- **`layers.edge` does not**: 1.117× lift on only 19 fires in the 2,000-commit sample, below both
+  bars. It still ships (spec §10.2: a layering decision to sign off on, not just a bug predictor),
+  but the docs may not claim it predicts bugs.
+- The three review signals clearing the captain-fact bar does **not** reopen their
+  [rejection as score features](#review-heuristic-signals): that was about whether they add ranking
+  signal once size, history and the rest of the model already see the commit, a different and
+  harder bar than "this subset of commits is buggier than average." They are not wired as captain
+  facts yet; this result is the basis for doing so.
+
+**Caveats.** `contract.api`'s dependents are a single-snapshot `git grep` approximation (2019
+imports standing in for a point-in-time import graph), not the real per-commit graph; no rename
+detection (`--no-renames`); merge commits show no diff under `git log -p`'s default, so they count
+as resolved-but-non-firing rather than skipped. Full detail, including the bare-class-name fallback
+for non-Maven/Gradle layouts, is in `bench/apachejit/captain-lift-experiment.md`.
+
+**Verdict.** `contract.dependency`, `contract.api`, `contract.schema`, `change.concurrency`,
+`change.safety_removed` and `tests.weakened` qualify as bug-predicting captain facts and the docs
+may say so; `layers.edge` ships as a layering decision only, with no bug-prediction claim. The three
+review signals remain out of the calibrated score (unchanged from their 2026-10-18 rejection) but
+are now a candidate for the captain brief as informational facts — not yet wired into
+`src/architecture/`.
+
 **Where.** `bench/apachejit/captain-lift-experiment.ts` and
-[`bench/apachejit/captain-lift-experiment.md`](../bench/apachejit/captain-lift-experiment.md) (once
-run). Clones go to `~/.cache/opendrs/apachejit/repos` and are deleted when the run finishes; `data/`,
-`rows/` and `llm/` are kept.
+[`bench/apachejit/captain-lift-experiment.md`](../bench/apachejit/captain-lift-experiment.md). No
+LLM calls; no API spend. The 15 full clones were deleted after the run.
 
 ## Change coupling on ApacheJIT
 
