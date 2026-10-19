@@ -20,6 +20,7 @@ October 2026. If something here is out of date, please
 | [MergeShield Risk Check](https://github.com/mergeshield/risk-check) | Claude reads the change and scores six dimensions, 0-100 | No: passes or fails a check against a threshold | Calls the MergeShield API; needs an account and API key |
 | [Merge Steward](https://github.com/performer220/merge-steward-pr-review) | Gemini scores six dimensions 0-3, including blast radius | Yes: approves low-risk changes and can request auto-merge | GitHub Action; needs a Gemini API key |
 | [Blast-Radius](https://github.com/bipu-biz/Blast-Radius) | Dependency graph from the TypeScript AST plus an AI summary | No: analysis for reviewers | Hosted web app |
+| [CodeRabbit](https://www.coderabbit.ai/) | LLM review, plus a "Merge Risk" label and an "Estimated code review effort" on every PR; the method behind either is not published | No: labels and an effort estimate, not a gate | Hosted service; reads your code |
 | [DRS-OSS](https://arxiv.org/abs/2511.21964) | Fine-tuned Llama 3.1 8B classifier over the diff and commit message | Flags risky diffs in CI | Self-hosted model service with a REST API |
 | Meta's Diff Risk Score | Models trained on Meta's own incidents | Gates code at Meta | Internal to Meta; described in [papers](https://arxiv.org/abs/2410.06351), not released |
 
@@ -39,3 +40,14 @@ October 2026. If something here is out of date, please
 - **You want code review comments:** use an AI reviewer such as PR-Agent, CodeRabbit or Claude
   Code. opendrs is designed to run after one of them and can require that its check passed before
   it approves anything.
+- **You've seen CodeRabbit's "Merge Risk" label and "Estimated code review effort":** they are
+  useful, but CodeRabbit does not publish how either is computed. opendrs's score is calibrated on
+  your own repository's history (`opendrs backtest`), every signal's contribution to it is shown in
+  the comment, and the [captain brief](captain.html) names the actual facts behind a verdict — a
+  new import edge, a broken contract, a file that usually changes with one this PR didn't — instead
+  of a label alone. It is also open source, with no service to host or account to create.
+- **You want the single highest accuracy number, and can host a model:** DRS-OSS reports AUC 0.895
+  on ApacheJIT's official split; opendrs's calibrated model reports AUC 0.823 on the same benchmark
+  (a different split; see [Calibration and backtesting](calibration.html)). That gap is the
+  trade-off: DRS-OSS needs a fine-tuned Llama 3.1 8B classifier running behind a REST API you host
+  and keep up; opendrs runs as a CLI, GitHub Action or MCP server with no model service to deploy.

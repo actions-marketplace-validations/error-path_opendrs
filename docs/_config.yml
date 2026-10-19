@@ -42,6 +42,8 @@ nav:
     url: /llm-judge.html
   - title: LLM reviewers
     url: /llm-reviewers.html
+  - title: Captain brief
+    url: /captain.html
   - title: GitHub Action
     url: /github-action.html
   - title: CLI & MCP

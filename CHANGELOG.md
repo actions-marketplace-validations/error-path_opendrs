@@ -2,6 +2,33 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- The **captain brief**: a priority line (`careful review`, `standard review` or `quick confirm`)
+  with one named reviewer (a GitHub login, never an email) on every PR comment, job summary and
+  Action output (`captain`), plus `captain:careful` / `captain:standard` / `captain:quick` labels
+  alongside the existing `risk:*` labels. See [docs/captain.md](docs/captain.md).
+- `contract.dependency`, `contract.api`, `contract.schema` and `contract.env` facts: a new
+  manifest dependency, a changed public contract with dependents, a changed schema/contract file,
+  and a newly read environment variable.
+- `layers.edge` and `layers.cycle` facts: a new import edge between modules, or a new import cycle,
+  comparing the dependency graph at the PR's base and head.
+- `coupling.missing` facts: a file that historically changes together with another, where this PR
+  changed only one of them.
+- `drift.scope` facts, Action only: what a PR picked up after opendrs's first scored run on it,
+  from the state marker's new `first=` field.
+- A mandatory `## For the captain` section in the review brief for AI reviewers, carrying the same
+  priority and facts as the PR comment's captain line, every fact included and never trimmed by
+  the token budget.
+
+### Changed
+
+- Review focus bullets in the PR comment no longer use the `dependents` reason (for example "6
+  files depend on it"); that count now only appears in the AI brief's hunk reasons, in Score
+  details, and as evidence on a `contract.api` captain fact.
+
 ## 0.3.0 - 2026-10-19
 
 The review-brief release. opendrs now tells LLM and human reviewers what to review first and why,

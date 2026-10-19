@@ -30,6 +30,12 @@ languages, and when the repository is larger than `graph.maxFiles`, the blast-ra
 reported as `unknown`. Unknown is treated as risk: it blocks auto-approval whenever it could have
 changed the tier.
 
+The dependents count drives `blast.dependents` and `blast.public_surface` in the score above, and
+it also shows up in the AI-facing review brief's hunk reasons. It reaches the
+[captain brief](captain.html) only once: as the "imported by N files" evidence on a
+`contract.api` fact, when a deleted public declaration has dependents. The captain brief does not
+otherwise repeat a raw dependents count — that is editor trivia the captain can see in one click.
+
 ## The other signals in the score
 
 | Signal | What it measures |

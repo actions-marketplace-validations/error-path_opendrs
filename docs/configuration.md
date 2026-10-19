@@ -17,6 +17,7 @@ description: "Every key in .opendrs.yml with its default: thresholds, auto-appro
 | `graph` | The import graph: on or off, depth and file cap |
 | `model` | Where `opendrs calibrate` writes the fitted model; priors are used until it exists |
 | `brief` | Token budget for the review brief's Markdown |
+| `captain` | The [captain brief](captain.html): module depth for the layers detector, the change-coupling detector's thresholds, and extra schema/contract globs |
 | `content` | JS regexes matched against each added line (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `freezes` | Windows in which auto-approval is suspended or held to a stricter green (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `sources` | Per-source policy for agent, bot and human PRs; every setting only tightens the gate |
@@ -97,6 +98,16 @@ model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used u
 
 brief:
   maxTokens: 2500   # token budget for the review brief's Markdown (characters / 3.5); min 300, max 6000
+
+captain:
+  enabled: true          # false: no captain line, block, labels, output or brief section
+  moduleDepth: 2          # path segments that make a module for the layers detector
+  coupling:
+    enabled: true         # set by the ApacheJIT experiment; see docs/experiments.md
+    minSupport: 5         # set by the ApacheJIT experiment; see docs/experiments.md
+    minConfidence: 0.6    # set by the ApacheJIT experiment; see docs/experiments.md
+  contracts:
+    paths: []              # extra schema/contract globs, added to the defaults
 
 content:
   block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]
