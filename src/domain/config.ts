@@ -69,6 +69,7 @@ export const DEFAULT_BLOCK: readonly string[] = [
   "**/Cargo.toml",
   "**/build.rs",
   "**/go.mod",
+  "**/Package.swift",
   "**/Gemfile",
   "**/Rakefile",
   "**/*.gemspec",

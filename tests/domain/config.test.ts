@@ -83,6 +83,8 @@ describe("default paths.block", () => {
     "Cargo.toml",
     "crates/x/build.rs",
     "go.mod",
+    "Package.swift",
+    "sub/Package.swift",
     "Gemfile",
     "Rakefile",
     "lib/x.gemspec",
