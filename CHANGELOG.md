@@ -16,7 +16,8 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - `layers.edge` and `layers.cycle` facts: a new import edge between modules, or a new import cycle,
   comparing the dependency graph at the PR's base and head.
 - `coupling.missing` facts: a file that historically changes together with another, where this PR
-  changed only one of them.
+  changed only one of them. On ApacheJIT's test split, commits with this fact were bug-inducing at
+  1.9× the base rate; it is a captain fact only and does not change the score.
 - `drift.scope` facts, Action only: what a PR picked up after opendrs's first scored run on it,
   from the state marker's new `first=` field.
 - A mandatory `## For the captain` section in the review brief for AI reviewers, carrying the same

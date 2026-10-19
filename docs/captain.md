@@ -146,7 +146,7 @@ captain:
   moduleDepth: 2          # path segments that make a module for the layers detector
   coupling:
     enabled: true         # defaults set by the ApacheJIT experiment — see below
-    minSupport: 5
+    minSupport: 8
     minConfidence: 0.6
   contracts:
     paths: []              # extra schema/contract globs, added to the defaults
@@ -159,8 +159,11 @@ own captain brief off. See the [configuration reference](configuration.html) for
 
 - **Coupling** (`coupling.missing`) has a pre-registered experiment on ApacheJIT behind it: whether
   the fact lifts the buggy rate over the base rate, and whether it adds to the calibrated score.
-  The defaults above are set by that experiment's decision rule — results: see
-  [Experiments](experiments.html).
+  On the held-out test split (24,686 commits, 2017–2019) the fact fired on 1,800 commits, and
+  45.5 % of them were bug-inducing against a 23.6 % base rate: a lift of 1.9×. Adding it to the
+  score did not raise AUC (0.823 with and without), so it stays a captain fact and is not a
+  score signal. The defaults (`minSupport: 8`, `minConfidence: 0.6`) were tuned on the training
+  split only. Details: [Experiments](experiments.html).
 - **Layers and contracts** (`layers.edge`, `layers.cycle`, `contract.*`) are decisions a captain
   signs off on, not bug predictors. opendrs does not claim that a new import edge or a new
   dependency makes a PR more likely to cause an incident — only that it is a decision the captain,

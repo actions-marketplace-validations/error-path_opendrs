@@ -104,7 +104,7 @@ captain:
   moduleDepth: 2          # path segments that make a module for the layers detector
   coupling:
     enabled: true         # set by the ApacheJIT experiment; see docs/experiments.md
-    minSupport: 5         # set by the ApacheJIT experiment; see docs/experiments.md
+    minSupport: 8         # set by the ApacheJIT experiment; see docs/experiments.md
     minConfidence: 0.6    # set by the ApacheJIT experiment; see docs/experiments.md
   contracts:
     paths: []              # extra schema/contract globs, added to the defaults
