@@ -1,7 +1,11 @@
+import type { OpendrsConfig } from "../domain/config.js";
 import type { ChangedFile, SignalProvider } from "../domain/types.js";
 import { matchAny } from "../git/glob.js";
 import { isCodeFamily, languageFamily } from "./language.js";
 import { countedFiles, plural, topEvidence } from "./util.js";
+
+/** `paths.tests` glob match: shared with the layers detector (spec §6.2), which excludes test-file importers. */
+export const isTestPath = (config: OpendrsConfig, path: string): boolean => matchAny(config.paths.tests, path);
 
 /** Test lines a change needs, as a share of its source lines, before the penalty is gone. */
 const EXPECTED_TEST_SHARE = 0.3;
@@ -19,7 +23,7 @@ const NET_TEST_DELETION = 10;
  */
 export const testsSignals: SignalProvider = async (ctx) => {
   const files = countedFiles(ctx);
-  const isTest = (path: string) => matchAny(ctx.config.paths.tests, path);
+  const isTest = (path: string) => isTestPath(ctx.config, path);
   const lines = (fs: ChangedFile[]) => fs.reduce((n, f) => n + f.added + f.deleted, 0);
   const tests = files.filter((f) => isTest(f.path));
   const sources = files.filter((f) => !f.binary && !isTest(f.path) && isCodeFamily(languageFamily(f.path)));
