@@ -5,4 +5,4 @@ autoApprove:
   # Approve low-risk PRs. The workflow auto-merges only those whose captain line is "quick
   # confirm" (.github/workflows/opendrs.yml); a maintainer merges the rest.
   mergeMethod: none
-  maxChangedLines: 500
+  maxChangedLines: 1000
