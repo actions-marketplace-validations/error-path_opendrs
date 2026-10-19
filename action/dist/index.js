@@ -30247,7 +30247,7 @@ function decide(input2) {
   const deferredBelow = deferredReview.enabled && deferredReview.below !== void 0 ? config2.thresholds.mode === "absolute" ? deferredReview.below : percentileScore(model.percentiles, deferredReview.below) : void 0;
   const deferrable = deferredBelow !== void 0 && input2.score >= thresholds.green && input2.score < deferredBelow && (kinds.length > 0 ? kinds : ["human"]).every((k) => deferredReview.sources.includes(k));
   if (tier !== "green" && !deferrable) {
-    fire("human-review", `tier ${tier}: score ${input2.score.toFixed(2)} \u2265 green threshold ${thresholds.green.toFixed(2)}`, "tier");
+    fire("human-review", `tier ${tier}: score ${formatScore(input2.score, thresholds.green)} \u2265 green threshold ${thresholds.green.toFixed(2)}`, "tier");
   }
   const now = input2.now ?? Date.now();
   for (const f of config2.freezes.filter((w) => freezeActive(w, now))) {
@@ -30259,7 +30259,7 @@ function decide(input2) {
     if (green === void 0) {
       fire("human-review", `freeze "${f.name}": percentile green ${f.green} needs a calibrated model; auto-approval suspended`, "freeze");
     } else if (input2.score >= green) {
-      fire("human-review", `freeze "${f.name}": score ${input2.score.toFixed(2)} \u2265 freeze green ${green.toFixed(2)}`, "freeze");
+      fire("human-review", `freeze "${f.name}": score ${formatScore(input2.score, green)} \u2265 freeze green ${green.toFixed(2)}`, "freeze");
     }
   }
   const inPr = new Set(input2.prCommits ?? []);
@@ -30271,7 +30271,7 @@ function decide(input2) {
       if (green === void 0) {
         fire("human-review", `source ${kind}: percentile green ${source.green} needs a calibrated model; auto-approval suspended`, "source");
       } else if (input2.score >= green) {
-        fire("human-review", `source ${kind}: score ${input2.score.toFixed(2)} \u2265 source green ${green.toFixed(2)}`, "source");
+        fire("human-review", `source ${kind}: score ${formatScore(input2.score, green)} \u2265 source green ${green.toFixed(2)}`, "source");
       }
     }
     const landed = (ms) => input2.history.commits.filter((c) => c.source === kind && !inPr.has(c.sha) && c.time * 1e3 > now - ms && c.time * 1e3 <= now);
@@ -30356,12 +30356,12 @@ function decide(input2) {
   if (decision === "auto-approve") {
     fired.push({
       decision,
-      reason: `auto-approve: score ${input2.score.toFixed(2)} < green ${thresholds.green.toFixed(2)} and every gate passed (merge: ${auto.mergeMethod})`
+      reason: `auto-approve: score ${formatScore(input2.score, thresholds.green)} < green ${thresholds.green.toFixed(2)} and every gate passed (merge: ${auto.mergeMethod})`
     });
   } else if (decision === "deferred-review") {
     fired.push({
       decision,
-      reason: `deferred review: score ${input2.score.toFixed(2)} is in the deferred band (${thresholds.green.toFixed(2)}\u2013${deferredBelow.toFixed(2)}); lands now, reviewed after merge`
+      reason: `deferred review: score ${formatScore(input2.score, thresholds.green)} is in the deferred band (${thresholds.green.toFixed(2)}\u2013${deferredBelow.toFixed(2)}); lands now, reviewed after merge`
     });
   }
   if (deferredReview.enabled && deferredReview.below !== void 0 && deferredBelow === void 0 && tier !== "green" && fired.length === 1) {
@@ -30435,6 +30435,13 @@ function percentileScore(table, p) {
   return void 0;
 }
 var list = (paths) => paths.length > 3 ? `${paths.slice(0, 3).join(", ")} (+${paths.length - 3} more)` : paths.join(", ");
+function formatScore(score, threshold) {
+  const short2 = score.toFixed(2);
+  if (short2 !== threshold.toFixed(2)) return short2;
+  let precise = score.toFixed(4);
+  while (precise.endsWith("0") && precise.length > short2.length) precise = precise.slice(0, -1);
+  return precise;
+}
 
 // src/signals/blast.ts
 var OTHER_CODE = new Set("c h cc cpp cxx hpp hh cs fs swift m mm php scala sc dart ex exs erl hs lua pl pm jl clj groovy".split(" "));

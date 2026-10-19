@@ -60,6 +60,12 @@ describe("decide: rule 7 (auto-approve)", () => {
   it("suggests recent authors of the changed files, excluding the PR author", () => {
     expect(decide(input()).suggestedReviewers).toEqual(["bob@x.com", "carol@x.com"]);
   });
+
+  it("shows enough decimals when the score rounds to the same two decimals as green", () => {
+    const out = decide(input({ score: 0.2996 }));
+    expect(out.reasons[0]).toContain("score 0.2996 < green 0.30");
+    expect(out.reasons[0]).not.toContain("0.30 < green 0.30");
+  });
 });
 
 describe("decide: rule 1 (hard block)", () => {
@@ -244,6 +250,11 @@ describe("decide: rule 3 (tier)", () => {
     expect(out.reasons[0]).toMatch(/yellow.*0\.45.*0\.30/);
   });
 
+  it("shows enough decimals when the score rounds to the same two decimals as green", () => {
+    const out = decide(input({ score: 0.3004 }));
+    expect(out.reasons[0]).toContain("score 0.3004 ≥ green threshold 0.30");
+  });
+
   it("maps percentile thresholds through the model's history percentiles, interpolating", () => {
     const model: ModelWeights = { ...DEFAULT_WEIGHTS, percentiles: { "50": 0.1, "75": 0.2, "90": 0.4, "95": 0.5, "99": 0.7 } };
     const cfg = { thresholds: { mode: "percentile", green: 60, yellow: 90, red: 95 } };
@@ -292,6 +303,12 @@ describe("decide: freezes", () => {
     expect(out).toMatchObject({ tier: "green", decision: "human-review" });
     expect(out.reasons[0]).toBe('freeze "black-friday": score 0.20 ≥ freeze green 0.15');
     expect(decide(input({ ...freeze(window), score: 0.1 })).decision).toBe("auto-approve");
+  });
+
+  it("shows enough decimals when the freeze score rounds to the same two decimals as the freeze green", () => {
+    const window = { name: "black-friday", days: ["fri"], green: 0.15 };
+    const out = decide(input({ ...freeze(window), score: 0.1504 }));
+    expect(out.reasons[0]).toBe('freeze "black-friday": score 0.1504 ≥ freeze green 0.15');
   });
 
   it("maps a percentile freeze green through the model's percentiles", () => {
@@ -366,6 +383,11 @@ describe("decide: per-source policy", () => {
     expect(out).toMatchObject({ tier: "green", decision: "human-review" });
     expect(out.reasons[0]).toBe("source agent: score 0.24 ≥ source green 0.20");
     expect(decide(input({ ...sources({ green: 0.2 }), source: agent, score: 0.19 })).decision).toBe("auto-approve");
+  });
+
+  it("shows enough decimals when the source score rounds to the same two decimals as the source green", () => {
+    const out = decide(input({ ...sources({ green: 0.2 }), source: agent, score: 0.2004 }));
+    expect(out.reasons[0]).toBe("source agent: score 0.2004 ≥ source green 0.20");
   });
 
   it("never fires for another kind", () => {
@@ -688,6 +710,11 @@ describe("decide: deferred review", () => {
     expect(out).toMatchObject({ tier: "yellow", decision: "deferred-review", mergeMethod: "queue", hardBlocked: false, sampled: false });
     expect(out.reasons[0]).toBe("deferred review: score 0.34 is in the deferred band (0.30–0.45); lands now, reviewed after merge");
     expect(out.reasons).toContain("dry run: autoApprove.enabled=false");
+  });
+
+  it("shows enough decimals when the score rounds to the same two decimals as green", () => {
+    const out = decide(input({ score: 0.3004, cfg: deferred() }));
+    expect(out.reasons[0]).toBe("deferred review: score 0.3004 is in the deferred band (0.30–0.45); lands now, reviewed after merge");
   });
 
   it("includes the green edge and excludes the below edge", () => {
