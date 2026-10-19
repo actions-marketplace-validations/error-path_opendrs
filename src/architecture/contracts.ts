@@ -35,6 +35,10 @@ const ENV_PATTERNS: RegExp[] = [
   /\bos\.Getenv\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
   /\bENV\[["']([A-Za-z_][A-Za-z0-9_]*)["']\]/,
   /\bENV\.fetch\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bos\.LookupEnv\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bos\.environ\.setdefault\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bEnvironment\.get\(["']([A-Za-z_][A-Za-z0-9_]*)["']/,
+  /\bProcessInfo\.processInfo\.environment\[["']([A-Za-z_][A-Za-z0-9_]*)["']\]/,
 ];
 
 /** The first line in `text` containing `token` verbatim (1-based), or undefined. */

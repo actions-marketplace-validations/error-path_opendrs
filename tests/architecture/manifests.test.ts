@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedPackages } from "../../src/architecture/manifests.js";
+import { addedPackages, manifestKind } from "../../src/architecture/manifests.js";
 
 describe("addedPackages: package.json", () => {
   const base = JSON.stringify({ dependencies: { foo: "^1.0.0" }, devDependencies: { eslint: "^8.0.0" } });
@@ -105,5 +105,126 @@ describe("addedPackages: new manifest", () => {
   it("base undefined (new manifest) reports every name as added", () => {
     const head = JSON.stringify({ dependencies: { foo: "^1.0.0" }, devDependencies: { eslint: "^8.0.0" } });
     expect(addedPackages("package.json", undefined, head)).toEqual({ runtime: ["foo"], dev: ["eslint"] });
+  });
+});
+
+describe("addedPackages: pyproject.toml PEP 508 markers and extras", () => {
+  it("an environment marker with a nested single-quoted value does not corrupt the parsed name", () => {
+    const base = '[project]\nname = "app"\ndependencies = [\n  "flask>=2.0",\n]\n';
+    const head =
+      '[project]\nname = "app"\ndependencies = [\n  "flask>=2.0",\n  "uvloop>=0.15.2; sys_platform != \'win32\'",\n]\n\n' +
+      '[project.optional-dependencies]\nspeedups = ["winloop>=0.5.0; sys_platform == \'win32\'"]\n';
+    expect(addedPackages("pyproject.toml", base, head)).toEqual({ runtime: ["uvloop"], dev: ["winloop"] });
+  });
+
+  it("a PEP 508 extras bracket is stripped from the parsed name", () => {
+    const base = '[project]\nname = "app"\ndependencies = [\n  "flask>=2.0",\n]\n';
+    const head = '[project]\nname = "app"\ndependencies = [\n  "flask>=2.0",\n  "uvloop[full]>=0.15; platform_system != \'Windows\'",\n]\n';
+    expect(addedPackages("pyproject.toml", base, head)).toEqual({ runtime: ["uvloop"], dev: [] });
+  });
+
+  it("a version-only bump on a marker-qualified dependency is not an addition", () => {
+    const base = '[project]\nname = "app"\ndependencies = [\n  "uvloop>=0.15; sys_platform != \'win32\'",\n]\n';
+    const head = '[project]\nname = "app"\ndependencies = [\n  "uvloop>=0.16; sys_platform != \'win32\'",\n]\n';
+    expect(addedPackages("pyproject.toml", base, head)).toEqual({ runtime: [], dev: [] });
+  });
+});
+
+describe("addedPackages: go.mod // indirect", () => {
+  it("promoting a dependency from // indirect to direct is a new runtime dependency", () => {
+    const base = "module example.com/app\n\nrequire (\n\tgithub.com/charmbracelet/x/ansi v1.2.3 // indirect\n)\n";
+    const head = "module example.com/app\n\nrequire (\n\tgithub.com/charmbracelet/x/ansi v1.2.3\n)\n";
+    expect(addedPackages("go.mod", base, head)).toEqual({ runtime: ["github.com/charmbracelet/x/ansi"], dev: [] });
+  });
+
+  it("a newly added indirect-only dependency is a dev (info) fact, not runtime", () => {
+    const base = "module example.com/app\n\nrequire (\n\tgithub.com/foo/bar v1.2.3\n)\n";
+    const head = "module example.com/app\n\nrequire (\n\tgithub.com/foo/bar v1.2.3\n\tgithub.com/new/indirect v0.1.0 // indirect\n)\n";
+    expect(addedPackages("go.mod", base, head)).toEqual({ runtime: [], dev: ["github.com/new/indirect"] });
+  });
+
+  it("a version-only bump on a direct dependency is not an addition", () => {
+    const base = "module example.com/app\n\nrequire github.com/foo/bar v1.2.3\n";
+    const head = "module example.com/app\n\nrequire github.com/foo/bar v1.3.0\n";
+    expect(addedPackages("go.mod", base, head)).toEqual({ runtime: [], dev: [] });
+  });
+
+  it("an unclosed require block yields an error, not a throw", () => {
+    const result = addedPackages("go.mod", "module example.com/app\n", "module example.com/app\n\nrequire (\n\tgithub.com/foo/bar v1.2.3\n");
+    expect(result).toHaveProperty("error");
+  });
+});
+
+describe("addedPackages: Cargo.toml target/workspace tables", () => {
+  it("a new dependency under a target cfg table is runtime, like the plain table", () => {
+    const base = '[dependencies]\nserde = "1.0"\n';
+    const head = '[dependencies]\nserde = "1.0"\n\n[target.\'cfg(windows)\'.dependencies]\nwinapi-util = "0.1"\n';
+    expect(addedPackages("Cargo.toml", base, head)).toEqual({ runtime: ["winapi-util"], dev: [] });
+  });
+
+  it("a new dev-dependency under a target cfg table is dev", () => {
+    const base = '[dependencies]\nserde = "1.0"\n';
+    const head = '[dependencies]\nserde = "1.0"\n\n[target.\'cfg(unix)\'.dev-dependencies]\nnix = "0.27"\n';
+    expect(addedPackages("Cargo.toml", base, head)).toEqual({ runtime: [], dev: ["nix"] });
+  });
+
+  it("a new dependency under [workspace.dependencies] is runtime", () => {
+    const base = '[workspace]\nmembers = ["a"]\n';
+    const head = '[workspace]\nmembers = ["a"]\n\n[workspace.dependencies]\njsonwebtoken = "9.0"\n';
+    expect(addedPackages("Cargo.toml", base, head)).toEqual({ runtime: ["jsonwebtoken"], dev: [] });
+  });
+
+  it("dep = { workspace = true } added in a member is not a new external package", () => {
+    const base = '[dependencies]\nserde = "1.0"\n';
+    const head = '[dependencies]\nserde = "1.0"\njsonwebtoken = { workspace = true }\n';
+    expect(addedPackages("Cargo.toml", base, head)).toEqual({ runtime: [], dev: [] });
+  });
+
+  it("a version-only bump under a target cfg table is not an addition", () => {
+    const base = '[target.\'cfg(windows)\'.dependencies]\nwinapi-util = "0.1"\n';
+    const head = '[target.\'cfg(windows)\'.dependencies]\nwinapi-util = "0.2"\n';
+    expect(addedPackages("Cargo.toml", base, head)).toEqual({ runtime: [], dev: [] });
+  });
+
+  it("an unclosed table header in Cargo.toml yields an error", () => {
+    const result = addedPackages("Cargo.toml", '[dependencies]\nserde = "1.0"\n', '[dependencies\nserde = "1.0"\n');
+    expect(result).toHaveProperty("error");
+  });
+});
+
+describe("addedPackages: Package.swift", () => {
+  const base =
+    'import PackageDescription\n\nlet package = Package(\n  name: "Vapor",\n  dependencies: [\n    .package(url: "https://github.com/vapor/vapor-core.git", from: "4.0.0"),\n  ]\n)\n';
+
+  it("manifestKind recognizes Package.swift", () => {
+    expect(manifestKind("Package.swift")).toBe("Package.swift");
+  });
+
+  it("a new .package(url:) entry is a runtime dependency, named from the URL", () => {
+    const head =
+      'import PackageDescription\n\nlet package = Package(\n  name: "Vapor",\n  dependencies: [\n    .package(url: "https://github.com/vapor/vapor-core.git", from: "4.0.0"),\n    .package(url: "https://github.com/apple/swift-nio-http3.git", from: "1.0.0"),\n  ]\n)\n';
+    expect(addedPackages("Package.swift", base, head)).toEqual({ runtime: ["swift-nio-http3"], dev: [] });
+  });
+
+  it("an explicit .package(name:) wins over the URL-derived name", () => {
+    const head = base.replace(
+      '.package(url: "https://github.com/vapor/vapor-core.git", from: "4.0.0"),',
+      '.package(url: "https://github.com/vapor/vapor-core.git", from: "4.0.0"),\n    .package(name: "SwiftNIO", url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),',
+    );
+    expect(addedPackages("Package.swift", base, head)).toEqual({ runtime: ["SwiftNIO"], dev: [] });
+  });
+
+  it("a version-only bump is not an addition", () => {
+    const head = base.replace('from: "4.0.0"', 'from: "4.1.0"');
+    expect(addedPackages("Package.swift", base, head)).toEqual({ runtime: [], dev: [] });
+  });
+
+  it("an unterminated .package(...) call yields an error, not a throw", () => {
+    const result = addedPackages(
+      "Package.swift",
+      base,
+      'let package = Package(\n  dependencies: [\n    .package(url: "https://github.com/foo/bar.git", from: "1.0.0"\n',
+    );
+    expect(result).toHaveProperty("error");
   });
 });
