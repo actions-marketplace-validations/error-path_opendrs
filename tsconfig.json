@@ -15,12 +15,5 @@
     "types": ["node"]
   },
   "include": ["src", "tests", "bench"],
-  "exclude": [
-    "bench/**/run.ts",
-    "bench/**/llm.ts",
-    "bench/**/fit-experiment.ts",
-    "bench/**/judge-sim.ts",
-    "bench/**/coupling-experiment.ts",
-    "bench/**/score-saturation-experiment.ts"
-  ]
+  "exclude": ["bench/**/run.ts", "bench/**/llm.ts", "bench/**/fit-experiment.ts", "bench/**/judge-sim.ts", "bench/**/coupling-experiment.ts", "bench/**/captain-lift-experiment.ts", "bench/**/score-saturation-experiment.ts"]
 }
