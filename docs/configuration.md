@@ -72,7 +72,8 @@ paths:
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
            "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
   tests: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*",
-          "**/*_test.*", "**/test_*.py"]
+          "**/*_test.*", "**/test_*.py", "**/spec/**", "**/*_spec.rb", "**/Tests/**",
+          "**/*Tests.swift"]
 
 llm:
   enabled: false
