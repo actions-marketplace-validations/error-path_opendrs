@@ -18,6 +18,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
 | 2026-10-19 | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Yes to shipping: test lift 1.931× at the tuned `minSupport: 8`/`minConfidence: 0.6`. No to the score: AUC 0.823 → 0.823, 95 % CI -0.0003 to -0.0001 (significant, but negative) | Merged (brief-only) | [details](#change-coupling-on-apachejit) |
+| Planned (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | Not yet run | Planned | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
 | Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
 | 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Rejected (archived as a patch) | [details](#review-heuristic-signals) |
@@ -96,6 +97,76 @@ thresholds; it does not enter the calibrated score.
 **Where.** `bench/apachejit/coupling-experiment.ts` and
 [`bench/apachejit/coupling-experiment.md`](../bench/apachejit/coupling-experiment.md). No LLM
 calls; no API spend. The 15 blobless clones were deleted after the run.
+
+## Score saturation: fixPattern and incident granularity on ApacheJIT
+
+**Status.** Pre-registered 2026-10-19, before any run. Motivated by the field test on six new
+repositories ([research note](research/2026-10-19-field-test.md)): on mature, active repos (black,
+vite) most non-trivial PRs scored red (0.80–0.96) regardless of size, and two causes were named
+specifically: `history.fixPattern`'s broad regex counts Conventional-Commit housekeeping commits
+(`fix(deps): update dependencies`, `chore(deps)`, `fix(ci)`, `fix(docs)`, `fix: typo`) as prior bug
+fixes, and `history.incident`'s revert matching fires at the containing-folder level, so one old
+revert in a monorepo directory flags hundreds of files it never touched.
+
+**Question.** Do either or both changes reduce default-prior score saturation on ApacheJIT's test
+split enough to recommend as new `src/` defaults, without a significant loss of calibrated ranking
+quality?
+
+**Variants**, applied to the existing full row cache (build `08355066ee67`, the same 15-project
+replay behind the 0.823 pooled calibrated AUC quoted throughout this log), with every signal but
+the two below held at its real, shipped value:
+
+- **V0 (current).** Unchanged: `history.fixPattern` is the shipped default
+  `\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\d?|revert)\b`; `history.incident` matches a
+  changed file against a past revert or incident by exact file path, or by the dirname of any file
+  the revert/incident touched (folder level).
+- **V1 (fixPattern excludes housekeeping scopes).** `history.fixPattern` becomes:
+
+  ```
+  ^(?!(?:deps?|dependencies|ci|docs?|build|chore|style|tests?)(?:\([^)]*\))?:)(?!\w+\((?:deps?|dependencies|ci|docs?|build|chore|style|tests?)\):)(?!fix:\s*typo\b).*\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\d?|revert)\b
+  ```
+
+  i.e. the same keyword match, unless the subject opens with a Conventional-Commit header whose
+  type or scope is `deps[/dependencies]`, `ci`, `docs`, `build`, `chore`, `style` or `test[s]`, or
+  is the literal `fix: typo`. `history.incident` unchanged from V0.
+- **V2 (incident at file level).** `history.incident` drops the folder-level branch: a changed file
+  only counts as touched by a past revert/incident when the revert/incident's own file list
+  contains that exact path (or an `.opendrs/incidents.jsonl` `paths` prefix, unaffected by this
+  change). `history.fixPattern` unchanged from V0.
+- **V3.** V1 and V2 together.
+
+Implemented bench-only (`bench/apachejit/score-saturation-experiment.ts`): a bench-local
+reimplementation of the two signal computations, run over one blobless clone and one `git log
+--name-only --no-renames --format=...` spawn per project (sha, time, subject, body, files — same
+shape as `src/git/history.ts`'s own log, minus the `-M` rename flag, which is what made earlier
+history-replay attempts time out on the larger histories). `src/` is not touched. No LLM calls, no
+API spend.
+
+**Metrics**, on the dataset's official split, pooled excluding `apache/hadoop`:
+
+- Calibrated AUC (`fitModel`, as shipped) and recall@10 %/30 % on the test split, with a paired
+  bootstrap (2,000 resamples, test commits resampled together, same method as the change-coupling
+  experiment) against V0 for each of V1/V2/V3.
+- **Saturation**, scored with `DEFAULT_WEIGHTS` (uncalibrated, as a repo sees out of the box before
+  running `calibrate`): the share of test commits at or above `thresholds.red` (0.8) and at or above
+  `thresholds.green` (0.3, the yellow-or-red boundary — `src/policy/gate.ts`'s three-tier rule), plus
+  the score distribution's standard deviation and interquartile range as a spread measure.
+- **Field-repo fixPattern counts (secondary, descriptive).** ApacheJIT is Java and mostly pre-dates
+  Conventional Commits; V1's effect there may understate its effect on a TypeScript/Python repo that
+  uses them. One `git log --format=%s` per repo on fresh blobless clones of vitejs/vite, psf/black
+  and cli/cli (the field test's two most-saturated repos and a third for contrast), counting commits
+  matched by the V0 and V1 regexes, reported as a count and share, not an AUC.
+
+**Decision rule**, applied the same way for each variant independently:
+
+- **Adopt** a variant as the new `src/` default when its default-prior red-share drops by at least
+  **25 % relative** to V0 (e.g. 40 % red → 30 % red or lower) **and** its calibrated-AUC paired
+  bootstrap 95 % CI against V0 includes 0 or is entirely positive (no significant loss).
+- Otherwise: **reject**, or **ship conditionally** (e.g. only the sub-variant that clears the bar,
+  if V1 and V2 disagree) with the reasoning recorded against the specific numbers.
+
+**Where.** `bench/apachejit/score-saturation-experiment.ts`; results in
+[`bench/apachejit/score-saturation-experiment.md`](../bench/apachejit/score-saturation-experiment.md).
 
 ## Planned: LLM plus opendrs vs the LLM alone
 
