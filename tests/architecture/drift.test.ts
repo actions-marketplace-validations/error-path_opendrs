@@ -144,6 +144,41 @@ describe("detectDrift", () => {
     expect(result.facts[0]!.text).toContain(`Since opendrs first scored this PR at \`${first.slice(0, 7)}\` (run 1)`);
   });
 
+  it("auto-detected package roots split a monorepo package finer than the flat depth-2 fallback did", async () => {
+    repo = makeRepo();
+    // One JS package (module-boundaries spec §3, vite's case): `packages/vite` is one flat-depth-2
+    // module, but auto-detection splits it at src/node vs src/client. A file that moves from the
+    // PR's original src/node work into src/client must now count as outside, where the old flat
+    // depth-2 rule (both collapse to `packages/vite`) would not have flagged it.
+    const base = repo.commit(
+      {
+        "packages/vite/package.json": JSON.stringify({ name: "vite" }),
+        "packages/vite/src/node/index.ts": lines(3, "a"),
+        "packages/vite/src/client/index.ts": lines(3, "b"),
+      },
+      "base",
+    );
+    const first = repo.commit({ "packages/vite/src/node/gen1.ts": lines(5, "g1") }, "first");
+    const head = repo.commit({ "packages/vite/src/node/gen1.ts": lines(5, "g1"), "packages/vite/src/client/new.ts": lines(2, "c") }, "head");
+
+    const result = await detectDrift(ctxFor(repo, base, head), { firstHead: first, firstRun: 1 });
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]!.text).toContain("packages/vite/src/client/new.ts");
+  });
+
+  it("does not count a file in the same auto-detected package module as the original modules", async () => {
+    repo = makeRepo();
+    const base = repo.commit(
+      { "packages/vite/package.json": JSON.stringify({ name: "vite" }), "packages/vite/src/node/index.ts": lines(3, "a") },
+      "base",
+    );
+    const first = repo.commit({ "packages/vite/src/node/gen1.ts": lines(5, "g1") }, "first");
+    const head = repo.commit({ "packages/vite/src/node/gen1.ts": lines(5, "g1"), "packages/vite/src/node/gen2.ts": lines(5, "g2") }, "head");
+
+    const result = await detectDrift(ctxFor(repo, base, head), { firstHead: first, firstRun: 1 });
+    expect(result).toEqual({ facts: [], notes: [] });
+  });
+
   it("phrases an old marker's firstRun as 'since run k'", async () => {
     repo = makeRepo();
     const base = repo.commit({ "src/auth/a.ts": lines(3, "a") }, "base");

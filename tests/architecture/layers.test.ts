@@ -37,7 +37,7 @@ describe("detectLayers", () => {
 
     const result = await detectLayers(ctxFor(repo, base, head, [changed("src/api/users.ts")]), {});
 
-    expect(result.notes).toEqual([]);
+    expect(result.notes).toEqual(["modules: no package.json found; falling back to moduleDepth: 2"]);
     expect(result.facts).toEqual([
       { id: "layers.edge", weight: "strong", file: "src/api/users.ts", line: 1, text: "`src/api` now imports `src/db` for the first time (`src/api/users.ts:1`)." },
     ]);
@@ -147,6 +147,32 @@ describe("detectLayers", () => {
     const result = await detectLayers(ctxFor(repo, base, head, [changed("src/api/users.ts"), changed("src/newmod/q.ts")]), {});
 
     expect(result.facts).toEqual([]);
+  });
+
+  it("auto-detects a monorepo package's src/ subdirectories as separate modules (module-boundaries spec §3)", async () => {
+    repo = makeRepo();
+    const base = repo.commit(
+      {
+        "packages/vite/package.json": JSON.stringify({ name: "vite" }),
+        "packages/vite/src/node/server.ts": "export function serve() {}\n",
+        "packages/vite/src/client/inject.ts": "export function inject() {}\n",
+      },
+      "base",
+    );
+    const head = repo.commit({ "packages/vite/src/node/server.ts": 'import { inject } from "../client/inject";\nexport function serve() { return inject; }\n' }, "head");
+
+    const result = await detectLayers(ctxFor(repo, base, head, [changed("packages/vite/src/node/server.ts")]), {});
+
+    expect(result.notes).toEqual(["modules: auto-detected 1 JS/TS package from package.json"]);
+    expect(result.facts).toEqual([
+      {
+        id: "layers.edge",
+        weight: "strong",
+        file: "packages/vite/src/node/server.ts",
+        line: 1,
+        text: "`packages/vite/src/node` now imports `packages/vite/src/client` for the first time (`packages/vite/src/node/server.ts:1`).",
+      },
+    ]);
   });
 
   it("reports no new cycle when a new module extends an already-cyclic pair of existing modules", async () => {

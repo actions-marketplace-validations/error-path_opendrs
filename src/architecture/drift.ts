@@ -1,6 +1,7 @@
 import type { ArchitectureFact } from "../domain/types.js";
 import { git, gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
+import { buildDependencyGraph } from "../graph/graph.js";
 import { untrusted } from "../report/escape.js";
 import type { Detector } from "./index.js";
 import { moduleOf } from "./module.js";
@@ -43,14 +44,20 @@ export const detectDrift: Detector = async (ctx, opts) => {
   if (!(await ensureCommit(ctx.repoDir, firstHead))) return { facts: [], notes: ["drift: the first scored head is no longer reachable"] };
 
   const ignore = ctx.config.paths.ignore;
-  const depth = ctx.config.captain.moduleDepth;
   const base = ctx.diff.base;
+
+  // The module map (spec §6.2) is computed once, from head's current manifests, the same way
+  // reused by layers; reuse the tree-sha-cached graph instead of a flat depth here too
+  // (module-boundaries spec §6). graph.enabled off, or a failed build, falls back to flat depth.
+  const graph = ctx.config.graph.enabled ? await buildDependencyGraph(ctx.repoDir, ctx.diff.head, ctx.config).catch(() => undefined) : undefined;
+  const fallbackDepth = ctx.config.captain.moduleDepth ?? 2;
+  const moduleOfPath = (path: string) => graph?.moduleOf(path) ?? moduleOf(path, fallbackDepth);
 
   const first = await diffStats(ctx.repoDir, base, firstHead, ignore);
   const head = await diffStats(ctx.repoDir, base, ctx.diff.head, ignore);
-  const modules1 = new Set([...first.files].map((f) => moduleOf(f, depth)));
+  const modules1 = new Set([...first.files].map(moduleOfPath));
   const newFiles = [...head.files].filter((f) => !first.files.has(f)).sort();
-  const outside = newFiles.filter((f) => !modules1.has(moduleOf(f, depth)));
+  const outside = newFiles.filter((f) => !modules1.has(moduleOfPath(f)));
 
   const churnGrew = head.churn - first.churn;
   const churnDoubled = head.churn >= first.churn * 2 && churnGrew > 100;
