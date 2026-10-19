@@ -688,24 +688,36 @@ describe("re-scoring", () => {
     ({ head: PREV_HEAD, score: 0.76, tier: "yellow" as const, decision: "human-review" as const, run: 1, ...over });
   const rescoreOpts = () => vi.mocked(renderMarkdown).mock.calls[0]![1];
 
-  it("first run: no re-score line, marker written with run=1", async () => {
+  it("first run: no re-score line, marker written with run=1 and first=this head", async () => {
     const t = await run({ result: result(0.76, "yellow", "human-review") });
     await t.promise;
     expect(rescoreOpts()).toEqual({});
-    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 1 }));
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: t.headSha, firstRun: 1 });
+    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, first: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 1 }));
     expect(t.gh.comments.some((c) => c.body.includes("Re-scored for"))).toBe(false);
     expect(t.gh.ops("createComment")).toHaveLength(1);
   });
 
-  it("re-run, no change: shows the re-score line, bumps run, posts no new comment", async () => {
+  it("re-run, no change: shows the re-score line, bumps run, posts no new comment, keeps the first run's first", async () => {
     const t = await run({ result: result(0.76, "yellow", "human-review"), ownComment: () => stateMarker(prevState()) });
     await t.promise;
     expect(rescoreOpts()).toMatchObject({
       rescoreLine: `Re-scored for \`${t.headSha.slice(0, 7)}\` (run 2) · was 0.76 yellow → now 0.76 yellow`,
     });
-    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 2 }));
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 1 });
+    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, first: PREV_HEAD, score: 0.76, tier: "yellow", decision: "human-review", run: 2 }));
     expect(t.gh.comments.some((c) => c.body.includes("risk changed"))).toBe(false);
     expect(t.gh.ops("createComment")).toEqual([]);
+  });
+
+  it("a previous 0.3.x marker (no first=): first becomes its head, firstRun becomes its run", async () => {
+    const t = await run({
+      result: result(0.76, "yellow", "human-review"),
+      ownComment: () => `<!-- opendrs-state: v1 head=${PREV_HEAD} score=0.76 tier=yellow decision=human-review run=3 -->`,
+    });
+    await t.promise;
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 3 });
+    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, first: PREV_HEAD, score: 0.76, tier: "yellow", decision: "human-review", run: 4 }));
   });
 
   it("re-run on the same head commit still bumps run and shows the line", async () => {
