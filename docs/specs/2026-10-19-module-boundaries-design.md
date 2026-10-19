@@ -1,11 +1,12 @@
 # Module boundaries: a better unit for the captain brief's layers detector
 
-Status: draft spec, written 2026-10-19 for the user's review. Nothing is built yet. Refines
+Status: approved 2026-10-19. The user's decisions on §8's open questions are recorded at the end of
+that section. Refines
 `docs/specs/2026-10-19-captain-brief-design.md` §6.2 and §9 (the layers detector's module unit)
 ahead of that spec's rollout phase 2. Based on `docs/research/2026-10-19-field-test.md`'s
 module-boundary findings (theme 3) and the six repos' raw notes in
-`~/.cache/opendrs/field-test/notes/`. This document needs approval before an implementation plan
-is written.
+`~/.cache/opendrs/field-test/notes/`. The implementation plan is
+`docs/superpowers/plans/2026-10-19-module-boundaries.md`.
 
 ## 1. Goal and non-goals
 
@@ -233,3 +234,20 @@ in captain-brief spec §11, which keep their `moduleDepth` case unchanged as the
 - **Documentation debt.** `docs/captain.md`'s one-line module definition ("by default the first two
   path segments...") needs a full rewrite to match §3. Confirm this lands in the captain-core
   documentation pass (captain-brief spec §12 phase 1) or as part of this phase's own implementation.
+
+### The user's decisions (2026-10-19)
+
+1. **Go/no-go on noise risk.** Shipping is gated on re-running the field-test PRs (§7) against this
+   build: the gate is that `layers.edge`/`layers.cycle` facts judged noise or wrong on cli/cli must
+   not increase versus the field test's baseline. See "Evaluation results" below for the actual
+   before/after counts and the gate's outcome.
+2. **`captain.modules` ships in v1.** It is the only reachable fix for vite's node/client split (§2's
+   non-goals), and the cost of shipping it unused is low.
+3. **fastlane's remaining coarseness is accepted and documented**, not patched with a second
+   special-case rule. One generic rule per ecosystem is the right amount of cleverness; a rule that
+   exists only to fix one repo's one directory is exactly the kind of special case this design
+   otherwise avoids. `docs/captain.md` says so plainly (§13 below).
+4. **No new cap.** Manifest/package-root scanning reuses `graph.maxFiles`, the cap the import graph
+   itself already uses, for the same reason: both read the same capped file list.
+5. **Docs land in the same PR as the code.** `docs/captain.md` and `docs/configuration.md` are
+   updated alongside the implementation, not deferred to a later documentation pass.
