@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| Planned (pre-registered 2026-10-19) | Do `contract.dependency`, `contract.api`, `contract.schema` and `layers.edge` predict ApacheJIT bugs enough to ship as captain facts (spec §10.2)? Do the rejected review signals (`change.concurrency`, `change.safety_removed`, `tests.weakened`) qualify as captain facts on the full test split, even though they did not help the score? | Not run yet | Planned | [details](#planned-captain-fact-lift-on-apachejit) |
 | 2026-10-19 | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Yes to shipping: test lift 1.931× at the tuned `minSupport: 8`/`minConfidence: 0.6`. No to the score: AUC 0.823 → 0.823, 95 % CI -0.0003 to -0.0001 (significant, but negative) | Merged (brief-only) | [details](#change-coupling-on-apachejit) |
 | Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
@@ -26,6 +27,77 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Planned: captain-fact lift on ApacheJIT
+
+**Status.** Pre-registered on 2026-10-19, before any run. No LLM calls; no API spend.
+
+**Question.** Spec §10.2 of
+[`docs/specs/2026-10-19-captain-brief-design.md`](https://github.com/error-path/opendrs/blob/main/docs/specs/2026-10-19-captain-brief-design.md)
+asks whether the captain brief's architecture facts predict ApacheJIT bugs enough to claim it in the
+docs (they ship regardless, as decisions to sign off on, but the docs may only call a fact a bug
+predictor if it clears the bar below):
+
+1. On the ApacheJIT test split (2017–2019), what is the bug lift (buggy rate when the fact fires ÷
+   base rate) of `contract.dependency` (a new Maven `pom.xml` or Gradle dependency; ApacheJIT is
+   Java-only), `contract.api` (a public Java declaration removed or changed in a file with
+   dependents), `contract.schema` (the default globs) and `layers.edge` (a new module→module import
+   edge, `moduleDepth: 2`)?
+2. The three signals [rejected as score features](#review-heuristic-signals) (`change.concurrency`,
+   `change.safety_removed`, `tests.weakened`) separated buggy from clean commits on their own, on a
+   5-project subset, before the model absorbed it. Do they clear the captain-fact bar on the full
+   test split?
+
+**Decision rule**, applied per fact type: a fact qualifies as a captain fact predictive of bugs when
+its test-split lift is **≥ 1.2×** and it fires on **≥ 50 test commits**; otherwise it is logged as
+such, with its measured lift and fire count. `contract.*` and `layers.edge` ship regardless (spec
+§10.2: they are decisions to sign off on, not just bug predictors), but the docs may only claim bug
+prediction for a fact that clears the bar. The three review signals are not currently wired as
+facts; this result decides whether to add them.
+
+**Setup.**
+- Data: the dataset's official test split (2017–2019), pooled excluding `apache/hadoop` (no
+  positive labels) — the same 24,686-commit pool as every other ApacheJIT row in this log.
+- **`contract.dependency`, `contract.api`, `contract.schema`, `change.concurrency`,
+  `change.safety_removed`, `tests.weakened`** are computed on the **full pooled test split**, from
+  one `git log --no-walk --stdin -p --no-renames -U0` stream per repository (shas fed over stdin,
+  `--ignore-missing` so an absent sha is skipped rather than failing the spawn), restricted to the
+  split's own shas: one spawn per repository, never one per commit. `apache/hadoop` is still cloned
+  and queried as the fallback repo for `hadoop-hdfs`/`hadoop-mapreduce` commits not found in their
+  own (pre-2011) mirror, as the coupling experiment does.
+  - `contract.api` and `change.*` reuse the shipped parser (`parseUnifiedDiff`,
+    `changedLines`, `isPublicDeclaration`) on each commit's own diff, so the only new code is
+    assembling that diff from the stream instead of `git diff`.
+  - `contract.api`'s dependents (spec §6.3: a removed/changed declaration only counts with a
+    dependent) are **approximated**, not read from the real import graph: one `git grep` pass per
+    repository, at the project's pinned 2019 head, collects every `import` line once; a changed
+    file's dependents are the distinct importers of its derived fully-qualified name (Maven/Gradle
+    layout: `src/(main|test)/(java|kotlin)/...` with slashes turned to dots), or, when that layout
+    is not matched, of its bare class name (a cruder fallback, flagged separately if it changes the
+    result materially). This is a single-snapshot approximation (2019 imports for a 2003 commit),
+    the same kind the benchmark's own caveats already use for the real import graph.
+  - `contract.schema` and `contract.dependency` need no approximation: `contract.schema` is a path
+    glob match on the diff's changed files (`src/architecture/contracts.ts`'s `DEFAULT_SCHEMA_GLOBS`
+    plus the default empty `captain.contracts.paths`); `contract.dependency` reuses
+    `addedPackages` (`src/architecture/manifests.ts`) exactly, reading the full before/after text of
+    only the manifest files the diff stream shows changed (`git show <sha>^:path` /
+    `git show <sha>:path`, a handful of spawns rather than one per commit, since most commits never
+    touch a manifest).
+  - `change.concurrency`, `change.safety_removed`, `tests.weakened` use the exact regexes archived in
+    [`bench/apachejit/archive/2026-10-18-review-signals.patch`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/archive/2026-10-18-review-signals.patch),
+    copied into the bench script since that code is not on `main`.
+- **`layers.edge`** needs a real dependency graph at base and head, which is too slow to build for
+  every test commit (spec §10.2 allows this): a **fixed random sample of 2,000 test commits**,
+  drawn with `mulberry32`, seed recorded in the script and the result. `buildDependencyGraph`
+  (`src/graph/graph.ts`) runs unmodified, at `captain.moduleDepth: 2`, on the commit's own repo
+  clone (same fallback rule as above).
+- No tuning: unlike the coupling experiment, none of these facts has a free parameter to choose on
+  train, so only the test split is touched.
+
+**Where.** `bench/apachejit/captain-lift-experiment.ts` and
+[`bench/apachejit/captain-lift-experiment.md`](../bench/apachejit/captain-lift-experiment.md) (once
+run). Clones go to `~/.cache/opendrs/apachejit/repos` and are deleted when the run finishes; `data/`,
+`rows/` and `llm/` are kept.
 
 ## Change coupling on ApacheJIT
 
