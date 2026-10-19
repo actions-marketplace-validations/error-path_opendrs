@@ -1,4 +1,3 @@
-import { posix } from "node:path";
 import type { ChangedFile, CommitInfo, Evidence, HistoryIndex, Incident, ScoringContext, Signal, SignalProvider } from "../domain/types.js";
 import { INCIDENTS_FILE, loadIncidents } from "../model/label.js";
 import { asOfOrNow, countedFiles, historyAvailable, historyPath, plural, shallowAware, topEvidence, unknown } from "./util.js";
@@ -47,12 +46,11 @@ export const historySignals: SignalProvider = async (ctx) => {
   return [priorFixes, await incidentSignal(ctx, files), churn].map((s) => shallowAware(ctx, s));
 };
 
-/** A past incident: when it became known, and which files and folders it implicates. */
+/** A past incident: when it became known, and which files it implicates. */
 interface IncidentEvent {
   time?: number;
   label: string;
   files: Set<string>;
-  dirs: Set<string>;
   prefixes: string[];
 }
 
@@ -98,16 +96,13 @@ async function incidentSignal(ctx: ScoringContext, files: ChangedFile[]): Promis
     id,
     value: hits > 0 ? 1 : 0,
     status: "derived",
-    summary: hits ? `a past incident or revert touched ${plural(hits, "changed file")} or their folders` : "no recorded incident or revert touched these files or their folders",
+    summary: hits ? `a past incident or revert touched ${plural(hits, "changed file")}` : "no recorded incident or revert touched these files",
     evidence: topEvidence(evidence),
   };
 }
 
 function matchEvent(e: IncidentEvent, path: string): string | undefined {
   if (e.files.has(path)) return `${e.label} touched this file`;
-  const dir = posix.dirname(path);
-  // Root-level files share no meaningful folder, so "." never matches.
-  if (dir !== "." && e.dirs.has(dir)) return `${e.label} touched ${dir}/`;
   const prefix = e.prefixes.find((q) => path === q || path.startsWith(`${q}/`));
   return prefix === undefined ? undefined : `${e.label} implicated ${prefix}`;
 }
@@ -117,7 +112,6 @@ function makeEvent(time: number | undefined, label: string, files: string[], pre
     time,
     label,
     files: new Set(files),
-    dirs: new Set(files.map((f) => posix.dirname(f)).filter((d) => d !== ".")),
     prefixes: prefixes.map((p) => p.replace(/\/+$/, "")).filter(Boolean),
   };
 }

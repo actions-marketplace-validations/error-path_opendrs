@@ -34,16 +34,26 @@ describe("historySignals", () => {
     expect(byId(signals, "history.incident")).toMatchObject({ value: 0, status: "derived" });
   });
 
-  it("treats a reverted commit that touched a changed file's folder as an incident", async () => {
+  it("does not treat a reverted commit's sibling file in the same folder as an incident", async () => {
     repo = makeRepo();
     repo.commit({ "svc/a.ts": "a\n", "svc/b.ts": "b\n", "other/x.ts": "x\n" }, "init", undefined, T - 30 * DAY);
     const bad = repo.commit({ "svc/b.ts": "B\n" }, "feat: risky", undefined, T - 20 * DAY);
     repo.commit({ "svc/b.ts": "b\n" }, `Revert "feat: risky"\n\nThis reverts commit ${bad}.`, undefined, T - 10 * DAY);
     repo.commit({ "svc/a.ts": "A\n" }, "feat: touch sibling", undefined, T);
     const signals = await historySignals(await contextFor(repo, "HEAD~1", "HEAD", { asOf: T }));
+    expect(byId(signals, "history.incident")).toMatchObject({ value: 0, status: "derived" });
+  });
+
+  it("treats a reverted commit that touched the same file as an incident", async () => {
+    repo = makeRepo();
+    repo.commit({ "svc/a.ts": "a\n", "svc/b.ts": "b\n", "other/x.ts": "x\n" }, "init", undefined, T - 30 * DAY);
+    const bad = repo.commit({ "svc/b.ts": "B\n" }, "feat: risky", undefined, T - 20 * DAY);
+    repo.commit({ "svc/b.ts": "b\n" }, `Revert "feat: risky"\n\nThis reverts commit ${bad}.`, undefined, T - 10 * DAY);
+    repo.commit({ "svc/b.ts": "C\n" }, "feat: touch the same file again", undefined, T);
+    const signals = await historySignals(await contextFor(repo, "HEAD~1", "HEAD", { asOf: T }));
     const incident = byId(signals, "history.incident");
     expect(incident).toMatchObject({ value: 1, status: "derived" });
-    expect(incident.evidence[0]).toMatchObject({ file: "svc/a.ts" });
+    expect(incident.evidence[0]).toMatchObject({ file: "svc/b.ts" });
     expect(incident.evidence[0]!.detail).toContain(bad.slice(0, 7));
   });
 

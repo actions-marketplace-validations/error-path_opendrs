@@ -163,6 +163,28 @@ work the other way: a list you set replaces the default. In the Action, the self
 guard keeps `.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and
 `.gitattributes` blocked whatever the lists say.
 
+## Repositories that use Conventional Commits
+
+The default `history.fixPattern` counts any commit subject matching
+`\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\d?|revert)\b` as a prior fix for
+`history.prior_fixes`. On a repository that uses Conventional Commits heavily, this also counts
+routine housekeeping — `fix(deps): update dependencies`, `chore(deps)`, `fix(ci)`, `fix(docs)`,
+`fix: typo` — as if it were a real bug fix. The [score-saturation
+experiment](experiments.html#score-saturation-fixpattern-and-incident-granularity-on-apachejit)
+measured this on `vitejs/vite`: excluding those commits dropped the share matched by
+`fixPattern` by 21.6 %. It was not significant pooled across ApacheJIT's mostly pre-Conventional-
+Commits Java projects, so it is not a new default — but it is worth setting per repo if you use the
+convention:
+
+```yaml
+history:
+  fixPattern: "^(?!(?:deps?|dependencies|ci|docs?|build|chore|style|tests?)(?:\\([^)]*\\))?:)(?!\\w+\\((?:deps?|dependencies|ci|docs?|build|chore|style|tests?)\\):)(?!fix:\\s*typo\\b).*\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"
+```
+
+This is the same keyword match as the default, unless the subject opens with a Conventional-Commit
+header whose type or scope is `deps[/dependencies]`, `ci`, `docs`, `build`, `chore`, `style` or
+`test[s]`, or is the literal `fix: typo`.
+
 ## What opendrs refuses
 
 opendrs refuses a config that would fail silently, naming the offending value:

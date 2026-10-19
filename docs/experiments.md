@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| Planned (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | — | Planned, not run | [details](#planned-re-centred-default-weights-and-saturation) |
 | 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
 | 2026-10-19 | Do `contract.dependency`, `contract.api`, `contract.schema` and `layers.edge` predict ApacheJIT bugs enough to ship as captain facts (spec §10.2)? Do the rejected review signals (`change.concurrency`, `change.safety_removed`, `tests.weakened`) qualify as captain facts on the full test split, even though they did not help the score? | 6 of 7 qualify (lift ≥ 1.2× and ≥ 50 fires): `contract.dependency` 1.467×, `contract.api` 1.718×, `contract.schema` 2.388×, `change.concurrency` 2.036×, `change.safety_removed` 1.788×, `tests.weakened` 1.202×. `layers.edge` does not: 1.117× on 19 fires of a 2,000-commit sample | Merged (facts only; review signals still excluded from the score) | [details](#captain-fact-lift-on-apachejit) |
 | 2026-10-19 | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Yes to shipping: test lift 1.931× at the tuned `minSupport: 8`/`minConfidence: 0.6`. No to the score: AUC 0.823 → 0.823, 95 % CI -0.0003 to -0.0001 (significant, but negative) | Merged (brief-only) | [details](#change-coupling-on-apachejit) |
@@ -179,6 +180,59 @@ convention V1 targets. ApacheJIT alone understates V1's likely effect on a repo 
 [`bench/apachejit/score-saturation-experiment.md`](../bench/apachejit/score-saturation-experiment.md).
 No LLM calls, no API spend. The 15 ApacheJIT clones and the 3 field-repo clones were deleted after
 the run.
+
+**Outcome.** Rejected as a saturation fix per the pre-registered rule: none of V1/V2/V3 reached the
+25 % relative red-share reduction the decision rule required. V2 (`history.incident` at file level)
+was adopted separately as a correctness fix, not a saturation fix: folder-level matching flagged
+unrelated files (confirmed on vite, where one old revert flagged hundreds of files under
+`packages/vite/src/node/`), and the change carries no accuracy cost (AUC +0.0009, CI 0.0005 to
+0.0014). V1 (the Conventional-Commits `fixPattern` exclusion) is documented as a per-repo override
+in [`docs/configuration.md`](configuration.html#repositories-that-use-conventional-commits) rather
+than shipped as a new default.
+
+## Planned: re-centred default weights and saturation
+
+**Status.** Planned, not run. Pre-registered 2026-10-20, before any replay.
+
+**Question.** Do re-centred default weights reduce out-of-the-box saturation on mature
+repositories? The [score-saturation experiment](#score-saturation-fixpattern-and-incident-granularity-on-apachejit)
+rejected both `history.fixPattern` exclusion and file-level `history.incident` matching as
+saturation fixes: neither moved the default-prior score distribution's spread, only its position,
+and both fell short of the 25 % red-share-reduction bar. That experiment's own recommendation
+(point 3) names the likely larger cause: diffusion and history signals are raw, un-normalized
+counts that run high on an old, busy repository regardless of a specific PR's risk, which neither
+variant touched. This asks whether changing where the score's default weights are centred, rather
+than which signals fire, addresses that directly.
+
+**Setup.**
+- **Baseline.** ApacheJIT's default-prior (uncalibrated `DEFAULT_WEIGHTS`) red share (≥
+  `thresholds.red`, 0.8) and yellow-or-red share (≥ `thresholds.green`, 0.3), and calibrated AUC,
+  pooled on the test split exactly as reported in the score-saturation experiment above (red 25.6 %,
+  yellow+red 60.8 %, AUC 0.823) — the same row cache, no new replay needed.
+- **Field-test repositories, if feasible.** The six repositories from the [2026-10-19 field
+  test](research/2026-10-19-field-test.md) (vite, black and the others), each re-scored with the
+  candidate approach on fresh clones, to check whether a change tuned on ApacheJIT's distribution
+  also helps the mature, actively-developed repositories the field test flagged as saturated. Not a
+  hard requirement if cloning or scoring all six is too slow for the bench budget; ApacheJIT alone
+  still answers the question, descriptively weaker.
+- **Candidate approach(es).** Not chosen yet; at least one of:
+  - Re-centre the model's intercept (or, equivalently, the default priors as a group) so the
+    median commit lands mid-yellow instead of near red, without changing any individual signal's
+    relative weight.
+  - Scale `history.*` and `expertise.*` priors by a repo-age or repo-size factor (for example,
+    divide by `log1p(repo age in days)` or `log1p(total commits)`), so an old repository's raw
+    counts do not dominate the score the way they do today.
+- **Metrics.** Same as the score-saturation experiment: default-prior red share and yellow-or-red
+  share, score distribution SD/IQR, and calibrated AUC with a paired bootstrap against the current
+  defaults.
+
+**Decision rule.** Adopt a candidate as the new `src/` default when its default-prior red-share
+drops by at least 25 % relative to the current defaults **and** its calibrated-AUC paired bootstrap
+95 % CI against the current defaults includes 0 or is entirely positive (no significant loss) —
+the same bar the score-saturation experiment used, so the two results are comparable. Otherwise:
+reject, or ship conditionally with the reasoning recorded against the specific numbers.
+
+**Where.** Not yet run; no bench script exists for this experiment.
 
 ## Captain-fact lift on ApacheJIT
 

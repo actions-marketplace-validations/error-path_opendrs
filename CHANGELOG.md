@@ -34,6 +34,14 @@ for the design.
   modules" check trigger somewhat more easily, since auto-detected modules are usually finer-
   grained than a flat depth-2 split.
 
+### Fixed
+
+- `history.incident` now matches a changed file against a past revert or incident at file level
+  only: a changed file counts as touched by a past revert/incident when the revert/incident's own
+  file list contains that exact path (or an `.opendrs/incidents.jsonl` `paths` prefix, unchanged),
+  not when it merely shares a containing folder. The folder-level match flagged unrelated files in
+  a monorepo directory (e.g. one old revert in vite flagging hundreds of unrelated files).
+
 ## 0.4.1 - 2026-10-19
 
 A patch release from the field test on six new repositories (Python, Go, Rust, TypeScript
