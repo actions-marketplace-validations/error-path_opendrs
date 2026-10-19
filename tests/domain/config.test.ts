@@ -431,11 +431,12 @@ describe("brief", () => {
 });
 
 describe("captain", () => {
-  it("defaults to enabled with moduleDepth 2 and the coupling/contracts defaults", () => {
+  it("defaults to enabled with moduleDepth unset (auto-detection on) and the coupling/contracts defaults", () => {
     const captain = defaultConfig().captain;
     expect(captain).toEqual({
       enabled: true,
-      moduleDepth: 2,
+      moduleDepth: undefined,
+      modules: [],
       coupling: { enabled: true, minSupport: 8, minConfidence: 0.6 },
       contracts: { paths: [] },
     });
@@ -445,6 +446,11 @@ describe("captain", () => {
     expect(configError({ captain: { moduleDepth: 0 } })).toMatch(/captain.*moduleDepth/i);
     expect(configError({ captain: { moduleDepth: 7 } })).toMatch(/captain.*moduleDepth/i);
     expect(parseConfig({ captain: { moduleDepth: 1 } }).captain.moduleDepth).toBe(1);
+  });
+
+  it("accepts captain.modules globs, defaulting to none", () => {
+    expect(defaultConfig().captain.modules).toEqual([]);
+    expect(parseConfig({ captain: { modules: ["packages/*/src/*"] } }).captain.modules).toEqual(["packages/*/src/*"]);
   });
 
   it("rejects a coupling.minConfidence outside 0..1", () => {

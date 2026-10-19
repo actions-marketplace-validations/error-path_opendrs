@@ -172,6 +172,23 @@ describe("buildDependencyGraph: cache", () => {
     expect(g.dependentsOf("b.ts")).toEqual(["a.ts"]);
   });
 
+  it("caches module roots with the graph: a second build on the same tree sha does not re-read any manifest", async () => {
+    const r = repo();
+    r.commit({ "packages/a/package.json": JSON.stringify({ name: "a" }), "packages/a/src/index.ts": "export const x = 1;\n" }, "init");
+    const g1 = await buildDependencyGraph(r.dir, "HEAD", defaultConfig());
+    expect(g1.moduleOf("packages/a/src/index.ts")).toBe("packages/a/src");
+
+    // Prove the second build reads the cached module-root index, not the manifest on disk: mutate
+    // the cached root and observe moduleOf reflect it, without touching package.json at all.
+    const path = cachePath(r);
+    const cached = JSON.parse(readFileSync(path, "utf8")) as { moduleRoots: { js: string[] } };
+    cached.moduleRoots.js = ["packages/renamed"];
+    writeFileSync(path, JSON.stringify(cached));
+    const g2 = await buildDependencyGraph(r.dir, "HEAD", defaultConfig());
+    expect(g2.moduleOf("packages/a/src/index.ts")).toBe("packages/a"); // no longer a known root: falls back to flat depth 2
+    expect(g2.moduleOf("packages/renamed/src/index.ts")).toBe("packages/renamed/src"); // uses the cached root, proving no re-read
+  });
+
   it("reads the tree at the given ref, not the working copy", async () => {
     const r = repo();
     const first = r.commit({ "a.ts": 'import "./b";\n', "b.ts": "" }, "init");

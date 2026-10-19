@@ -2,6 +2,38 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- The captain brief's layers detector (`layers.edge`, `layers.cycle`) and the drift detector's
+  "outside the original modules" check now use auto-detected module boundaries instead of a flat
+  path-segment split: package roots are found from `package.json` (JS/TS), `go.mod` directories
+  (Go, one package per directory), `Cargo.toml` (Rust), `*.gemspec` (Ruby), `pyproject.toml`/
+  `setup.cfg` (Python, `src/` layout aware) and `Package.swift` targets (Swift), reusing the
+  dependency graph's existing tree-sha cache rather than adding a new one. A new `"modules: ..."`
+  note on the layers detector states how the map was built (e.g. `"modules: auto-detected 12
+  packages from pnpm-workspace.yaml"` or `"modules: no package manifest found for this language;
+  falling back to moduleDepth: 2"`).
+- New `captain.modules` config key: literal globs (e.g. `["packages/*/src/*"]`) that override
+  auto-detection for a module, highest precedence.
+- `captain.moduleDepth` is now optional; when unset, module boundaries are auto-detected per the
+  rules above.
+
+See [docs/specs/2026-10-19-module-boundaries-design.md](docs/specs/2026-10-19-module-boundaries-design.md)
+for the design.
+
+### Changed
+
+- A repo that already sets `captain.moduleDepth` explicitly in `.opendrs.yml` keeps its exact
+  current behaviour: setting it disables auto-detection repo-wide and module boundaries stay a
+  flat split on that many path segments from the repo root, unchanged.
+- A repo that has never set `captain.moduleDepth` now gets auto-detected module boundaries instead
+  of the old default (first 2 path segments from the repo root). This can change which
+  `layers.edge`/`layers.cycle` facts fire and can make the drift detector's "outside the original
+  modules" check trigger somewhat more easily, since auto-detected modules are usually finer-
+  grained than a flat depth-2 split.
+
 ## 0.4.1 - 2026-10-19
 
 A patch release from the field test on six new repositories (Python, Go, Rust, TypeScript

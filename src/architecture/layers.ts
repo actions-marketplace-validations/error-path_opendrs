@@ -5,18 +5,17 @@ import { baseName, dirOf } from "../graph/path-util.js";
 import { untrusted } from "../report/escape.js";
 import { isTestPath } from "../signals/tests.js";
 import type { Detector } from "./index.js";
-import { moduleOf } from "./module.js";
 
 type Adjacency = Map<string, Set<string>>;
 
 /** Module-to-module edges of a graph, excluding intra-module edges and edges imported only by a test file. */
-function moduleAdjacency(graph: RepoGraph, depth: number, isTest: (path: string) => boolean): Adjacency {
+function moduleAdjacency(graph: RepoGraph, isTest: (path: string) => boolean): Adjacency {
   const adjacency: Adjacency = new Map();
   for (const file of graph.files) {
     if (isTest(file)) continue;
-    const from = moduleOf(file, depth);
+    const from = graph.moduleOf(file);
     for (const target of graph.importsOf(file)) {
-      const to = moduleOf(target, depth);
+      const to = graph.moduleOf(target);
       if (to === from) continue;
       if (!adjacency.has(from)) adjacency.set(from, new Set());
       adjacency.get(from)!.add(to);
@@ -26,11 +25,11 @@ function moduleAdjacency(graph: RepoGraph, depth: number, isTest: (path: string)
 }
 
 /** The first file (by path order) in `from` that imports into `to`, and which of its targets land there. */
-function firstEdgeFile(graph: RepoGraph, depth: number, isTest: (path: string) => boolean, from: string, to: string): { file: string; targets: string[] } | undefined {
+function firstEdgeFile(graph: RepoGraph, isTest: (path: string) => boolean, from: string, to: string): { file: string; targets: string[] } | undefined {
   for (const file of graph.files) {
     if (isTest(file)) continue;
-    if (moduleOf(file, depth) !== from) continue;
-    const targets = graph.importsOf(file).filter((t) => moduleOf(t, depth) === to);
+    if (graph.moduleOf(file) !== from) continue;
+    const targets = graph.importsOf(file).filter((t) => graph.moduleOf(t) === to);
     if (targets.length > 0) return { file, targets };
   }
   return undefined;
@@ -56,8 +55,8 @@ async function findImportLine(ctx: ScoringContext, file: string, targets: string
   return undefined;
 }
 
-async function edgeFact(ctx: ScoringContext, depth: number, isTest: (path: string) => boolean, head: RepoGraph, from: string, to: string): Promise<ArchitectureFact | undefined> {
-  const found = firstEdgeFile(head, depth, isTest, from, to);
+async function edgeFact(ctx: ScoringContext, isTest: (path: string) => boolean, head: RepoGraph, from: string, to: string): Promise<ArchitectureFact | undefined> {
+  const found = firstEdgeFile(head, isTest, from, to);
   if (!found) return undefined;
   const line = await findImportLine(ctx, found.file, found.targets);
   const where = line !== undefined ? `${found.file}:${line}` : found.file;
@@ -143,10 +142,10 @@ function shortestCycle(start: string, members: Set<string>, adjacency: Adjacency
   return path;
 }
 
-async function cycleFact(ctx: ScoringContext, depth: number, isTest: (path: string) => boolean, head: RepoGraph, members: string[], adjacency: Adjacency): Promise<ArchitectureFact> {
+async function cycleFact(ctx: ScoringContext, isTest: (path: string) => boolean, head: RepoGraph, members: string[], adjacency: Adjacency): Promise<ArchitectureFact> {
   const start = [...members].sort()[0]!;
   const path = shortestCycle(start, new Set(members), adjacency);
-  const found = firstEdgeFile(head, depth, isTest, path[0]!, path[1]!);
+  const found = firstEdgeFile(head, isTest, path[0]!, path[1]!);
   const line = found ? await findImportLine(ctx, found.file, found.targets) : undefined;
   const file = found?.file ?? path[0]!;
   const text = `New import cycle: ${path.map((m) => `\`${untrusted(m)}\``).join(" → ")}.`;
@@ -168,17 +167,16 @@ export const detectLayers: Detector = async (ctx) => {
     return { facts: [], notes: ["layers: repository is larger than graph.maxFiles"] };
   }
 
-  const depth = config.captain.moduleDepth;
   const isTest = (path: string) => isTestPath(config, path);
-  const baseAdjacency = moduleAdjacency(base, depth, isTest);
-  const headAdjacency = moduleAdjacency(head, depth, isTest);
+  const baseAdjacency = moduleAdjacency(base, isTest);
+  const headAdjacency = moduleAdjacency(head, isTest);
   // A module with no covered file at base necessarily has new edges and may import, or be
   // imported by, a brand-new module; neither is noteworthy on its own (spec §6.2).
-  const baseModules = new Set(base.files.map((f) => moduleOf(f, depth)));
+  const baseModules = new Set(base.files.map((f) => base.moduleOf(f)));
 
   const edgeFacts = await Promise.all(
     [...headAdjacency].flatMap(([from, tos]) =>
-      [...tos].filter((to) => baseModules.has(from) && baseModules.has(to) && !baseAdjacency.get(from)?.has(to)).map((to) => edgeFact(ctx, depth, isTest, head, from, to)),
+      [...tos].filter((to) => baseModules.has(from) && baseModules.has(to) && !baseAdjacency.get(from)?.has(to)).map((to) => edgeFact(ctx, isTest, head, from, to)),
     ),
   );
 
@@ -187,8 +185,8 @@ export const detectLayers: Detector = async (ctx) => {
   const newCycles = stronglyConnectedComponents(headAdjacency)
     .map((component) => component.filter((m) => baseModules.has(m)))
     .filter((oldMembers) => oldMembers.length >= 2 && !oldMembers.every((m) => baseSccId.has(m) && baseSccId.get(m) === baseSccId.get(oldMembers[0]!)));
-  const cycleFacts = await Promise.all(newCycles.map((oldMembers) => cycleFact(ctx, depth, isTest, head, oldMembers, headAdjacency)));
+  const cycleFacts = await Promise.all(newCycles.map((oldMembers) => cycleFact(ctx, isTest, head, oldMembers, headAdjacency)));
 
   const facts = [...edgeFacts, ...cycleFacts].filter((f): f is ArchitectureFact => f !== undefined);
-  return { facts, notes: [] };
+  return { facts, notes: [...head.moduleNotes] };
 };

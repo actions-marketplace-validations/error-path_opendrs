@@ -232,7 +232,12 @@ describe("buildBrief", () => {
     repo.commit({ "a.ts": "2\n" }, "change");
     const ctx = await ctxFor(repo, "HEAD~1");
     const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
-    expect(brief.captain).toEqual({ priority: "quick", why: [], facts: [], notes: ["drift: not tracked here"] });
+    expect(brief.captain).toEqual({
+      priority: "quick",
+      why: [],
+      facts: [],
+      notes: ["modules: no package.json found; falling back to moduleDepth: 2", "drift: not tracked here"],
+    });
     repo.cleanup();
   });
 

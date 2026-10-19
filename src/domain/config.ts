@@ -315,8 +315,16 @@ export const configSchema = z.object({
     .object({
       /** false: no captain line, block, labels, output or brief section (spec §9). */
       enabled: z.boolean().default(true),
-      /** Path segments that make a module for the layers detector (spec §6.2). */
-      moduleDepth: z.number().int().min(1).max(6).default(2),
+      /**
+       * Path segments that make a module for the layers detector (spec §6.2), when set explicitly.
+       * Unset (the default): modules are auto-detected from each ecosystem's own package/workspace
+       * manifests (module-boundaries spec §3), falling back to a flat depth of 2 only where no
+       * manifest is found. Setting this disables auto-detection for the whole repo and goes back to
+       * today's flat-depth behaviour everywhere.
+       */
+      moduleDepth: z.number().int().min(1).max(6).optional(),
+      /** Literal globs overriding auto-detection, e.g. one glob per package's source tree; highest precedence (module-boundaries spec §5). */
+      modules: globs([]),
       coupling: z
         .object({
           // Tuned on ApacheJIT (spec §10.1; docs/experiments.md, "Change coupling on ApacheJIT"):

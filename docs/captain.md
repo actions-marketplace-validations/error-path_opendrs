@@ -59,10 +59,25 @@ escaped before rendering, so a file name with `` ` `` or `<` in it cannot break 
 
 ### `layers.edge` — a new import between modules
 
-A module (by default the first two path segments of a file's directory) imports another module it
-never imported before, as of this PR's head:
+A module imports another module it never imported before, as of this PR's head:
 
 > `src/api` now imports `src/db` for the first time (`src/api/users.ts:3`).
+
+By default a module is auto-detected from the repo's own package/workspace manifests: a pnpm/npm/
+yarn package's directory (plus its `src/`/`lib/` subdirectory, one level deep), a Cargo crate, a Go
+package (every directory), a Ruby gem's `.gemspec` directory, a Python `pyproject.toml`/`setup.cfg`
+package (`src/` layout included), or a Swift `Package.swift` target. A language or layout none of
+these recognise falls back to the first `captain.moduleDepth` path segments (default 2). Two
+structural limits are expected, not bugs: a Ruby gem whose actions all live directly under
+`lib/<gem>/` is still one module (fastlane's shape — see `captain.modules` below for an escape
+hatch), and a flat Python package with no subdirectories under `src/<pkg>/` has no finer boundary to
+find. The layers detector's notes say how the module map for this run was built, e.g. "modules:
+auto-detected 12 packages from package.json" or "modules: no Cargo.toml found; falling back to
+moduleDepth: 2".
+
+Auto-detection can be overridden two ways: `captain.modules` (literal globs, e.g. one per package's
+source tree) always wins first; setting `captain.moduleDepth` explicitly disables auto-detection for
+the whole repo and goes back to the flat depth everywhere, same as before this feature existed.
 
 ### `layers.cycle` — a new import cycle
 
@@ -143,7 +158,8 @@ the `brief` input is false), and the job summary carries the same line and block
 ```yaml
 captain:
   enabled: true          # false: no captain line, block, labels, output or brief section
-  moduleDepth: 2          # path segments that make a module for the layers detector
+  # moduleDepth: 2        # unset by default (auto-detection on); set to disable it and use a flat depth everywhere
+  modules: []             # literal globs overriding auto-detection, e.g. one per package's source tree
   coupling:
     enabled: true         # defaults set by the ApacheJIT experiment — see below
     minSupport: 8
