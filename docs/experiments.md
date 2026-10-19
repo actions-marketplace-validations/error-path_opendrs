@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| Planned (pre-registered 2026-10-19) | Does historical change coupling (`coupling.missing`) predict ApacheJIT bugs enough to ship, and should it also enter the score? | Not yet run | Planned | [details](#planned-change-coupling-on-apachejit) |
 | Planned (pre-registered 2026-10-18, amended 2026-10-18) | Does an LLM reviewer plus opendrs beat the LLM alone, by enough to justify the tokens? | Free simulation on cached judgements: with opendrs as the decision layer, AUC 0.772–0.789 → 0.824 at no extra LLM tokens. At a 10 % review budget, 60 bugs caught against 47–51, false-positive rate 3.4 % against 4.9–5.5 % | Planned, paused (no paid runs yet) | [details](#planned-llm-plus-opendrs-vs-the-llm-alone) |
 | 2026-10-18 | Does `calibrate`'s fit, not its features, explain the gap to the Kamei LR? | Yes. The saved weights never saw the newest 20 % of history. Refitting on all of it: AUC 0.819 → 0.823 (Kamei 0.821) | Merged | [details](#fit-experiment-and-the-calibrate-refit) |
 | 2026-10-18 | Do reviewer-checklist signals (concurrency, removed safety code, weakened tests) add ranking signal? | No. AUC 0.782 with and without, on 5 projects | Not merged | [details](#review-heuristic-signals) |
@@ -25,6 +26,41 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Planned: change coupling on ApacheJIT
+
+**Status.** Pre-registered 2026-10-19, before any run. This is the captain brief's coupling
+detector (`coupling.missing`, spec §6.1 and §10.1 of
+[`docs/specs/2026-10-19-captain-brief-design.md`](specs/2026-10-19-captain-brief-design.html)):
+files that historically change together, where a PR changed only one of them.
+
+**Question.** Does `coupling.missing` predict ApacheJIT bugs enough to ship as a captain-brief
+fact with specific thresholds, and does it also add ranking signal to the calibrated score?
+
+**Setup.**
+- Data: the dataset's official split (train 2003–2016, test 2017–2019), pooled excluding
+  `apache/hadoop` (no positive labels) — the same commits as every other ApacheJIT row in this
+  log.
+- Compute `coupling.missing` per commit from the history strictly before it (the commit's own
+  parent stands in for "the PR's base"), with `couplingPairs` (`src/architecture/coupling.ts`):
+  the exact pure function the detector calls, so the experiment measures the shipped code, not a
+  re-implementation of it.
+- Tune `minSupport` ∈ {3, 5, 8} × `minConfidence` ∈ {0.5, 0.6, 0.75} (9 combinations) on the train
+  split only; report the test split once, at the combination chosen on train.
+- **Lift:** the buggy rate of test commits where the fact fires, against the test split's base
+  rate.
+- **Score:** the calibrated model with and without a `coupling.missing` signal (count of firing
+  files, log1p), compared on test AUC with a paired bootstrap (test commits resampled together).
+
+**Decision rule (spec §10.1), applied exactly, no judgment calls after the numbers are in.**
+- lift ≥ 1.2× → the fact ships, with the tuned `minSupport`/`minConfidence` as the new defaults;
+- lift < 1.2× → the detector ships anyway, with `captain.coupling.enabled: false` by default, and
+  this is logged as a dead end;
+- AUC gain with a 95 % confidence interval excluding 0 → the signal also enters the calibrated
+  score (default weight and `calibrate`); otherwise it stays brief-only (facts, no score weight).
+
+**Where.** `bench/apachejit/coupling-experiment.ts` (to be written) and
+`bench/apachejit/coupling-experiment.md` (its report). No LLM calls; no API spend.
 
 ## Planned: LLM plus opendrs vs the LLM alone
 
