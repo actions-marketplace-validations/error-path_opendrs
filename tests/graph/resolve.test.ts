@@ -90,6 +90,33 @@ describe("resolve: Go", () => {
   });
 });
 
+describe("resolve: Go — duplicate module path", () => {
+  // Reproduces a repo where a nested fixture (e.g. a CodeQL test fixture under .github/) declares
+  // the same module path as the real root go.mod. The resolver must still map imports to the real
+  // package files, not silently resolve to the fixture's (empty, for this import) directory.
+  it("resolves against the real module when a nested go.mod declares the identical path", () => {
+    // The fixture's go.mod is listed (and so visited) before the real root go.mod, reproducing the
+    // file-order dependence of the original bug rather than relying on insertion order to pass.
+    const r = resolverFor({
+      ".github/codeql/tests/some-check/go.mod": "module example.com/shop\n\ngo 1.22\n",
+      "go.mod": "module example.com/shop\n\ngo 1.22\n",
+      "pkg/cart/cart.go": "",
+      "pkg/cart/total.go": "",
+    });
+    expect(r("cmd/main.go", "example.com/shop/pkg/cart").sort()).toEqual(["pkg/cart/cart.go", "pkg/cart/total.go"]);
+  });
+
+  it("ignores a go.mod under testdata/ when it collides with the real module path", () => {
+    const r = resolverFor({
+      "testdata/fixture/go.mod": "module example.com/shop\n\ngo 1.22\n",
+      "testdata/fixture/pkg/cart/cart.go": "",
+      "go.mod": "module example.com/shop\n\ngo 1.22\n",
+      "pkg/cart/cart.go": "",
+    });
+    expect(r("cmd/main.go", "example.com/shop/pkg/cart")).toEqual(["pkg/cart/cart.go"]);
+  });
+});
+
 describe("resolve: Java/Kotlin", () => {
   const r = resolverFor({
     "src/main/java/com/acme/util/Strings.java": "package com.acme.util;\npublic class Strings {}\n",
