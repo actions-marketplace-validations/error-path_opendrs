@@ -4,6 +4,11 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+### Fixed
+
+- Policy reasons that compare a score against a threshold now show enough decimals when the two
+  would otherwise round to the same two-decimal display (e.g. a score of 0.3004 against a green
+  threshold of 0.30 now reads "score 0.3004 ≥ green threshold 0.30" instead of "0.30 ≥ 0.30").
 - The change notice is posted only after the main report comment was written, so a forbidden
   update can no longer announce a change the report does not show.
 - Docs: the `brief` input row now says `brief: false` omits the state marker, the re-score line and
