@@ -66,6 +66,11 @@ describe("detectCoupling", () => {
   let repo: TestRepo;
   afterEach(() => repo?.cleanup());
 
+  // These two tests fix minSupport at 5 explicitly, so they exercise the "5 of 6" scenario from
+  // spec §6.1 regardless of the shipped default (tuned by the ApacheJIT experiment; see
+  // docs/experiments.md and src/domain/config.ts).
+  const minSupport5 = () => parseConfig({ captain: { coupling: { minSupport: 5 } } });
+
   it("fires with the exact text from spec §6.1", async () => {
     repo = makeRepo();
     repo.commit({ "a.ts": "0\n" }, "create a", undefined, T);
@@ -73,7 +78,7 @@ describe("detectCoupling", () => {
     for (let i = 0; i < 5; i++) repo.commit({ "a.ts": `${i + 1}\n`, "b.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 2 + i);
     const base = repo.git("rev-parse", "HEAD");
     const head = repo.commit({ "a.ts": "9\n" }, "change a alone", undefined, T + 10);
-    const ctx = await contextFor(repo, base, head, { asOf: T + 10 });
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
     const result = await detectCoupling(ctx, {});
     expect(result.notes).toEqual([]);
     expect(result.facts).toEqual([
@@ -88,7 +93,7 @@ describe("detectCoupling", () => {
     const base = repo.git("rev-parse", "HEAD");
     repo.commit({ "b.ts": null }, "delete b", undefined, T + 10); // b.ts is gone before the PR even starts
     const head = repo.commit({ "a.ts": "9\n" }, "change a alone", undefined, T + 11);
-    const ctx = await contextFor(repo, base, head, { asOf: T + 11 });
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 11 });
     const result = await detectCoupling(ctx, {});
     expect(result.facts).toEqual([]);
   });
@@ -99,7 +104,7 @@ describe("detectCoupling", () => {
     for (let i = 0; i < 5; i++) repo.commit({ "a.ts": `${i + 1}\n`, "README.md": `${i + 1}\n`, "package-lock.json": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 1 + i);
     const base = repo.git("rev-parse", "HEAD");
     const head = repo.commit({ "a.ts": "9\n" }, "change a alone", undefined, T + 10);
-    const ctx = await contextFor(repo, base, head, { asOf: T + 10 });
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
     const result = await detectCoupling(ctx, {});
     expect(result.facts).toEqual([]);
   });

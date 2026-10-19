@@ -312,8 +312,10 @@ export const configSchema = z.object({
       moduleDepth: z.number().int().min(1).max(6).default(2),
       coupling: z
         .object({
+          // Tuned on ApacheJIT (spec §10.1; docs/experiments.md, "Change coupling on ApacheJIT"):
+          // test lift 1.931x at minSupport 8 / minConfidence 0.6, chosen by train lift.
           enabled: z.boolean().default(true),
-          minSupport: z.number().int().min(2).default(5),
+          minSupport: z.number().int().min(2).default(8),
           minConfidence: z.number().min(0).max(1).default(0.6),
         })
         .prefault({}),
