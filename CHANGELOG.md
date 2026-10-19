@@ -2,7 +2,16 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.4.0 - 2026-10-19
+
+The captain release. When AI writes the code and AI reviews it twice, the last human reviewer, the
+captain, judges design rather than style. opendrs now tells them how much attention a PR needs
+(careful review, standard review or quick confirm), who has the most relevant history, and up to
+five facts that neither the editor nor the AI review rounds show: files that usually change
+together but were not changed together, new import edges and cycles between modules, new
+dependencies, public API, schema and environment changes, and what a PR picked up during its AI
+fix rounds. The captain line is advisory: the gate, the score and auto-approval are unchanged.
+See [docs/captain.md](docs/captain.md).
 
 ### Added
 
