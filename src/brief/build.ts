@@ -1,5 +1,8 @@
-import type { Incident, ReviewBrief, ScoreResult, ScoringContext } from "../domain/types.js";
+import { detectArchitecture } from "../architecture/index.js";
+import { captainPriority } from "../architecture/priority.js";
+import type { ArchitectureFact, CaptainBrief, Incident, PolicyRule, ReviewBrief, ScoreResult, ScoringContext } from "../domain/types.js";
 import { gitMaybe } from "../git/exec.js";
+import { matchAny } from "../git/glob.js";
 import { INCIDENTS_FILE, parseIncidents } from "../model/label.js";
 import { untrusted } from "../report/escape.js";
 import { blameFixes } from "./blame.js";
@@ -20,6 +23,23 @@ export interface BuildBriefOptions {
   maxTokens?: number;
   /** False ignores the judge's per-hunk verdicts even when it ran. */
   llm?: boolean;
+  /** The head of opendrs's first run on this PR, for the drift detector (spec §6.4; Action only). */
+  firstHead?: string;
+  /** That first run's number, for an old marker's "since run k" phrasing. */
+  firstRun?: number;
+}
+
+/** Spec §6.5: the first clause (up to the first semicolon or period) of a fact's text, for the one-line "why". */
+const firstClause = (text: string): string => text.split(/[;.]/, 1)[0]!.trim();
+
+/** Spec §5, §7.1: run the architecture detectors and turn tier, facts and the fired gate rules into the captain brief. */
+async function buildCaptain(result: ScoreResult, ctx: ScoringContext, opts: { firstHead?: string; firstRun?: number }): Promise<CaptainBrief> {
+  const { facts, notes } = await detectArchitecture(ctx, { firstHead: opts.firstHead, firstRun: opts.firstRun });
+  const criticalTouched = ctx.diff.files.some((f) => matchAny(ctx.config.paths.critical, f.path));
+  const firedRules: PolicyRule[] = (result.policy.rules ?? []).map((r) => r.rule);
+  const priority = captainPriority({ tier: result.tier, facts, firedRules, criticalTouched });
+  const why = facts.slice(0, 2).map((f: ArchitectureFact) => firstClause(f.text));
+  return { priority, why, facts, notes };
 }
 
 /** Spec §4: rank hunks (blame on the top candidates), build questions, skim list and hard rules, then fit the budget. */
@@ -66,6 +86,8 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
   }
   if (!ctx.trust.historyComplete) notes.push("history is incomplete (shallow clone): blame and fix counts are lower bounds");
 
+  const captain = ctx.config.captain.enabled ? await buildCaptain(result, ctx, options) : undefined;
+
   const maxTokens = Math.min(options.maxTokens ?? DEFAULT_MAX_TOKENS, HARD_CEILING);
   return fitBudget(
     {
@@ -83,6 +105,7 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
       notRanked: { hunks: totalHunks - shownHunks, files: pool.length - shown.length },
       budget: { maxTokens, estimatedTokens: 0, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
       notes,
+      captain,
     },
     maxTokens,
   );

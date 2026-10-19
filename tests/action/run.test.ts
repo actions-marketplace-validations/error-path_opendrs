@@ -818,6 +818,67 @@ describe("labels", () => {
   });
 });
 
+describe("captain", () => {
+  const withCaptain = (priority: "careful" | "standard" | "quick", scored = result(0.1, "green", "auto-approve")): ScoreResult => ({
+    ...scored,
+    brief: { ...BRIEF, captain: { priority, why: [], facts: [], notes: [] } },
+  });
+
+  it("creates the captain:<priority> label with its colour", async () => {
+    const t = await run({ result: withCaptain("careful") });
+    await t.promise;
+    expect(t.gh.labels).toContain("captain:careful");
+    expect(t.gh.repoLabels["captain:careful"]).toEqual({ color: "d93f0b", description: "opendrs: captain should review carefully" });
+  });
+
+  it("swaps the stale captain label on a rerun with a different priority", async () => {
+    const t = await run({ labels: ["captain:careful"], result: withCaptain("quick") });
+    await t.promise;
+    expect(t.gh.ops("removeLabel").map((e) => decodeURIComponent(e.path.split("/").pop()!))).toContain("captain:careful");
+    expect(t.gh.labels).toContain("captain:quick");
+    expect(t.gh.labels).not.toContain("captain:careful");
+  });
+
+  it("sets the captain output to the priority", async () => {
+    const t = await run({ result: withCaptain("standard") });
+    await t.promise;
+    expect(t.output()).toMatch(/^captain<<(\S+)\nstandard\n\1$/m);
+  });
+
+  it("leaves the captain output empty, and adds no captain label, when the brief has no captain", async () => {
+    const t = await run({ result: { ...result(0.1, "green", "auto-approve"), brief: BRIEF } });
+    await t.promise;
+    expect(t.output()).toMatch(/^captain<<(\S+)\n\n\1$/m);
+    expect(t.gh.ops("addLabels").flatMap((e) => (e.body as { labels: string[] }).labels)).not.toEqual(expect.arrayContaining([expect.stringMatching(/^captain:/)]));
+  });
+
+  it("shows the captain line and block in the job summary", async () => {
+    const { renderMarkdown: real } = await vi.importActual<typeof import("../../src/report/markdown.js")>("../../src/report/markdown.js");
+    vi.mocked(renderMarkdown).mockImplementationOnce(real).mockImplementationOnce(real);
+    const brief = { ...BRIEF, captain: { priority: "careful" as const, why: [], facts: [{ id: "layers.edge" as const, weight: "strong" as const, file: "src/a.ts", text: "new import" }], notes: [] } };
+    const t = await run({ result: { ...result(0.1, "green", "auto-approve"), brief } });
+    await t.promise;
+    expect(t.summary()).toContain("**Captain: careful review**");
+    expect(t.summary()).toContain("**For the captain**");
+    expect(t.summary()).toContain("- new import");
+  });
+
+  it("sets the captain reviewer to the same login the review request uses", async () => {
+    const experts = (repo: TestRepo) => {
+      for (const [n, login] of [["1", "ana"], ["2", "bo"], ["3", "cy"], ["4", "di"]]) {
+        repo.commit({ "src/a.ts": `${n}\n` }, `fix ${n}`, { name: login!, email: `${n}0+${login}@users.noreply.github.com` });
+      }
+    };
+    const t = await run({ before: experts, result: withCaptain("careful", result(0.6, "yellow", "human-review")) });
+    await t.promise;
+    const requested = t.gh.ops("requestReviewers").map((e) => e.body as { reviewers: string[] });
+    expect(requested).toHaveLength(1);
+    const [login] = requested[0]!.reviewers;
+    const sentBrief = vi.mocked(renderMarkdown).mock.calls[0]![0].brief;
+    expect(sentBrief?.captain?.reviewer).toBe(login);
+  });
+});
+
 describe("approval", () => {
   it("approves the scored head commit and enables auto-merge", async () => {
     const t = await run();

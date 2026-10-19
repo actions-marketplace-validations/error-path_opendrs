@@ -22,6 +22,7 @@ export const COMMENT_MARKER = "<!-- opendrs -->";
 /** On a PR while its landing delay runs; the scheduled sweep re-scores the PRs that carry it. */
 export const LANDING_LABEL = "opendrs:landing";
 const RISK_LABELS = ["risk:green", "risk:yellow", "risk:red"];
+const CAPTAIN_LABELS = ["captain:careful", "captain:standard", "captain:quick"];
 const COMMENT_FORBIDDEN =
   "Could not write the PR comment (403): the token needs `pull-requests: write`. Fork PRs get a read-only token on `pull_request` events.";
 const PREDICTABLE_SAMPLING =
@@ -141,14 +142,24 @@ async function prAuthor(d: ActionDeps, pr: PullRequest): Promise<{ verified: boo
 }
 
 /**
- * For a PR that needs a human, ask one expert (a GitHub login among the suggested reviewers, picked by
- * PR so reruns agree) to review; best-effort. Returns the login when a review was requested.
+ * The GitHub login `assignReviewer` picks for this PR from its suggested reviewers (noreply logins
+ * only), picked by PR so reruns agree; never the PR's own author. Shared by the review request and
+ * the captain line (spec §7.2), so the two always agree.
+ */
+function pickReviewerLogin(pr: PullRequest, reviewers: string[]): string | undefined {
+  const logins = reviewers.map(noreplyLogin).filter((l): l is string => l !== undefined);
+  const login = assignReviewer(logins, `${pr.base.repo.full_name}#${pr.number}`);
+  return login !== undefined && !sameLogin(login, pr.user?.login) ? login : undefined;
+}
+
+/**
+ * For a PR that needs a human, ask one expert to review; best-effort. Returns the login when a
+ * review was requested.
  */
 async function requestOneReviewer({ client, io }: ActionDeps, pr: PullRequest, reviewers: string[], decision: Decision): Promise<string | undefined> {
   if (decision !== "human-review") return undefined;
-  const logins = reviewers.map(noreplyLogin).filter((l): l is string => l !== undefined);
-  const login = assignReviewer(logins, `${pr.base.repo.full_name}#${pr.number}`);
-  if (login === undefined || sameLogin(login, pr.user?.login) || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return undefined;
+  const login = pickReviewerLogin(pr, reviewers);
+  if (login === undefined || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return undefined;
   // Re-requesting a review resets one that was already submitted.
   if ((await client.listReviews(pr.number)).some((r) => sameLogin(r.user?.login, login))) return undefined;
   try {
@@ -266,6 +277,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   io.setOutput("score", result.score.toFixed(4));
   io.setOutput("tier", result.tier);
   io.setOutput("decision", result.policy.decision);
+  io.setOutput("captain", result.brief?.captain?.priority ?? "");
   if (result.brief) {
     io.setOutput("brief", renderBriefMarkdown(result.brief));
     const dir = d.env.RUNNER_TEMP ?? tmpdir();
@@ -295,6 +307,8 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   result.policy.suggestedReviewers = suggestReviewers(history, paths, undefined, 3 + author.emails.size, result.tier !== "green")
     .filter((email) => !author.emails.has(email))
     .slice(0, 3);
+  // The captain line shows the same login the review request uses, whether or not a request is sent.
+  if (result.brief?.captain) result.brief.captain.reviewer = pickReviewerLogin(pr, result.policy.suggestedReviewers);
   const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
 
   // opendrs's own comment carries the time this head became eligible, so a landing delay survives across runs.
@@ -357,12 +371,18 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
 
   if (d.inputs.labels) {
     const want = `risk:${result.tier}`;
+    // Absent (captain.enabled: false, or no brief): no captain label is wanted, so a stale one is removed.
+    const wantCaptain = result.brief?.captain ? `captain:${result.brief.captain.priority}` : undefined;
     await unlessForbidden(
       async () => {
-        for (const label of labels) if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
+        for (const label of labels) {
+          if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
+          if (CAPTAIN_LABELS.includes(label) && label !== wantCaptain) await client.removeLabel(pr.number, label);
+        }
         if (!labels.includes(want)) await client.addLabels(pr.number, [want]);
+        if (wantCaptain && !labels.includes(wantCaptain)) await client.addLabels(pr.number, [wantCaptain]);
       },
-      () => io.warning("Could not set risk labels (403): the token needs `pull-requests: write` (and `issues: write` to create new labels)."),
+      () => io.warning("Could not set risk/captain labels (403): the token needs `pull-requests: write` (and `issues: write` to create new labels)."),
     );
   }
 
