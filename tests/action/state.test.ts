@@ -6,7 +6,7 @@ const HEAD = "a".repeat(40);
 const FIRST = "b".repeat(40);
 
 function state(over: Partial<OpendrsState> = {}): OpendrsState {
-  return { head: HEAD, first: FIRST, score: 0.7612, tier: "yellow", decision: "human-review", run: 2, ...over };
+  return { head: HEAD, first: FIRST, firstRun: 1, score: 0.7612, tier: "yellow", decision: "human-review", run: 2, ...over };
 }
 
 describe("stateMarker / readState", () => {
@@ -16,13 +16,16 @@ describe("stateMarker / readState", () => {
   });
 
   it("renders the documented shape", () => {
-    expect(stateMarker(state())).toBe(`<!-- opendrs-state: v1 head=${HEAD} first=${FIRST} score=0.7612 tier=yellow decision=human-review run=2 -->`);
+    expect(stateMarker(state())).toBe(
+      `<!-- opendrs-state: v1 head=${HEAD} first=${FIRST} firstRun=1 score=0.7612 tier=yellow decision=human-review run=2 -->`,
+    );
   });
 
-  it("parses a 0.3.x marker with no first= (first undefined)", () => {
+  it("parses a 0.3.x marker with no first= (first and firstRun undefined)", () => {
     expect(readState(`<!-- opendrs-state: v1 head=${HEAD} score=0.50 tier=green decision=auto-approve run=1 -->`)).toEqual({
       head: HEAD,
       first: undefined,
+      firstRun: undefined,
       score: 0.5,
       tier: "green",
       decision: "auto-approve",
@@ -30,8 +33,28 @@ describe("stateMarker / readState", () => {
     });
   });
 
+  it("parses a marker with first= but no firstRun= (written before that field existed)", () => {
+    expect(readState(`<!-- opendrs-state: v1 head=${HEAD} first=${FIRST} score=0.50 tier=green decision=auto-approve run=3 -->`)).toEqual({
+      head: HEAD,
+      first: FIRST,
+      firstRun: undefined,
+      score: 0.5,
+      tier: "green",
+      decision: "auto-approve",
+      run: 3,
+    });
+  });
+
   it("rejects the whole marker when first= is malformed", () => {
     expect(readState(`<!-- opendrs-state: v1 head=${HEAD} first=xyz score=0.50 tier=green decision=auto-approve run=1 -->`)).toBeUndefined();
+  });
+
+  it("rejects the whole marker when firstRun= is malformed", () => {
+    expect(readState(`<!-- opendrs-state: v1 head=${HEAD} first=${FIRST} firstRun=0 score=0.50 tier=green decision=auto-approve run=1 -->`)).toBeUndefined();
+  });
+
+  it("rejects firstRun= present without first= (cannot appear on its own)", () => {
+    expect(readState(`<!-- opendrs-state: v1 head=${HEAD} firstRun=1 score=0.50 tier=green decision=auto-approve run=1 -->`)).toBeUndefined();
   });
 
   it("returns undefined when there is no marker (first run)", () => {

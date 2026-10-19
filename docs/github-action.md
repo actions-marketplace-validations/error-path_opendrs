@@ -363,12 +363,14 @@ On a sweep the `score`, `tier` and `decision` outputs are those of the last PR s
 ## Re-scoring on new commits
 
 Every run that updates the comment also writes a hidden machine marker into it, for example
-`<!-- opendrs-state: v1 head=<sha> first=<sha> score=0.76 tier=yellow decision=human-review run=2 -->`,
-recording this run's result. `first=` is the head of opendrs's first run on this PR, which the
-[captain brief](captain.html)'s drift detector compares against: it is written from a run's own
-head on the first run, and kept unchanged on every later run. It is optional only when reading, so
-a marker written by 0.3.x (no `first=`) still parses; a `first=` present but malformed rejects the
-whole marker, the same as any other malformed field.
+`<!-- opendrs-state: v1 head=<sha> first=<sha> firstRun=1 score=0.76 tier=yellow decision=human-review run=2 -->`,
+recording this run's result. `first=` is the head of opendrs's first run on this PR and `firstRun=`
+that run's number, which the [captain brief](captain.html)'s drift detector compares against: both
+are written from a run's own head and number on the first run, and kept unchanged on every later
+run, so the drift text keeps saying "since run `firstRun`" instead of resetting to "run 1" once a
+later run writes the marker. They are optional only when reading, so a marker written by 0.3.x (no
+`first=`) still parses, as does one written before `firstRun=` existed; either present but
+malformed rejects the whole marker, the same as any other malformed field.
 
 The next run reads that marker from opendrs's own comment (never from
 another comment or the PR body, and never a forged or malformed one: anything that does not match

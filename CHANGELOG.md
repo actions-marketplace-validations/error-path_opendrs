@@ -9,6 +9,9 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - A `.patch`/`.diff` file is now classified as docs, like `.md`: it lists under "Safe to skim", is
   never ranked into "Review first" (even as the only changed file), and no longer produces a
   "No test changed for ..." check.
+- The drift fact's "since run k" wording now survives past the run that migrates a 0.3.x state
+  marker: the first run's number is persisted in the marker's new `firstRun=` field instead of
+  being re-derived (and wrongly reset to "run 1") on every later run.
 
 ## 0.4.0 - 2026-10-19
 

@@ -693,7 +693,9 @@ describe("re-scoring", () => {
     await t.promise;
     expect(rescoreOpts()).toEqual({});
     expect(t.scoreArgs().brief).toMatchObject({ firstHead: t.headSha, firstRun: 1 });
-    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, first: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 1 }));
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: t.headSha, firstRun: 1, score: 0.76, tier: "yellow", decision: "human-review", run: 1 }),
+    );
     expect(t.gh.comments.some((c) => c.body.includes("Re-scored for"))).toBe(false);
     expect(t.gh.ops("createComment")).toHaveLength(1);
   });
@@ -705,7 +707,9 @@ describe("re-scoring", () => {
       rescoreLine: `Re-scored for \`${t.headSha.slice(0, 7)}\` (run 2) · was 0.76 yellow → now 0.76 yellow`,
     });
     expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 1 });
-    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, first: PREV_HEAD, score: 0.76, tier: "yellow", decision: "human-review", run: 2 }));
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: PREV_HEAD, firstRun: 1, score: 0.76, tier: "yellow", decision: "human-review", run: 2 }),
+    );
     expect(t.gh.comments.some((c) => c.body.includes("risk changed"))).toBe(false);
     expect(t.gh.ops("createComment")).toEqual([]);
   });
@@ -717,7 +721,23 @@ describe("re-scoring", () => {
     });
     await t.promise;
     expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 3 });
-    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, first: PREV_HEAD, score: 0.76, tier: "yellow", decision: "human-review", run: 4 }));
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: PREV_HEAD, firstRun: 3, score: 0.76, tier: "yellow", decision: "human-review", run: 4 }),
+    );
+  });
+
+  it("the run after a 0.3.x migration keeps firstRun from the marker instead of resetting to 1", async () => {
+    // Simulates the marker the previous test's run would have written: first= and firstRun= already
+    // carried over from the 0.3.x migration (run 3), one run later (run 4).
+    const t = await run({
+      result: result(0.76, "yellow", "human-review"),
+      ownComment: () => stateMarker({ head: PREV_HEAD, first: PREV_HEAD, firstRun: 3, score: 0.76, tier: "yellow", decision: "human-review", run: 4 }),
+    });
+    await t.promise;
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 3 });
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: PREV_HEAD, firstRun: 3, score: 0.76, tier: "yellow", decision: "human-review", run: 5 }),
+    );
   });
 
   it("re-run on the same head commit still bumps run and shows the line", async () => {
