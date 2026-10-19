@@ -29,6 +29,15 @@ describe("skimList", () => {
     repo.cleanup();
   });
 
+  it("lists a .patch/.diff file as docs, like other records, not code", async () => {
+    const { repo, ctx } = await ctxFor(
+      { "archive/old.patch": "diff --git a/x b/x\n--- a\n+++ b\n@@ -1 +1 @@\n-old\n+older\n" },
+      { "archive/old.patch": "diff --git a/x b/x\n--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n" },
+    );
+    expect(skimList(ctx)).toEqual([{ file: "archive/old.patch", category: "docs" }]);
+    repo.cleanup();
+  });
+
   it("never lists an ignored file: it needs a human regardless (spec §5.7, unread-files), not a skim", async () => {
     const { repo, ctx } = await ctxFor({ "pkg-lock.json": '{"v":1}\n' }, { "pkg-lock.json": '{"v":2}\n' });
     expect(skimList(ctx)).toEqual([]);

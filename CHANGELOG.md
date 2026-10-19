@@ -2,6 +2,14 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- A `.patch`/`.diff` file is now classified as docs, like `.md`: it lists under "Safe to skim", is
+  never ranked into "Review first" (even as the only changed file), and no longer produces a
+  "No test changed for ..." check.
+
 ## 0.4.0 - 2026-10-19
 
 The captain release. When AI writes the code and AI reviews it twice, the last human reviewer, the

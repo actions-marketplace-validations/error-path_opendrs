@@ -5,6 +5,7 @@ import { matchAny } from "../git/glob.js";
 import { isPublicDeclaration } from "../graph/public-decl.js";
 import { hotspotScore } from "../hotspots.js";
 import { code } from "../report/escape.js";
+import { isPatchFile } from "../signals/language.js";
 import { clipQuote, quoteUntrusted } from "./quote.js";
 
 export interface HunkCandidate {
@@ -53,10 +54,11 @@ export function candidateHunks(ctx: ScoringContext): HunkCandidate[] {
   let id = 0;
   for (const file of orderedFiles(ctx.diff)) {
     // A file git diffed as text but the blob check flagged binary keeps its hunks, and buildDiffText
-    // numbers them, so they count here too; they are only not ranked.
+    // numbers them, so they count here too; they are only not ranked. A patch/diff file is an
+    // archived record, never a hunk worth ranking, so it is excluded the same way.
     for (const [index, hunk] of file.hunks.entries()) {
       id++;
-      if (!file.binary) out.push({ id, file, hunk, index });
+      if (!file.binary && !isPatchFile(file.path)) out.push({ id, file, hunk, index });
     }
   }
   return out;
