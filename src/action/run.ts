@@ -328,16 +328,19 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore })) : body;
 
   if (comments) {
+    let written = false;
     await unlessForbidden(
       async () => {
         if (mine) await client.updateComment(mine.id, capped);
         else await client.createComment(pr.number, capped);
+        written = true;
       },
       () => io.warning(COMMENT_FORBIDDEN),
     );
     // A short, separate notice so a re-score that changes the outcome is not missed in an updated-in-place
-    // comment; it never carries the opendrs marker, so it is never mistaken for the main comment.
-    if (d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
+    // comment; it never carries the opendrs marker, so it is never mistaken for the main comment. Only after
+    // the report itself was written, so a notice never announces a change the report does not show.
+    if (written && d.inputs.notifyChanges && previousState && (previousState.tier !== result.tier || previousState.decision !== result.policy.decision)) {
       await unlessForbidden(
         () => client.createComment(pr.number, changeNotice(previousState, result.score, result.tier, result.policy.decision)),
         () => io.warning(COMMENT_FORBIDDEN),
