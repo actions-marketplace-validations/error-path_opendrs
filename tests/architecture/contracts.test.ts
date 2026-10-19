@@ -65,9 +65,12 @@ describe("detectContracts: contract.api", () => {
     expect(apiFacts[0]!.text).toContain("imported by 1 file");
   });
 
-  it("an added public declaration with no matching deletion is info", async () => {
+  it("an added public declaration with no matching deletion is info when the file has a dependent at base", async () => {
     repo = makeRepo();
-    const base = repo.commit({ "src/util.ts": "export const a = 1;\n" }, "base");
+    const base = repo.commit(
+      { "src/util.ts": "export const a = 1;\n", "src/caller.ts": 'import { a } from "./util";\na;\n' },
+      "base",
+    );
     repo.commit({ "src/util.ts": "export const a = 1;\nexport function helper() {\n  return 2;\n}\n" }, "head");
 
     const { facts } = await detectContracts(await contextFor(repo, base), {});
@@ -76,6 +79,59 @@ describe("detectContracts: contract.api", () => {
     expect(apiFacts).toHaveLength(1);
     expect(apiFacts[0]).toMatchObject({ weight: "info", file: "src/util.ts" });
     expect(apiFacts[0]!.text).toContain("helper");
+  });
+
+  it("an added public declaration in a file with no dependent at base is not a fact", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "src/util.ts": "export const a = 1;\n" }, "base");
+    repo.commit({ "src/util.ts": "export const a = 1;\nexport function helper() {\n  return 2;\n}\n" }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    expect(facts.filter((f) => f.id === "contract.api")).toEqual([]);
+  });
+
+  it("a brand-new file never produces a contract.api fact, even with a dependent at head", async () => {
+    repo = makeRepo();
+    const base = repo.commit({}, "base");
+    repo.commit(
+      {
+        "src/newfile.ts": "export function helper() {\n  return 2;\n}\n",
+        "src/caller.ts": 'import { helper } from "./newfile";\nhelper();\n',
+      },
+      "head",
+    );
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    expect(facts.filter((f) => f.id === "contract.api")).toEqual([]);
+  });
+
+  it("aggregates several added declarations in one file into a single info fact", async () => {
+    repo = makeRepo();
+    const base = repo.commit(
+      { "src/util.ts": "export const a = 1;\n", "src/caller.ts": 'import { a } from "./util";\na;\n' },
+      "base",
+    );
+    repo.commit(
+      {
+        "src/util.ts":
+          "export const a = 1;\nexport function one() {\n  return 1;\n}\nexport function two() {\n  return 2;\n}\nexport function three() {\n  return 3;\n}\nexport function four() {\n  return 4;\n}\n",
+      },
+      "head",
+    );
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const apiFacts = facts.filter((f) => f.id === "contract.api");
+    expect(apiFacts).toHaveLength(1);
+    expect(apiFacts[0]).toMatchObject({ weight: "info", file: "src/util.ts" });
+    expect(apiFacts[0]!.text).toContain("4 exported declarations");
+    expect(apiFacts[0]!.text).toContain("`one`");
+    expect(apiFacts[0]!.text).toContain("`two`");
+    expect(apiFacts[0]!.text).toContain("`three`");
+    expect(apiFacts[0]!.text).not.toContain("`four`");
+    expect(apiFacts[0]!.text).toContain("…");
   });
 });
 
@@ -159,6 +215,26 @@ describe("detectContracts: contract.env", () => {
     repo = makeRepo();
     const base = repo.commit({ "src/other.ts": "const existing = process.env.PATH_X;\n", "src/config.ts": "export const x = 1;\n" }, "base");
     repo.commit({ "src/config.ts": 'export const x = 1;\nconst p = process.env.PATH_X;\n' }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    expect(facts.filter((f) => f.id === "contract.env")).toEqual([]);
+  });
+
+  it("does not scan a docs file for a new environment variable", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "docs/plan.md": "notes\n" }, "base");
+    repo.commit({ "docs/plan.md": "notes\nsee `process.env.NEW_VAR`\n" }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    expect(facts.filter((f) => f.id === "contract.env")).toEqual([]);
+  });
+
+  it("does not scan a test file for a new environment variable", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "tests/architecture/contracts.test.ts": "const x = 1;\n" }, "base");
+    repo.commit({ "tests/architecture/contracts.test.ts": 'const x = 1;\nconst p = process.env.PATH_X;\n' }, "head");
 
     const { facts } = await detectContracts(await contextFor(repo, base), {});
 

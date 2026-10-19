@@ -5,6 +5,8 @@ import { matchAny } from "../git/glob.js";
 import { languageOf } from "../graph/imports.js";
 import { isPublicDeclaration } from "../graph/public-decl.js";
 import { code, untrusted } from "../report/escape.js";
+import { languageFamily } from "../signals/language.js";
+import { isTestPath } from "../signals/tests.js";
 import { plural } from "../signals/util.js";
 import type { Detector } from "./index.js";
 import { addedPackages, isManifestPath } from "./manifests.js";
@@ -141,9 +143,21 @@ export const detectContracts: Detector = async (ctx) => {
           });
         }
       }
-    } else {
-      for (const a of addedDecls) {
-        facts.push({ id: "contract.api", weight: "info", file: f.path, line: a.line, text: `Adds exported ${code(a.name)} (${code(locate(f.path, a.line))}).` });
+    } else if (addedDecls.length > 0 && f.status !== "added") {
+      // Same evidence requirement as a deletion (spec §6.3): a dependent at base makes the
+      // addition a decision to sign off; a file with no dependent, or no file at base at all, is
+      // editor trivia.
+      const dependents = ctx.graph?.dependentsOf(basePath).length ?? 0;
+      if (dependents > 0) {
+        const shown = addedDecls.slice(0, 3).map((a) => code(a.name));
+        const names = shown.join(", ") + (addedDecls.length > 3 ? ", …" : "");
+        facts.push({
+          id: "contract.api",
+          weight: "info",
+          file: f.path,
+          line: addedDecls[0]!.line,
+          text: `Adds ${plural(addedDecls.length, "exported declaration")} to ${code(f.path)} (${names}).`,
+        });
       }
     }
   }
@@ -161,6 +175,9 @@ export const detectContracts: Detector = async (ctx) => {
   const seen = new Set<string>();
   for (const f of files) {
     if (f.binary) continue;
+    // Spec §6.3 targets source, not documentation or the tests exercising it (both false-fired
+    // in dogfooding: a plan doc's example and a test's literal env var name).
+    if (isTestPath(ctx.config, f.path) || languageFamily(f.path) === "docs") continue;
     for (const h of f.hunks) {
       for (const { kind, line, text } of changedLines(h)) {
         if (kind !== "+") continue;

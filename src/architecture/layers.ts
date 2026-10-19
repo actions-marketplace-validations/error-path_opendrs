@@ -172,15 +172,22 @@ export const detectLayers: Detector = async (ctx) => {
   const isTest = (path: string) => isTestPath(config, path);
   const baseAdjacency = moduleAdjacency(base, depth, isTest);
   const headAdjacency = moduleAdjacency(head, depth, isTest);
+  // A module with no covered file at base necessarily has new edges and may import, or be
+  // imported by, a brand-new module; neither is noteworthy on its own (spec §6.2).
+  const baseModules = new Set(base.files.map((f) => moduleOf(f, depth)));
 
   const edgeFacts = await Promise.all(
-    [...headAdjacency].flatMap(([from, tos]) => [...tos].filter((to) => !baseAdjacency.get(from)?.has(to)).map((to) => edgeFact(ctx, depth, isTest, head, from, to))),
+    [...headAdjacency].flatMap(([from, tos]) =>
+      [...tos].filter((to) => baseModules.has(from) && baseModules.has(to) && !baseAdjacency.get(from)?.has(to)).map((to) => edgeFact(ctx, depth, isTest, head, from, to)),
+    ),
   );
 
   const baseSccId = new Map<string, number>();
   stronglyConnectedComponents(baseAdjacency).forEach((component, i) => component.forEach((m) => baseSccId.set(m, i)));
-  const newCycles = stronglyConnectedComponents(headAdjacency).filter((component) => component.length >= 2 && !component.every((m) => baseSccId.has(m) && baseSccId.get(m) === baseSccId.get(component[0]!)));
-  const cycleFacts = await Promise.all(newCycles.map((component) => cycleFact(ctx, depth, isTest, head, component, headAdjacency)));
+  const newCycles = stronglyConnectedComponents(headAdjacency)
+    .map((component) => component.filter((m) => baseModules.has(m)))
+    .filter((oldMembers) => oldMembers.length >= 2 && !oldMembers.every((m) => baseSccId.has(m) && baseSccId.get(m) === baseSccId.get(oldMembers[0]!)));
+  const cycleFacts = await Promise.all(newCycles.map((oldMembers) => cycleFact(ctx, depth, isTest, head, oldMembers, headAdjacency)));
 
   const facts = [...edgeFacts, ...cycleFacts].filter((f): f is ArchitectureFact => f !== undefined);
   return { facts, notes: [] };

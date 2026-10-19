@@ -122,4 +122,52 @@ describe("detectLayers", () => {
 
     expect(result.facts).toEqual([]);
   });
+
+  it("reports no edge fact when the importing module has no files at base", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "src/db/q.ts": "export function q() {}\n" }, "base");
+    const head = repo.commit({ "src/newmod/a.ts": 'import { q } from "../db/q";\nexport const x = q;\n' }, "head");
+
+    const result = await detectLayers(ctxFor(repo, base, head, [changed("src/newmod/a.ts")]), {});
+
+    expect(result.facts).toEqual([]);
+  });
+
+  it("reports no edge fact when the imported module has no files at base", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "src/api/users.ts": "export function listUsers() {}\n" }, "base");
+    const head = repo.commit(
+      {
+        "src/api/users.ts": 'import { q } from "../newmod/q";\nexport function listUsers() { return q; }\n',
+        "src/newmod/q.ts": "export function q() {}\n",
+      },
+      "head",
+    );
+
+    const result = await detectLayers(ctxFor(repo, base, head, [changed("src/api/users.ts"), changed("src/newmod/q.ts")]), {});
+
+    expect(result.facts).toEqual([]);
+  });
+
+  it("reports no new cycle when a new module extends an already-cyclic pair of existing modules", async () => {
+    repo = makeRepo();
+    const base = repo.commit(
+      {
+        "src/a/x.ts": 'import "../b/y";\nexport const a = 1;\n',
+        "src/b/y.ts": 'import "../a/x";\nexport const b = 1;\n',
+      },
+      "base",
+    );
+    const head = repo.commit(
+      {
+        "src/b/y.ts": 'import "../a/x";\nimport "../c/z";\nexport const b = 1;\n',
+        "src/c/z.ts": 'import "../a/x";\nexport const c = 1;\n',
+      },
+      "head",
+    );
+
+    const result = await detectLayers(ctxFor(repo, base, head, [changed("src/b/y.ts"), changed("src/c/z.ts")]), {});
+
+    expect(result.facts).toEqual([]);
+  });
 });
