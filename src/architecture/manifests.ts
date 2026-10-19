@@ -3,7 +3,7 @@
 type Buckets = { runtime: Set<string>; dev: Set<string> };
 type ParseResult = Buckets | { error: string };
 
-type ManifestKind = "package.json" | "go.mod" | "requirements.txt" | "pyproject.toml" | "Cargo.toml" | "pom.xml" | "build.gradle" | "Gemfile";
+type ManifestKind = "package.json" | "go.mod" | "requirements.txt" | "pyproject.toml" | "Cargo.toml" | "pom.xml" | "build.gradle" | "Gemfile" | "Package.swift";
 
 /** The manifest kind a changed path is, or undefined when it is not one §6.3 covers. */
 export function manifestKind(path: string): ManifestKind | undefined {
@@ -16,6 +16,7 @@ export function manifestKind(path: string): ManifestKind | undefined {
   if (name === "pom.xml") return "pom.xml";
   if (name === "build.gradle" || name === "build.gradle.kts") return "build.gradle";
   if (name === "Gemfile") return "Gemfile";
+  if (name === "Package.swift") return "Package.swift";
   return undefined;
 }
 
@@ -40,9 +41,22 @@ function parsePackageJson(text: string): ParseResult {
   };
 }
 
+/**
+ * `// indirect` decides the bucket (spec §6.3's `require`, plus the field-test gap: a dependency
+ * promoted from indirect to direct is a new *runtime* dependency; a dependency that is only ever
+ * indirect is info at most, so it goes in `dev` the same way other manifests' info-weight names do.
+ */
 function parseGoMod(text: string): ParseResult {
-  const runtime = new Set<string>();
+  const direct = new Set<string>();
+  const indirect = new Set<string>();
   let inBlock = false;
+
+  const addEntry = (line: string): void => {
+    const m = /^(\S+)\s+\S+/.exec(line);
+    if (!m) return;
+    (/\/\/\s*indirect\b/.test(line) ? indirect : direct).add(m[1]!);
+  };
+
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (line.startsWith("require (")) {
@@ -54,14 +68,16 @@ function parseGoMod(text: string): ParseResult {
         inBlock = false;
         continue;
       }
-      const m = /^(\S+)\s+\S+/.exec(line);
-      if (m) runtime.add(m[1]!);
+      addEntry(line);
       continue;
     }
-    const m = /^require\s+(\S+)\s+\S+/.exec(line);
-    if (m) runtime.add(m[1]!);
+    const m = /^require\s+(.+)$/.exec(line);
+    if (m) addEntry(m[1]!);
   }
-  return { runtime, dev: new Set() };
+  if (inBlock) return { error: "unclosed require block" };
+
+  for (const name of direct) indirect.delete(name); // a name is never both; direct wins
+  return { runtime: direct, dev: indirect };
 }
 
 function parseRequirementsTxt(text: string): ParseResult {
@@ -123,7 +139,10 @@ function splitTomlSections(text: string): Map<string, string[]> | { error: strin
   return sections;
 }
 
-const quotedStrings = (line: string): string[] => [...line.matchAll(/["']([^"']+)["']/g)].map((m) => m[1]!);
+// Each quoted TOML string is matched with its OWN delimiter (not an alternating ["'] class): a PEP 508
+// requirement like `"winloop>=0.5.0; sys_platform == 'win32'"` nests a single-quoted marker value
+// inside a double-quoted array entry, and an alternating class desyncs across the rest of the line.
+const quotedStrings = (line: string): string[] => [...line.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2]!);
 const stripVersionSpec = (spec: string): string => /^([A-Za-z0-9._-]+)/.exec(spec.trim())?.[1] ?? spec.trim();
 const assignmentKey = (line: string): string | undefined => /^([A-Za-z0-9_-]+)\s*=/.exec(line.trim())?.[1];
 
@@ -154,14 +173,28 @@ function parsePyprojectToml(text: string): ParseResult {
   return { runtime, dev };
 }
 
+/** A dependency table name, stripped of an optional `target.'cfg(...)'.` or `workspace.` prefix (field-test gap: both are parsed like their plain counterparts). */
+const CARGO_TABLE = /^(?:target\.[^.]+\.|workspace\.)?(dependencies|dev-dependencies|build-dependencies)$/;
+// `dep = { workspace = true }` inherits from `[workspace.dependencies]`; it is not a new external
+// package in the member's own manifest (that fact, if any, belongs to the workspace root's diff).
+const WORKSPACE_INHERITED = /=\s*\{\s*workspace\s*=\s*true\b/;
+
 function parseCargoToml(text: string): ParseResult {
   const sections = splitTomlSections(text);
   if ("error" in sections) return sections;
-  const names = (section: string) => new Set((sections.get(section) ?? []).map(assignmentKey).filter((n): n is string => n !== undefined));
-  return {
-    runtime: names("dependencies"),
-    dev: new Set([...names("dev-dependencies"), ...names("build-dependencies")]),
-  };
+  const runtime = new Set<string>();
+  const dev = new Set<string>();
+  for (const [header, lines] of sections) {
+    const kind = CARGO_TABLE.exec(header)?.[1];
+    if (!kind) continue;
+    const bucket = kind === "dependencies" ? runtime : dev;
+    for (const line of lines) {
+      if (WORKSPACE_INHERITED.test(line)) continue;
+      const name = assignmentKey(line);
+      if (name) bucket.add(name);
+    }
+  }
+  return { runtime, dev };
 }
 
 function parsePomXml(text: string): ParseResult {
@@ -218,6 +251,28 @@ function parseGemfile(text: string): ParseResult {
   return { runtime, dev };
 }
 
+/** Minimal SwiftPM parser: `.package(url: "…/name.git", …)` or `.package(name: "…", …)`, one call at a time via paren-balance matching (a call may span several lines). */
+function parsePackageSwift(text: string): ParseResult {
+  const runtime = new Set<string>();
+  const marker = ".package(";
+  let from = 0;
+  for (let idx = text.indexOf(marker, from); idx !== -1; idx = text.indexOf(marker, from)) {
+    const open = idx + marker.length - 1;
+    let depth = 0;
+    let end = open;
+    for (; end < text.length; end++) {
+      if (text[end] === "(") depth++;
+      else if (text[end] === ")" && --depth === 0) break;
+    }
+    if (depth !== 0) return { error: "unterminated .package(...) call" };
+    const args = text.slice(open + 1, end);
+    const name = /\bname\s*:\s*"([^"]+)"/.exec(args)?.[1] ?? /\burl\s*:\s*"([^"]+)"/.exec(args)?.[1]?.split("/").pop()?.replace(/\.git$/, "");
+    if (name) runtime.add(name);
+    from = end + 1;
+  }
+  return { runtime, dev: new Set() };
+}
+
 function parseManifest(kind: ManifestKind, text: string): ParseResult {
   switch (kind) {
     case "package.json":
@@ -236,6 +291,8 @@ function parseManifest(kind: ManifestKind, text: string): ParseResult {
       return parseGradle(text);
     case "Gemfile":
       return parseGemfile(text);
+    case "Package.swift":
+      return parsePackageSwift(text);
   }
 }
 
