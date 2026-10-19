@@ -30,6 +30,16 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   files depend on it"); that count now only appears in the AI brief's hunk reasons, in Score
   details, and as evidence on a `contract.api` captain fact.
 
+### Fixed
+
+- Policy reasons that compare a score against a threshold now show enough decimals when the two
+  would otherwise round to the same two-decimal display (e.g. a score of 0.3004 against a green
+  threshold of 0.30 now reads "score 0.3004 ≥ green threshold 0.30" instead of "0.30 ≥ 0.30").
+- The change notice is posted only after the main report comment was written, so a forbidden
+  update can no longer announce a change the report does not show.
+- Docs: the `brief` input row now says `brief: false` omits the state marker, the re-score line and
+  the change notice.
+
 ## 0.3.0 - 2026-10-19
 
 The review-brief release. opendrs now tells LLM and human reviewers what to review first and why,

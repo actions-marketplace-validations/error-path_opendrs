@@ -734,6 +734,12 @@ describe("re-scoring", () => {
     expect(notice?.body).not.toContain(COMMENT_MARKER);
   });
 
+  it("posts no change notice when the main comment could not be written", async () => {
+    const t = await run({ result: result(0.28, "green", "auto-approve"), ownComment: () => stateMarker(prevState()), gh: { forbid: new Set(["updateComment"]) } });
+    await t.promise;
+    expect(t.gh.comments.some((c) => c.body.includes("risk changed"))).toBe(false);
+  });
+
   it("decision-only change (same tier) also notifies", async () => {
     const t = await run({
       result: result(0.46, "yellow", "human-review"),
