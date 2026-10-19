@@ -31715,7 +31715,6 @@ function ownerRatio(ctx, email3) {
 }
 
 // src/signals/history.ts
-import { posix as posix2 } from "node:path";
 var historySignals = async (ctx) => {
   if (!historyAvailable(ctx)) {
     const why = "no commit history before this change";
@@ -31796,14 +31795,12 @@ async function incidentSignal(ctx, files) {
     id,
     value: hits > 0 ? 1 : 0,
     status: "derived",
-    summary: hits ? `a past incident or revert touched ${plural2(hits, "changed file")} or their folders` : "no recorded incident or revert touched these files or their folders",
+    summary: hits ? `a past incident or revert touched ${plural2(hits, "changed file")}` : "no recorded incident or revert touched these files",
     evidence: topEvidence(evidence)
   };
 }
 function matchEvent(e, path) {
   if (e.files.has(path)) return `${e.label} touched this file`;
-  const dir = posix2.dirname(path);
-  if (dir !== "." && e.dirs.has(dir)) return `${e.label} touched ${dir}/`;
   const prefix = e.prefixes.find((q) => path === q || path.startsWith(`${q}/`));
   return prefix === void 0 ? void 0 : `${e.label} implicated ${prefix}`;
 }
@@ -31812,7 +31809,6 @@ function makeEvent(time3, label, files, prefixes) {
     time: time3,
     label,
     files: new Set(files),
-    dirs: new Set(files.map((f) => posix2.dirname(f)).filter((d) => d !== ".")),
     prefixes: prefixes.map((p) => p.replace(/\/+$/, "")).filter(Boolean)
   };
 }
