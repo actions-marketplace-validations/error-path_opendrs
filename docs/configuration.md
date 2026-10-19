@@ -17,7 +17,7 @@ description: "Every key in .opendrs.yml with its default: thresholds, auto-appro
 | `graph` | The import graph: on or off, depth and file cap |
 | `model` | Where `opendrs calibrate` writes the fitted model; priors are used until it exists |
 | `brief` | Token budget for the review brief's Markdown |
-| `captain` | The [captain brief](captain.html): module depth for the layers detector, the change-coupling detector's thresholds, and extra schema/contract globs |
+| `captain` | The [captain brief](captain.html): the module map for the layers detector (auto-detected by default, or a flat depth / literal globs), the change-coupling detector's thresholds, and extra schema/contract globs |
 | `content` | JS regexes matched against each added line (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `freezes` | Windows in which auto-approval is suspended or held to a stricter green (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `sources` | Per-source policy for agent, bot and human PRs; every setting only tightens the gate |
@@ -104,7 +104,8 @@ brief:
 
 captain:
   enabled: true          # false: no captain line, block, labels, output or brief section
-  moduleDepth: 2          # path segments that make a module for the layers detector
+  # moduleDepth: 2        # unset by default (auto-detection on); set to disable it and use a flat depth everywhere
+  modules: []             # literal globs overriding auto-detection, e.g. one per package's source tree
   coupling:
     enabled: true         # set by the ApacheJIT experiment; see docs/experiments.md
     minSupport: 8         # set by the ApacheJIT experiment; see docs/experiments.md
