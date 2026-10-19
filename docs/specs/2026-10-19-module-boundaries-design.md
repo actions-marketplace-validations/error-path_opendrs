@@ -251,3 +251,70 @@ in captain-brief spec §11, which keep their `moduleDepth` case unchanged as the
    itself already uses, for the same reason: both read the same capped file list.
 5. **Docs land in the same PR as the code.** `docs/captain.md` and `docs/configuration.md` are
    updated alongside the implementation, not deferred to a later documentation pass.
+
+## 9. Evaluation results (2026-10-20)
+
+**Method.** Built the CLI from `origin/main` (`bc08616`, the 0.4.1 release merge) in a separate
+worktree and from this branch. Cloned `cli/cli`, `vitejs/vite` and `actix/actix-web` fresh
+(`--filter=blob:none`) into `~/.cache/opendrs/field-test/repos/`, using the same sampled PRs as the
+field test (`base = sha~1`, `head = sha`, shas from
+`~/.cache/opendrs/field-test/notes/{cli-cli,vite,actix-web}.md`). Ran `brief --base <base> --head
+<head> --no-llm --json` for every PR on both builds (48 runs total) against each repo's current
+working tree, with a local `.opendrs.yml` setting `history.maxCommits: 200` /
+`history.lookbackDays: 14` to keep the (unrelated) history scan from dominating wall-clock time —
+this does not touch `graph`/`captain` config and has no effect on `layers.*` facts, confirmed by
+reading `layers.ts`: it never reads `history`. Every `layers.edge`/`layers.cycle` fact in both
+builds' output was hand-judged against the real diff (`git diff <base> <head> -- <file>`); none of
+the three repos' sampled PRs triggered `drift.scope` (it is Action-only, same as the original field
+test).
+
+**Before/after counts.**
+
+| Repo | PRs | `layers.*` facts, main (before) | `layers.*` facts, feat (after) | TRUE+USEFUL | NOISE | WRONG |
+|---|---:|---:|---:|---:|---:|---:|
+| cli/cli | 8 | 1 | 1 | 1 | 0 | 0 |
+| vite | 8 | 0 | 0 | 0 | 0 | 0 |
+| actix-web | 8 | 0 | 0 | 0 | 0 | 0 |
+
+The one fact, identical in both builds (`cli/cli`, PR #4039/`62a6e9e05`, "Add a raw response request
+surface to api.Client"): "`internal/update` now imports `api` for the first time
+(`internal/update/update.go`)." Confirmed against the diff: `update.go` gains a genuine new import
+(`"github.com/cli/cli/v2/api"`) and a new call (`api.NewClientFromHTTP(...).RequestWithContext`),
+part of the PR's own described migration — **TRUE+USEFUL**. `internal/update` and `api` are both
+already exactly `captain.moduleDepth: 2`-shaped (one and two segments), so this fact is unaffected by
+auto-detection; it is reported here because it is the only `layers.*` fact either build produced on
+these 24 PRs, not because it demonstrates the new algorithm.
+
+**Gate (§8 resolution 1): PASSED.** Noisy+wrong `layers.*` facts on cli/cli: 0 before, 0 after — no
+increase. (The total count, noise and wrong are all unchanged across every repo sampled, so the gate
+would have passed under a stricter "no regression anywhere" reading too.)
+
+**Honest finding: no new true positive was demonstrated in this 24-PR sample**, despite confirming
+auto-detection was genuinely active on all three repos (the notes line shows "auto-detected 277
+JS/TS packages from package.json" on every vite run and "auto-detected 12 Rust crates from
+Cargo.toml" on every actix-web run). Checked why, per repo:
+
+- **vite**: the one PR that crosses the node/client split in this sample, `182f5b2a6`, produces 0
+  facts in both builds, exactly as §2/§4 already documented — that coupling is a generated JS
+  template-literal string, not a literal `import`, so no module definition can catch it. Not a
+  regression or a miss by this change; a pre-documented limit.
+- **actix-web**: the sampled PRs that touch cross-seam structure (`7a3ef12d`, `3bb00075`) change
+  `[features]` tables, not literal `use` statements between crates' `src/` subdirectories, so there is
+  no edge for either module definition to find. `5c7b0554`/`b079ae1e`'s single non-`layers.*` fact
+  each (per the original field test's per-repo table) is `contract.api`, unaffected by this change.
+- **cli/cli**: the sampled PRs' new or changed imports (`62a6e9e05`'s `api` import; others' signature
+  changes caught by `contract.api` instead, e.g. `a45729e87`, now fixed by the go.mod-resolver fix
+  already on `main` before this branch) either predate this PR (so not "first-time") or are not
+  cross-package at all within this specific 8-PR sample. The field test's own cli-cli finding was
+  that `pkg/cmd`'s 40+ subcommands collapse into one module; this sample's PRs simply did not happen
+  to add a *new* cross-subcommand import in the files sampled.
+
+The per-ecosystem logic itself is verified independently by the unit tests added alongside this
+change (`tests/architecture/module-resolver.test.ts`, `tests/architecture/layers.test.ts`'s new vite-
+shaped `src/node`/`src/client` case), which do exercise the finer boundary end-to-end and confirm it
+fires `layers.edge` correctly when a real crossing import exists. What this 24-PR sample adds is the
+gate's own evidence: the change is safe (no new noise) on real repos, even though it did not happen
+to catch a new true positive in this particular sample. A larger or differently-sampled set of PRs —
+especially ones that specifically add a first-time import between two subdirectories of the same
+Go package tree, Cargo crate, or JS workspace package — would be needed to demonstrate the positive
+case on a real PR rather than a synthetic fixture.
