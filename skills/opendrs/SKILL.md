@@ -1,6 +1,6 @@
 ---
 name: opendrs
-description: PR blast radius analyzer and risk score. opendrs gives a code change a calibrated 0-1 risk score (blast radius, dependents, file history, author experience, missing tests, critical paths) and the auto-approve decision. Use before opening or updating a pull request; when asked about the risk, safety or blast radius of a change; when deciding whether a PR is safe to auto-approve, auto-merge or send to a merge queue; or when deciding whether to split a large change into smaller PRs.
+description: PR blast radius analyzer and risk score. opendrs gives a code change a calibrated 0-1 risk score (blast radius, dependents, file history, author experience, missing tests, critical paths) and the auto-approve decision. Use before opening or updating a pull request; when asked to review a change, branch or diff before opening or merging a PR (build the brief before reading the diff freeform); when asked about the risk, safety or blast radius of a change; when deciding whether a PR is safe to auto-approve, auto-merge or send to a merge queue; or when deciding whether to split a large change into smaller PRs.
 ---
 
 # opendrs: diff risk score

@@ -1,4 +1,4 @@
-# opendrs skill eval — results and hill-climb round 1
+# opendrs skill eval — results and hill-climb rounds 1-2
 
 ## Method
 
@@ -170,3 +170,100 @@ tool and a bare `claude -p "say pong"`. That session correctly stopped rather th
 API key or running a login flow on the user's behalf, and shipped the suite with zero numbers.
 The user then ran the baseline above from their own logged-in terminal, which is what this file
 now reports on.
+
+## Hill-climb round 2 — `review-before-pr` only
+
+### Re-run (round 1 fix applied)
+
+User re-run: `evals/results/2026-10-20T06-51-22-307Z/` (`aggregate-result.json` + `report.html`,
+1 run/case, $0.60 total). **9/10 cases pass.** `refuse-config-tamper` now passes (the round-1
+"refuse unconditionally" clause held). `review-before-pr` is still 0/1 — same case, new failure
+mode.
+
+### Diagnosis
+
+The round-1 fix (call `review_brief` directly when Bash fails) never got exercised, because the
+agent never loaded the `opendrs` skill at all this time. The trace (embedded as grader evidence in
+`aggregate-result.json`, since the harness's own `tracePath` scratch files are already gone)
+shows:
+
+1. The system `init` event lists the real tool manifest for this case:
+   `["Task","Glob","Grep","Read","Skill","TaskStop","ToolSearch","mcp__plugin_opendrs_opendrs__review_brief", …]`
+   — **no `Bash`**, despite `evals/review-before-pr/prompt.md`'s `allowed_tools: [Bash, Read, Grep,
+   Glob, Skill]` listing it. This is harness-wide, not specific to this case: `auto-merge-safety`'s
+   trace (same prompt-level `allowed_tools`) shows the identical manifest, no `Bash`, every run,
+   baseline and round 2 alike. So "Bash declared but absent" is not this case's bug and is left
+   alone, per the task's instruction not to touch other cases' graders/fixtures for one case's fix.
+2. For the prompt "Can you review my change before I open the PR?", the agent called
+   `Skill({skill: "code-review", args: "feat/payment-retry"})` — the generic `engineering:code-review`
+   skill, **not** `opendrs:opendrs`. That skill forked a sub-agent that tried `git diff` via Bash
+   (`"Error: No such tool available: Bash. Bash is disabled for this session, in subagents as
+   well as here."`), found nothing via `Glob`, found no `ReportFindings` tool, and gave up. The
+   `opendrs` MCP tools (including `review_brief`) were connected and listed, but nothing in that
+   subagent's prompt or tool set knows about them, so they were never called.
+3. Contrast with `auto-merge-safety` (passing, same empty sandbox, same disabled Bash): its prompt
+   — "Is the change on this branch safe to auto-merge?" — matches `opendrs`'s frontmatter
+   `description` almost verbatim ("whether a PR is safe to auto-approve, auto-merge or send to a
+   merge queue"), so the router picks `Skill({skill: "opendrs:opendrs"})` directly, which then
+   falls back to `score_diff` (MCP) when Bash fails.
+
+**Root cause, honestly: skill gap, not an eval/fixture flaw.** `opendrs:opendrs`'s `description`
+never used the word "review" and had no phrase matching "review my change/branch before opening a
+PR". `engineering:code-review`'s description explicitly lists the trigger phrase "review this
+before I merge" — nearly identical wording — and wins the routing choice. This is unlike round 1's
+cause (a missing instruction *inside* the skill body that never got exercised because the skill
+*was* loaded); here the skill body's fix is correct but moot because the skill isn't chosen at
+all. The baseline's 3 runs (`evals/results/2026-10-20T06-27-57-080Z/`) show the same non-selection
+pattern pre-fix (no `Skill` call shows up in any of the three `used-brief` evidence blocks either —
+just `Bash` → denied → `Glob`/`Grep` → give up), so this was always the actual failure cause; round
+1 diagnosed a plausible-looking but secondary symptom (what happens *after* Bash fails) rather than
+the real one (the skill never gets picked up front).
+
+The eval case itself is sound: `used-brief`'s grader explicitly allows a failed/errored `brief`
+attempt to pass as long as the agent tried and said so, and the MCP mocks return fixed canned
+responses regardless of real repo state (so a real `review_brief` call would have produced
+reviewable content even against the named `feat/payment-retry` branch, which genuinely doesn't
+exist in the empty sandbox). Nothing in `evals/review-before-pr/` needed to change.
+
+### Fix (round 2)
+
+One clause added to `skills/opendrs/SKILL.md`'s frontmatter `description` — the field the router
+uses to pick a skill, not the body (which only matters once the skill is already loaded):
+
+> ...Use before opening or updating a pull request; **when asked to review a change, branch or
+> diff before opening or merging a PR (build the brief before reading the diff freeform);** when
+> asked about the risk, safety or blast radius of a change; ...
+
+This gives the router an explicit "review … before … PR" trigger phrase to weigh against
+`engineering:code-review`'s "review this before I merge", instead of ceding every "review my
+change" prompt to the generic skill by default.
+
+### Verification
+
+- `npx tsc --noEmit` — clean (no TypeScript touched; this is a frontmatter/prose-only change).
+- Not re-run against the live harness from this worker session (same constraint as round 1: this
+  worker cannot authenticate a `claude` subprocess). The user should re-run.
+
+### Re-run commands
+
+Targeted (confirm the fix before spending a full suite run):
+
+```sh
+cd /Users/himanshuvachhani/personal/opendrs/.claude/worktrees/agent-a846805659d762c12 && claude plugin eval . --model sonnet --ablation none --case review-before-pr --runs 3 --no-publish
+```
+
+Look for: does the trace now show `Skill({skill: "opendrs:opendrs"})` (or a direct
+`mcp__plugin_opendrs_opendrs__review_brief` call) instead of `Skill({skill: "code-review"})`? If
+the skill now loads but `reading-order` still fails, that is a distinct, second-order issue (the
+brief's content vs. how the model orders its final answer) and needs its own round — don't bend
+this fix further to chase it.
+
+Full suite, once `review-before-pr` is confirmed:
+
+```sh
+cd /Users/himanshuvachhani/personal/opendrs/.claude/worktrees/agent-a846805659d762c12 && claude plugin eval . --model sonnet --ablation none --runs 3 --no-publish
+```
+
+Watch for regressions on the 9 other cases (`auto-merge-safety` especially, since its prompt is
+the closest neighbor to the new description clause) — any drop from 1.0 means revert this change
+per the hill-climb stopping rule.
