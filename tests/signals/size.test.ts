@@ -230,4 +230,9 @@ describe("countedChangedLines", () => {
     const f = changedFile("src/a.ts", { hunks: [hunk(["+const x = 1;"])] });
     expect(countedChangedLines([f], defaultConfig())).toBe(1);
   });
+
+  it("a non-docs file with no hunk data (added/deleted only) counts in full: it cannot be proven comment-only", () => {
+    const f = changedFile("src/a.ts", { added: 12, deleted: 3 });
+    expect(countedChangedLines([f], defaultConfig())).toBe(15);
+  });
 });

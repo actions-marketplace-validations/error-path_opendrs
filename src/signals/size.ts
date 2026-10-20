@@ -94,7 +94,7 @@ function fileCountedLines(f: ChangedFile, config: OpendrsConfig): number {
   if (matchAny(config.autoApprove.sizeCapExempt, f.path)) return 0;
   const family = languageFamily(f.path);
   if (family === "docs") return 0;
-  if (f.status === "renamed") return full; // never comment-only, same as size.comment_only
+  if (f.status === "renamed" || f.hunks.length === 0) return full; // never comment-only, same as size.comment_only
   return f.hunks.reduce((n, h) => n + hunkCountedLines(h, family), 0);
 }
 
