@@ -215,6 +215,26 @@ describe("user paths.block, paths.critical and paths.unblock", () => {
   });
 });
 
+describe("paths.instructions", () => {
+  it("is additive like block and critical: a config's own list extends the defaults", () => {
+    const defaults = defaultConfig().paths.instructions;
+    expect(defaults).toContain("**/CLAUDE.md");
+    expect(defaults).toContain(".claude/**");
+    expect(parseConfig({ paths: { instructions: ["**/MY_AGENT.md"] } }).paths.instructions).toEqual([...defaults, "**/MY_AGENT.md"]);
+  });
+});
+
+describe("autoApprove.sizeCapExempt and autoApprove.countInertLines", () => {
+  it("sizeCapExempt defaults to empty and gets the same glob validation as other lists", () => {
+    expect(defaultConfig().autoApprove.sizeCapExempt).toEqual([]);
+    expect(() => parseConfig({ autoApprove: { sizeCapExempt: ["[bad"] } })).toThrow(/\[ or \].*sizeCapExempt/s);
+  });
+
+  it("countInertLines defaults to false", () => {
+    expect(defaultConfig().autoApprove.countInertLines).toBe(false);
+  });
+});
+
 describe("glob validation", () => {
   it.each([
     ["block", "src/[ab]/**"],
