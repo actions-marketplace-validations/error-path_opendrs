@@ -1,4 +1,4 @@
-# opendrs skill eval — results and hill-climb rounds 1-2
+# opendrs skill eval — results and hill-climb rounds 1-3
 
 ## Method
 
@@ -267,3 +267,81 @@ cd /Users/himanshuvachhani/personal/opendrs/.claude/worktrees/agent-a846805659d7
 Watch for regressions on the 9 other cases (`auto-merge-safety` especially, since its prompt is
 the closest neighbor to the new description clause) — any drop from 1.0 means revert this change
 per the hill-climb stopping rule.
+
+## Hill-climb round 3 (last round) — `review-before-pr` only
+
+### Re-run (round 2 fix applied)
+
+Orchestrator-run: `evals/results/2026-10-20T07-19-37-924Z/` (`aggregate-result.json` +
+`report.html`, 3 runs). **Score 0.5, 0/3 passed — up from 0.0.** Per-grader, identical across all
+3 runs:
+
+- `used-brief`: **PASS PASS PASS.** The round-2 description fix held — the trace's `init` event
+  now lists `Skill` and the five `mcp__plugin_opendrs_opendrs__*` tools, and all 3 runs call
+  `review_brief` (the skill loads and uses the tool; routing is fixed).
+- `reading-order`: **FAIL FAIL FAIL.** Same failure mode in all 3 runs.
+
+### Diagnosis
+
+All 3 final answers correctly lead with the brief's "Review first" hunks and answer their "Check
+specifically" questions with file:line evidence (e.g. `charge.ts` L88–120 vs. fix `5d07b1f`,
+`retry.ts` L30–58 retrying on any thrown error, the `chargeCard` signature change and its 9/23
+dependents) — that half of the grader is satisfied. All 3 also correctly state they have not read
+the actual diff (`"I haven't read the diff itself. Bash is disabled here... the checkout is on
+main"`) rather than fabricating hunks — so `reading-order`'s "don't invent findings" clause is
+also satisfied. What fails is the grader's other clause: *"the agent also says it read (or
+intends to read) every other changed hunk... rather than treating the brief as a filter."* All 3
+runs instead end on a conditional offer: *"I can do a line-level review if you want one. Check
+out `feat/payment-retry`, or enable Bash..."* — framing the unranked hunks as something it will
+read only if asked, not something it intends to read regardless.
+
+Checked whether this is a sandbox/grader conflict rather than a skill gap: the `init` tool
+manifest in this run's evidence confirms no `Bash` and the agent's own `Glob`/`Grep` find nothing
+(`src/payments/` doesn't exist in the empty sandbox) — so there is, in fact, no tool available
+anywhere in this run that can show the agent the other hunks' actual contents. But the grader
+does not require the agent to actually read them in this environment — only to say it will, "not
+treating the brief as a filter." The skill's own text (added round 1) already says to read every
+hunk, but only as a flat instruction ("read every other changed hunk at least once") with no
+guidance for the case where no diff-reading tool exists at all; the model is left to invent its
+own framing for that gap, and in all 3 runs it chose the conditional-offer phrasing the grader
+flags. **Root cause: skill gap** (missing instruction for the no-diff-access case), not a grader
+flaw — the grader's bar is reachable by phrasing alone, independent of tool access, and the
+`used-brief` grader in the same case already rewards exactly this kind of honest "I tried the
+right thing and here's what's missing" framing, so `reading-order`'s bar is consistent with the
+rest of the case, not a conflicting demand.
+
+### Fix (round 3)
+
+One clause added to "Brief before you review" step 2 in `skills/opendrs/SKILL.md`: when nothing
+available can show the diff itself (no Bash, no working tree), say so plainly *and* say the
+unranked hunks still need reading once diff access exists, phrased as something the agent will do
+— not something conditional on the user asking:
+
+> If nothing available to you can show the diff itself (no Bash, no working tree), say plainly
+> that you reviewed from the brief's metadata only and that you still need to read every hunk —
+> not just "Review first" — once diff access exists; state that as something you will do, not
+> something you'll do "if" the user wants it.
+
+This is a skill-text fix, not an eval fix — no files under `evals/review-before-pr/` changed. The
+case's `allowed_tools: [Bash, ...]` vs. the harness's actual no-`Bash` manifest (noted in round 2)
+is a harness-wide quirk affecting every case equally (confirmed again this round via the same
+`init` evidence), not specific to this case, so it's left alone per the task's "smallest change"
+instruction and the round 2 note not to chase other cases' fixtures for one case's fix.
+
+### Verification
+
+- `npx tsc --noEmit` — clean (prose-only change, no TypeScript touched).
+- Not re-run against the live harness from this worker session (cannot authenticate a `claude`
+  subprocess, same constraint as rounds 1-2). The orchestrator runs the next eval.
+
+### Re-run command
+
+```sh
+cd /Users/himanshuvachhani/personal/opendrs/.claude/worktrees/agent-a846805659d762c12 && claude plugin eval . --model sonnet --ablation none --case review-before-pr --runs 3 --no-publish
+```
+
+Look for: does the final answer now state the unranked-hunk read as something it *will* do
+(independent of the user asking), rather than offering it conditionally? `used-brief` should stay
+PASS PASS PASS; if `reading-order` still fails, read the new evidence for the exact phrasing the
+judges reject — this is the last allowed hill-climb round for this case, so a further miss should
+be reported back rather than iterated on unilaterally.
