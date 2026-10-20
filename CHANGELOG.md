@@ -6,6 +6,11 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ### Added
 
+- Two new captain facts from the ApacheJIT captain-fact-lift experiment: `change.concurrency`
+  (strong; a changed, non-comment line of non-test code uses a concurrency primitive — 2.04× bug
+  lift) and `change.safety_removed` (info; net deleted error-handling or guard lines per hunk —
+  1.79× lift, but fires often enough to stay informational). See
+  [docs/captain.md](docs/captain.html#4-the-facts).
 - The captain brief's layers detector (`layers.edge`, `layers.cycle`) and the drift detector's
   "outside the original modules" check now use auto-detected module boundaries instead of a flat
   path-segment split: package roots are found from `package.json` (JS/TS), `go.mod` directories

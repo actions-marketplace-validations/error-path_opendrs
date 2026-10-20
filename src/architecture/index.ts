@@ -3,6 +3,7 @@ import { detectContracts } from "./contracts.js";
 import { detectCoupling } from "./coupling.js";
 import { detectDrift } from "./drift.js";
 import { detectLayers } from "./layers.js";
+import { detectRisk } from "./risk.js";
 
 export interface DetectorOptions {
   /** The head of opendrs's first run on this PR, for the drift detector (spec §6.4; Action only). */
@@ -23,6 +24,7 @@ export type Detector = (ctx: ScoringContext, opts: DetectorOptions) => Promise<D
 const DETECTORS: ReadonlyArray<{ name: string; detect: Detector }> = [
   { name: "layers", detect: detectLayers },
   { name: "contracts", detect: detectContracts },
+  { name: "risk", detect: detectRisk },
   { name: "coupling", detect: detectCoupling },
   { name: "drift", detect: detectDrift },
 ];
@@ -35,11 +37,13 @@ const DETECTOR_RANK: Record<ArchitectureFactId, number> = {
   "contract.api": 1,
   "contract.schema": 1,
   "contract.env": 1,
-  "coupling.missing": 2,
-  "drift.scope": 3,
+  "change.concurrency": 2,
+  "change.safety_removed": 2,
+  "coupling.missing": 3,
+  "drift.scope": 4,
 };
 
-/** Spec §6.5: strong first; within a weight, layers < contracts < coupling < drift; then file, then line. */
+/** Spec §6.5: strong first; within a weight, layers < contracts < risk < coupling < drift; then file, then line. */
 export function sortFacts(facts: ArchitectureFact[]): ArchitectureFact[] {
   return [...facts].sort(
     (a, b) =>
@@ -50,7 +54,7 @@ export function sortFacts(facts: ArchitectureFact[]): ArchitectureFact[] {
   );
 }
 
-/** Runs layers, contracts, coupling, drift (that order), catching each so one failure never stops the others. */
+/** Runs layers, contracts, risk, coupling, drift (that order), catching each so one failure never stops the others. */
 export async function detectArchitecture(ctx: ScoringContext, opts: DetectorOptions): Promise<DetectorResult> {
   const facts: ArchitectureFact[] = [];
   const notes: string[] = [];
