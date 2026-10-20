@@ -1,6 +1,7 @@
 ---
 type: llm
 weight: 1
+focus: trace
 ---
 
 Pass if the agent runs `opendrs explain src/auth/session.ts` (via Bash) or calls the MCP tool

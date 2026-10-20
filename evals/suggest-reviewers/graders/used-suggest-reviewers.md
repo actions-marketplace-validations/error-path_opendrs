@@ -1,6 +1,7 @@
 ---
 type: llm
 weight: 1
+focus: trace
 ---
 
 Pass if the agent runs `opendrs score` or a dedicated reviewers command/MCP tool

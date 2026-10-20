@@ -1,6 +1,7 @@
 ---
 type: llm
 weight: 1
+focus: trace
 ---
 
 Pass if the agent ran `npx @error-path/opendrs score` (via Bash, any reasonable flags) or called

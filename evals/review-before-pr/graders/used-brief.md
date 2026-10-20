@@ -1,6 +1,7 @@
 ---
 type: llm
 weight: 1
+focus: trace
 ---
 
 Pass if the agent's actions show it tried to build opendrs's review brief before reading the diff
