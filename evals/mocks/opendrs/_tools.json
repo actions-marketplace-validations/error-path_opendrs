@@ -121,6 +121,46 @@
       }
     },
     {
+      "name": "self_check_items",
+      "title": "Self-check items",
+      "description": "Call before opening or updating a pull request: the ids (captain facts, reviewFirst hunks, check questions) from the review brief that a pre-PR self-check should fix or explain. Fix the diff, or write a one-line reason (<=140 chars) it does not need fixing, for each one, then write your verdicts as a JSON array into your head commit's own message inside a `<!-- opendrs-self-check:v1 ... -->` block (e.g. [{\"id\":\"<id>\",\"verdict\":\"fixed\"},{\"id\":\"<id>\",\"verdict\":\"explained\",\"note\":\"<why>\"}]). Advisory only: never part of the auto-approve gate or the captain's priority.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "repoDir": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute path to the git repository (any directory inside the work tree)."
+          },
+          "base": {
+            "description": "Base ref to diff against. Defaults to \"origin/HEAD\", or \"main\" when that is not set.",
+            "type": "string",
+            "minLength": 1
+          },
+          "head": {
+            "description": "Head ref to score. Defaults to \"HEAD\".",
+            "type": "string",
+            "minLength": 1
+          },
+          "maxTokens": {
+            "description": "Token budget for the underlying brief (default 2500, min 300, max 6000).",
+            "type": "integer",
+            "minimum": 300
+          }
+        },
+        "required": [
+          "repoDir"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "explain_file_risk",
       "title": "Explain file risk",
       "description": "Show the standing risk profile of one file at HEAD: commit and bug-fix history, number of authors, direct and transitive dependents (blast radius; null when the language is not supported), whether it is on a critical or blocked path, and its top authors. Use it before editing a file you do not know, or to explain a high blast.dependents contribution.",
