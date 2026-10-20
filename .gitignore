@@ -3,5 +3,6 @@ node_modules
 coverage/
 .opendrs/cache/
 .claude/worktrees/
+evals/results/
 *.log
 .DS_Store

@@ -70,3 +70,25 @@ describe("opendrs brief", () => {
     expect(stdout()).toMatch(/^\s+brief\s+Build the review brief/m);
   });
 });
+
+describe("opendrs brief --self-check-template", () => {
+  it("prints the ids to address as JSON instead of the brief", async () => {
+    repo = repoWithFix();
+    const { io, stdout, stderr } = testIo(repo.dir);
+    const code = await runCli(["brief", "--base", "main", "--self-check-template"], io);
+    expect(code).toBe(0);
+    expect(stderr()).toBe("");
+    const items = JSON.parse(stdout());
+    expect(Array.isArray(items)).toBe(true);
+    expect(items[0]).toMatchObject({ id: expect.any(String), file: expect.any(String), text: expect.any(String) });
+  });
+
+  it("is empty, not an error, when there is no diff to review", async () => {
+    const repo2 = makeRepo();
+    repo2.commit({ "a.ts": "1\n" }, "base");
+    const { io, stdout } = testIo(repo2.dir);
+    expect(await runCli(["brief", "--base", "main", "--head", "main", "--self-check-template"], io)).toBe(0);
+    expect(JSON.parse(stdout())).toEqual([]);
+    repo2.cleanup();
+  });
+});

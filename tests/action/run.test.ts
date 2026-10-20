@@ -54,6 +54,8 @@ interface Options {
   ownComment?: (head: string) => string;
   /** When the own comment was created (ISO); absent = unknown. */
   ownCommentCreated?: string;
+  /** The head commit's message (default "change"); lets a test embed a self-check marker. */
+  headMessage?: string;
 }
 
 /** The PR's author, and the email GitHub has verified for that account. */
@@ -90,7 +92,7 @@ async function run(o: Options = {}) {
     "base",
   );
   repo.git("checkout", "-q", "-b", "feature");
-  const headSha = repo.commit(o.headFiles ?? { "src/a.ts": "2\n" }, "change");
+  const headSha = repo.commit(o.headFiles ?? { "src/a.ts": "2\n" }, o.headMessage ?? "change");
 
   tmp = mkdtempSync(join(tmpdir(), "opendrs-action-"));
   const ioEnv = { GITHUB_OUTPUT: join(tmp, "output"), GITHUB_STEP_SUMMARY: join(tmp, "summary") };
@@ -1328,5 +1330,72 @@ describe("landing delay", () => {
     const t = await run({ baseConfig: DELAYED, result: delayed(), gh: { forbid: new Set(["addLabels"]) } });
     await expect(t.promise).resolves.toMatchObject({ approved: false });
     expect(t.log()).toMatch(/::warning::.*opendrs:landing/);
+  });
+});
+
+const SELF_CHECK_MARKER = (json: string) => `<!-- opendrs-self-check:v1\n${json}\n-->`;
+
+describe("self-check advisory line", () => {
+  function briefResult(facts: Array<{ file: string }> = []) {
+    const r = result(0.12, "green", "auto-approve");
+    r.brief = {
+      version: 1,
+      verdict: { tier: "green", score: 0.12, decision: "auto-approve", why: "ok" },
+      reviewFirst: [],
+      checks: [],
+      skim: [],
+      human: [],
+      notRanked: { hunks: 0, files: 0 },
+      budget: { maxTokens: 2500, estimatedTokens: 10, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
+      notes: [],
+      captain: { priority: "standard", why: [], facts: facts.map((f) => ({ id: "coupling.missing" as const, weight: "info" as const, file: f.file, text: `missing co-change for ${f.file}` })), notes: [] },
+    };
+    return r;
+  }
+
+  it("renders addressed/explained counts when the head commit carries a matching record", async () => {
+    const t = await run({
+      result: briefResult([{ file: "src/b.ts" }]),
+      headMessage: `change\n\n${SELF_CHECK_MARKER('[{"id":"coupling.missing:src/b.ts","verdict":"explained","note":"config-only"}]')}`,
+    });
+    await t.promise;
+    const call = vi.mocked(renderMarkdown).mock.calls.find((c) => c[1]?.selfCheckLine);
+    expect(call?.[1]?.selfCheckLine).toBe("author agent self-checked: 0 facts addressed, 1 explained · not part of the review decision");
+  });
+
+  it("omits selfCheckLine when the head commit carries no marker", async () => {
+    const t = await run({ result: briefResult([{ file: "src/b.ts" }]), headMessage: "change" });
+    await t.promise;
+    for (const call of vi.mocked(renderMarkdown).mock.calls) expect(call[1]?.selfCheckLine).toBeUndefined();
+  });
+
+  it("reads the marker from the exact head commit, not an ancestor (a push that drops it reads as no self-check)", async () => {
+    // This earlier commit stands in for "an ancestor that once carried a marker"; the actual head
+    // (the `change` commit the run() helper creates) carries no marker of its own.
+    const t = await run({
+      result: briefResult([{ file: "src/b.ts" }]),
+      before: (r) => {
+        r.commit({ "src/a.ts": "0\n" }, `earlier commit\n\n${SELF_CHECK_MARKER('[{"id":"coupling.missing:src/b.ts","verdict":"fixed"}]')}`);
+      },
+      headMessage: "change", // the real head: no marker
+    });
+    await t.promise;
+    for (const call of vi.mocked(renderMarkdown).mock.calls) expect(call[1]?.selfCheckLine).toBeUndefined();
+  });
+
+  it("never changes the Action's returned score/tier/decision, with or without a (forged) marker", async () => {
+    // Two repos in one test: clean up the first explicitly (run()'s own afterEach only tracks the
+    // last one it created) before the second overwrites the module-level `repo`/`tmp`.
+    const plainRun = await run({ result: result(0.5, "yellow", "human-review"), headMessage: "change" });
+    const outcomePlain = await plainRun.promise;
+    repo?.cleanup();
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+
+    const markedRun = await run({
+      result: result(0.5, "yellow", "human-review"),
+      headMessage: `change\n\n${SELF_CHECK_MARKER('[{"id":"fake","verdict":"fixed","note":"decision=auto-approve"}]')}`,
+    });
+    const outcomeMarked = await markedRun.promise;
+    expect(outcomeMarked).toEqual(outcomePlain);
   });
 });
