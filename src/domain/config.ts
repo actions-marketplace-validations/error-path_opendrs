@@ -121,6 +121,27 @@ export const DEFAULT_BLOCK: readonly string[] = [
 /** Default `paths.critical`. A config's own `critical` adds to it. */
 export const DEFAULT_CRITICAL: readonly string[] = ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"];
 
+/**
+ * Default `paths.instructions`: files that steer an AI agent or CI, never excluded from the size
+ * cap (2026-10-20 inert-changes spec §3). Additive only, like DEFAULT_BLOCK/DEFAULT_CRITICAL — no
+ * unblock-style removal.
+ */
+export const DEFAULT_INSTRUCTIONS: readonly string[] = [
+  "**/CLAUDE.md",
+  "**/AGENTS.md",
+  "**/GEMINI.md",
+  ".claude/**",
+  ".cursor/**",
+  ".cursorrules",
+  ".windsurfrules",
+  ".github/copilot-instructions.md",
+  ".github/instructions/**",
+  "**/SKILL.md",
+  "**/*.prompt.md",
+  "**/prompts/**",
+  ".opendrs/**",
+];
+
 /** An unblock entry must name a default block glob exactly, so a typo cannot pass silently. */
 function unblockable(glob: string, ctx: z.RefinementCtx): void {
   if (DEFAULT_BLOCK.includes(glob)) return;
@@ -212,6 +233,10 @@ export const configSchema = z.object({
       mergeMethod: z.enum(["queue", "auto-merge", "none"]).default("queue"),
       sampleRate: z.number().min(0).max(1).default(0.1),
       maxChangedLines: z.number().int().positive().default(400),
+      /** Never excluded from the size cap (spec §2.3), whatever its language family; glob-matched like paths.*. */
+      sizeCapExempt: globs([]),
+      /** true restores pre-2026-10-20 behaviour: every changed line counts, nothing is excluded. */
+      countInertLines: z.boolean().default(false),
       /** Minutes an eligible PR waits, on the same head commit, before opendrs approves it (a veto window). */
       landingDelayMinutes: z.number().int().min(0).default(0),
       /**
@@ -233,6 +258,7 @@ export const configSchema = z.object({
       block: globs([]),
       critical: globs([]),
       unblock: z.array(z.string().superRefine(unblockable)).default([]),
+      instructions: globs([]),
       ignore: globs([
         "**/*.lock",
         "**/package-lock.json",
@@ -263,6 +289,7 @@ export const configSchema = z.object({
       ...p,
       block: union(DEFAULT_BLOCK, p.block).filter((g) => !p.unblock.includes(g)),
       critical: union(DEFAULT_CRITICAL, p.critical),
+      instructions: union(DEFAULT_INSTRUCTIONS, p.instructions),
     }))
     .prefault({}),
   content: z

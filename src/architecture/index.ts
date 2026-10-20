@@ -37,6 +37,7 @@ const DETECTOR_RANK: Record<ArchitectureFactId, number> = {
   "contract.api": 1,
   "contract.schema": 1,
   "contract.env": 1,
+  "contract.instructions": 1,
   "change.concurrency": 2,
   "change.safety_removed": 2,
   "coupling.missing": 3,

@@ -120,6 +120,8 @@ Whatever the score:
   opendrs config or model;
 - binary files, submodule pointer changes, lockfiles and other ignored files;
 - PRs that delete tests or add a line matching a `content.block` pattern;
+- PRs whose counted size (after excluding inert docs/comment lines) still exceeds `maxChangedLines`;
+  a changed agent-instruction file (`CLAUDE.md`, `.claude/**`, …) always counts in full toward it;
 - PRs from forks, drafts, and PRs where a reviewer requested changes;
 - PRs where a signal could not be computed and that unknown could have changed the tier.
 

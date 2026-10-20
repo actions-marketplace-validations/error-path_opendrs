@@ -17,6 +17,17 @@ const file = (path: string, added = 10, deleted = 5, ignored = false): ChangedFi
   ignored,
 });
 
+const hunk = (lines: string[]) => ({ oldStart: 1, oldLines: 0, newStart: 1, newLines: lines.length, lines });
+const fileWithHunks = (path: string, hunks: ReturnType<typeof hunk>[], added: number, deleted: number): ChangedFile => ({
+  path,
+  status: "modified",
+  added,
+  deleted,
+  binary: false,
+  hunks,
+  ignored: false,
+});
+
 const unknown = (id: string, value: number): Signal => ({ id, value, status: "unknown", summary: `${id} unknown`, evidence: [] });
 
 const history = fakeHistory([
@@ -238,6 +249,54 @@ describe("decide: rule 2 (size cap)", () => {
     const bin: ChangedFile = { ...file("img.png", 0, 0), binary: true };
     const out = decide(input({ files: [file("src/a.ts", 300, 100), bin] }));
     expect(out.reasons).toContain("401 changed lines exceeds autoApprove.maxChangedLines (400)");
+  });
+
+  it("excludes a pure-docs PR from the size cap entirely", () => {
+    const f = fileWithHunks("README.md", [hunk(Array(500).fill("+x"))], 500, 0);
+    const out = decide(input({ files: [f], cfg: { autoApprove: { maxChangedLines: 400, sampleRate: 0 } } }));
+    expect(out.decision).toBe("auto-approve");
+    expect(out.reasons.some((r) => /maxChangedLines/.test(r))).toBe(false);
+  });
+
+  it("reports both numbers when inert lines were excluded", () => {
+    const docs = fileWithHunks("README.md", [hunk(Array(300).fill("+x"))], 300, 0);
+    const code = fileWithHunks("src/a.ts", [hunk(Array(200).fill("+const x = 1;"))], 200, 0);
+    const out = decide(input({ files: [docs, code], cfg: { autoApprove: { maxChangedLines: 100, sampleRate: 0 } } }));
+    expect(out.reasons).toContain(
+      "500 changed lines, 200 counted toward maxChangedLines after excluding 300 inert docs/comment lines (cap 100)",
+    );
+  });
+
+  it("an instructions file overrides sizeCapExempt and docs-family: it still counts in full", () => {
+    const cfg = { autoApprove: { maxChangedLines: 10, sampleRate: 0, sizeCapExempt: ["**/*"] } };
+    const f = fileWithHunks("CLAUDE.md", [hunk(Array(50).fill("+x"))], 50, 0);
+    const out = decide(input({ files: [f], cfg }));
+    expect(out.reasons).toContain("50 changed lines exceeds autoApprove.maxChangedLines (10)");
+  });
+
+  it("a test file under sizeCapExempt still counts in full", () => {
+    const cfg = { autoApprove: { maxChangedLines: 10, sampleRate: 0, sizeCapExempt: ["**/*"] } };
+    const f = fileWithHunks("tests/a.test.ts", [hunk(Array(50).fill("+x"))], 50, 0);
+    const out = decide(input({ files: [f], cfg }));
+    expect(out.reasons).toContain("50 changed lines exceeds autoApprove.maxChangedLines (10)");
+  });
+
+  it("countInertLines: true reproduces today's single-number reason exactly", () => {
+    const cfg = { autoApprove: { maxChangedLines: 10, sampleRate: 0, countInertLines: true } };
+    const f = fileWithHunks("README.md", [hunk(Array(50).fill("+x"))], 50, 0);
+    const out = decide(input({ files: [f], cfg }));
+    expect(out.reasons).toContain("50 changed lines exceeds autoApprove.maxChangedLines (10)");
+  });
+
+  it("a comment-only hunk excludes only that hunk; a sibling real-code hunk still counts", () => {
+    const f = fileWithHunks(
+      "src/a.ts",
+      [hunk(Array(300).fill("+// comment")), hunk(Array(150).fill("+const x = 1;"))],
+      450,
+      0,
+    );
+    const out = decide(input({ files: [f], cfg: { autoApprove: { maxChangedLines: 400, sampleRate: 0 } } }));
+    expect(out.reasons.some((r) => /maxChangedLines/.test(r))).toBe(false); // 150 <= 400
   });
 });
 

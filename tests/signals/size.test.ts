@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { defaultConfig, parseConfig } from "../../src/domain/config.js";
+import type { ChangedFile, Hunk } from "../../src/domain/types.js";
 import { EMPTY_TREE } from "../../src/git/diff.js";
-import { sizeSignals } from "../../src/signals/size.js";
+import { countedChangedLines, sizeSignals } from "../../src/signals/size.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
 import { byId, contextFor } from "./context.js";
 
@@ -155,5 +157,82 @@ describe("sizeSignals", () => {
       const s = await commentOnly({ "img.bin": "\u0000\u0001" }, { "img.bin": "\u0000\u0002" });
       expect(s.value).toBe(0);
     });
+  });
+});
+
+const hunk = (lines: string[]): Hunk => ({ oldStart: 1, oldLines: 0, newStart: 1, newLines: lines.length, lines });
+
+const changedFile = (path: string, over: Partial<ChangedFile> = {}): ChangedFile => ({
+  path,
+  status: "modified",
+  added: 0,
+  deleted: 0,
+  binary: false,
+  hunks: [],
+  ignored: false,
+  ...over,
+});
+
+describe("countedChangedLines", () => {
+  it("counts a binary file as 1 regardless of path", () => {
+    const f = changedFile("CLAUDE.md", { binary: true });
+    expect(countedChangedLines([f], defaultConfig())).toBe(1);
+  });
+
+  it("counts an instructions file in full even though it is also docs-family", () => {
+    const f = changedFile("CLAUDE.md", { added: 50, deleted: 10, hunks: [hunk(Array(60).fill("+x"))] });
+    expect(countedChangedLines([f], defaultConfig())).toBe(60);
+  });
+
+  it("counts a test file in full even when sizeCapExempt matches everything", () => {
+    const config = parseConfig({ autoApprove: { sizeCapExempt: ["**/*"] } });
+    const f = changedFile("tests/a.test.ts", { added: 40, deleted: 0, hunks: [hunk(Array(40).fill("+x"))] });
+    expect(countedChangedLines([f], config)).toBe(40);
+  });
+
+  it("zeroes a file matched by autoApprove.sizeCapExempt", () => {
+    const config = parseConfig({ autoApprove: { sizeCapExempt: ["notes/**"] } });
+    const f = changedFile("notes/a.txt", { added: 30, deleted: 0, hunks: [hunk(Array(30).fill("+x"))] });
+    expect(countedChangedLines([f], config)).toBe(0);
+  });
+
+  it("zeroes a docs-family file (.md) with no sizeCapExempt entry needed", () => {
+    const f = changedFile("README.md", { added: 100, deleted: 5, hunks: [hunk(Array(105).fill("+x"))] });
+    expect(countedChangedLines([f], defaultConfig())).toBe(0);
+  });
+
+  it("excludes only a comment-only hunk, counting a sibling real-code hunk in full", () => {
+    const f = changedFile("src/a.ts", {
+      added: 3,
+      deleted: 0,
+      hunks: [hunk(["+// just a comment", "+// another"]), hunk(["+const x = 1;"])],
+    });
+    expect(countedChangedLines([f], defaultConfig())).toBe(1);
+  });
+
+  it("a mixed hunk (one real-code line among comments) counts every line in that hunk", () => {
+    const f = changedFile("src/a.ts", { hunks: [hunk(["+// comment", "+const x = 1;"])] });
+    expect(countedChangedLines([f], defaultConfig())).toBe(2);
+  });
+
+  it("a renamed file is never comment-only even if every hunk line is a comment", () => {
+    const f = changedFile("src/b.ts", { status: "renamed", oldPath: "src/a.ts", added: 1, deleted: 0, hunks: [hunk(["+// comment"])] });
+    expect(countedChangedLines([f], defaultConfig())).toBe(1);
+  });
+
+  it("countInertLines: true restores the raw count, ignoring every exclusion", () => {
+    const config = parseConfig({ autoApprove: { countInertLines: true } });
+    const f = changedFile("README.md", { added: 20, deleted: 0 });
+    expect(countedChangedLines([f], config)).toBe(20);
+  });
+
+  it("everything else (a plain source line) counts in full", () => {
+    const f = changedFile("src/a.ts", { hunks: [hunk(["+const x = 1;"])] });
+    expect(countedChangedLines([f], defaultConfig())).toBe(1);
+  });
+
+  it("a non-docs file with no hunk data (added/deleted only) counts in full: it cannot be proven comment-only", () => {
+    const f = changedFile("src/a.ts", { added: 12, deleted: 3 });
+    expect(countedChangedLines([f], defaultConfig())).toBe(15);
   });
 });

@@ -112,6 +112,16 @@ at the PR's base:
 
 > Reads a new environment variable `JWT_SECRET` (`src/auth/token.ts:12`).
 
+### `contract.instructions` — a changed agent-instruction file
+
+A changed file matched by `paths.instructions` (strong): `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`,
+anything under `.claude/**`/`.cursor/**`, a `SKILL.md`, a `*.prompt.md`, anything under
+`prompts/**`, or the already-blocked `.github/**`/`.opendrs/**`. Up to three files, the rest
+counted in a note. These files steer what an AI agent or CI does next, so a captain always sees
+the change even though it is plain Markdown:
+
+> Changes agent instructions: `CLAUDE.md`.
+
 ### `change.concurrency` — a changed line uses a concurrency primitive
 
 A changed, non-comment line of non-test code uses a concurrency primitive (locks, atomics,
