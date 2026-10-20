@@ -282,6 +282,9 @@ export type ArchitectureFactId =
   | "contract.api"
   | "contract.schema"
   | "contract.env"
+  | "contract.instructions"
+  | "change.concurrency"
+  | "change.safety_removed"
   | "drift.scope";
 
 export interface ArchitectureFact {

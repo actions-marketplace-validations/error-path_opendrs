@@ -4,11 +4,13 @@ import type { ArchitectureFact, ScoringContext } from "../../src/domain/types.js
 
 vi.mock("../../src/architecture/layers.js", () => ({ detectLayers: vi.fn() }));
 vi.mock("../../src/architecture/contracts.js", () => ({ detectContracts: vi.fn() }));
+vi.mock("../../src/architecture/risk.js", () => ({ detectRisk: vi.fn() }));
 vi.mock("../../src/architecture/coupling.js", () => ({ detectCoupling: vi.fn() }));
 vi.mock("../../src/architecture/drift.js", () => ({ detectDrift: vi.fn() }));
 
 const { detectLayers } = await import("../../src/architecture/layers.js");
 const { detectContracts } = await import("../../src/architecture/contracts.js");
+const { detectRisk } = await import("../../src/architecture/risk.js");
 const { detectCoupling } = await import("../../src/architecture/coupling.js");
 const { detectDrift } = await import("../../src/architecture/drift.js");
 
@@ -20,6 +22,7 @@ describe("detectArchitecture", () => {
       throw new Error("boom");
     }) as Detector);
     vi.mocked(detectContracts).mockResolvedValue({ facts: [fact({ id: "contract.env", file: "b.ts" })], notes: [] });
+    vi.mocked(detectRisk).mockResolvedValue({ facts: [], notes: [] });
     vi.mocked(detectCoupling).mockResolvedValue({ facts: [], notes: [] });
     vi.mocked(detectDrift).mockResolvedValue({ facts: [], notes: [] });
 
@@ -36,12 +39,13 @@ describe("sortFacts", () => {
     expect(sortFacts([info, strong])).toEqual([strong, info]);
   });
 
-  it("orders layers before contracts before coupling before drift, within a weight", () => {
+  it("orders layers before contracts before risk before coupling before drift, within a weight", () => {
     const drift = fact({ id: "drift.scope" });
     const coupling = fact({ id: "coupling.missing" });
+    const risk = fact({ id: "change.concurrency" });
     const contract = fact({ id: "contract.api" });
     const layer = fact({ id: "layers.cycle" });
-    expect(sortFacts([drift, coupling, contract, layer])).toEqual([layer, contract, coupling, drift]);
+    expect(sortFacts([drift, coupling, risk, contract, layer])).toEqual([layer, contract, risk, coupling, drift]);
   });
 
   it("then orders by file, then by line", () => {

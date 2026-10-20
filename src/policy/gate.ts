@@ -4,6 +4,7 @@ import { matchAny } from "../git/glob.js";
 import type { Authorship, HistoryIndex, LlmJudgement, ModelWeights, PolicyOutcome, PolicyRule, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { featureValues, sigmoid } from "../model/logistic.js";
+import { countedChangedLines } from "../signals/size.js";
 import { suggestReviewers } from "./reviewers.js";
 
 export interface GateInput {
@@ -125,10 +126,18 @@ export function decide(input: GateInput): PolicyOutcome {
     fire("human-review", `content.block /${pattern}/ matched ${list(hits)}`, "content.block");
   }
 
-  // 2. size cap (a binary file counts as one line)
-  const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
-  if (changedLines > auto.maxChangedLines) {
-    fire("human-review", `${changedLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})`, "size-cap");
+  // 2. size cap (a binary file counts as one line; docs, comment-only hunks and configured
+  // exemptions do not count toward the cap by default — spec 2026-10-20 §2-§5)
+  const cappedFiles = diff.files.filter((f) => !f.ignored);
+  const rawLines = cappedFiles.reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
+  const counted = countedChangedLines(cappedFiles, config);
+  if (counted > auto.maxChangedLines) {
+    const reason =
+      counted === rawLines
+        ? `${rawLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})`
+        : `${rawLines} changed lines, ${counted} counted toward maxChangedLines after excluding ` +
+          `${rawLines - counted} inert docs/comment lines (cap ${auto.maxChangedLines})`;
+    fire("human-review", reason, "size-cap");
   }
 
   // Commit text can raise the kind (a trailer makes it "agent") but never lower it, so the policy of

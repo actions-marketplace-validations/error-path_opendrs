@@ -17,7 +17,9 @@ The decision rules run in this order; the first that matches wins:
 2. a changed file is ignored (`paths.ignore`), binary, or a submodule pointer (gitlink), the PR
    deletes tests (`tests.deleted`), or an added line matches a `content.block` pattern →
    `human-review`;
-3. more than `maxChangedLines` changed → `human-review`;
+3. more than `maxChangedLines` *counted* lines changed (docs, comment-only hunks and
+   `autoApprove.sizeCapExempt` paths do not count by default; see
+   [Configuration](configuration.html#inert-lines-and-the-size-cap)) → `human-review`;
 4. tier is not green (unless `autoApprove.deferredReview` is on and the score is in its band),
    or an active freeze window suspends auto-approval or holds it to a
    stricter green, or the PR's source (human, bot or AI agent) has its own stricter green, has
@@ -58,5 +60,6 @@ The rails that matter when the Action can approve PRs:
 | **Deferred review.** | RADAR lets some low-risk human diffs land first and be reviewed after. With `autoApprove.deferredReview` (`enabled`, `below`, `sources`, default `[human]`), a PR whose score is between `green` and `below` and that passes every other rule gets `deferred-review`: the Action approves it and lets it merge, requests a post-merge review from the suggested reviewers, and labels it `opendrs:review-after-merge`. Only the tier rule is waived, and only in that band. |
 | **Landing delay.** | With `autoApprove.landingDelayMinutes` (or a longer `sources.<kind>.landingDelayMinutes`), an eligible PR waits that long, on the same head commit, before opendrs approves it. Meanwhile it carries the label `opendrs:landing`, and anyone can veto by requesting changes, pushing a commit (which restarts the clock) or adding `opendrs:hold`. A scheduled run of the Action re-checks waiting PRs; see the [GitHub Action guide](github-action.html#deferred-review-and-landing-delay). |
 | **Content blocklist.** | `content.block` regexes are checked against every added line, like Meta's RADAR blocklisted code phrases. A match goes to a human, and the reason names `file:line`. |
+| **Agent-instruction files always count.** | `paths.instructions` (by default `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.claude/**`, `.cursor/**`, `SKILL.md`, `*.prompt.md`, `prompts/**`, plus the already-blocked `.github/**`/`.opendrs/**`) is never excluded from the size cap, whatever its extension — additive only, with no `unblock`-style removal. |
 | **Stale approvals are blocked by branch rules.** | The Action approves only if the base branch requires at least one approval and dismisses stale approvals on push. Without that rule, an approval for one commit could carry over to a later, riskier push. See the [GitHub Action guide](github-action.html#repository-settings-for-auto-approval) for the ruleset. |
 | **Prompt injection.** | The diff, PR title and PR body are untrusted. The LLM prompt wraps them in delimiters and tells the model to ignore instructions inside them; the PR body is not sent at all unless `llm.includeDescription` is true. The answer must be exactly one JSON object and is clamped to [0, 1]. The judge can only raise the score, never lower it, so talking it into "risk 0" gains nothing. Risk claims written in the PR text never change the score directly. |

@@ -6,6 +6,11 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ### Added
 
+- Two new captain facts from the ApacheJIT captain-fact-lift experiment: `change.concurrency`
+  (strong; a changed, non-comment line of non-test code uses a concurrency primitive — 2.04× bug
+  lift) and `change.safety_removed` (info; net deleted error-handling or guard lines per hunk —
+  1.79× lift, but fires often enough to stay informational). See
+  [docs/captain.md](docs/captain.html#4-the-facts).
 - The captain brief's layers detector (`layers.edge`, `layers.cycle`) and the drift detector's
   "outside the original modules" check now use auto-detected module boundaries instead of a flat
   path-segment split: package roots are found from `package.json` (JS/TS), `go.mod` directories
@@ -19,9 +24,18 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
   auto-detection for a module, highest precedence.
 - `captain.moduleDepth` is now optional; when unset, module boundaries are auto-detected per the
   rules above.
+- `autoApprove.maxChangedLines` no longer counts every changed line: docs-family files, blank
+  lines, plain comments and files matched by the new `autoApprove.sizeCapExempt` no longer count
+  toward it by default, so a docs-only or comment-only PR no longer needs a human purely for size.
+  New `paths.instructions` (additive, like `paths.block`/`paths.critical`) lists files that steer
+  an AI agent or CI — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.claude/**`, `.cursor/**`,
+  `SKILL.md`, `*.prompt.md`, `prompts/**`, plus the already-blocked `.github/**`/`.opendrs/**` —
+  which always count in full, whatever their extension. A new strong captain fact,
+  `contract.instructions`, names a changed instruction file. See
+  [docs/specs/2026-10-20-inert-changes-design.md](docs/specs/2026-10-20-inert-changes-design.md).
 
 See [docs/specs/2026-10-19-module-boundaries-design.md](docs/specs/2026-10-19-module-boundaries-design.md)
-for the design.
+for the module-boundaries design.
 
 ### Changed
 
@@ -33,6 +47,12 @@ for the design.
   `layers.edge`/`layers.cycle` facts fire and can make the drift detector's "outside the original
   modules" check trigger somewhat more easily, since auto-detected modules are usually finer-
   grained than a flat depth-2 split.
+- **Default behaviour change:** before this release, every changed line counted toward
+  `autoApprove.maxChangedLines`; now docs and comment-only lines do not, by default
+  (`autoApprove.countInertLines: false`). This only loosens the gate — every other rule still runs
+  on the full diff — but a repo that relied on the raw line count as a blunt "keep docs PRs small"
+  policy will see more PRs pass the cap. Set `autoApprove.countInertLines: true` to restore the
+  exact old count.
 
 ### Fixed
 
