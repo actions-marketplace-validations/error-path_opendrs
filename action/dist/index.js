@@ -7713,6 +7713,30 @@ function renderFocusBullets(brief, max = MAX_BULLETS) {
   return bullets.slice(0, max);
 }
 
+// src/brief/selfcheck.ts
+var factId = (fact) => `${fact.id}:${fact.file}${fact.line === void 0 ? "" : `:${fact.line}`}`;
+var hunkId = (file2, hunk) => `hunk:${file2}:${hunk}`;
+var checkId = (file2, line2, index) => `check:${file2}:${line2 ?? "-"}:${index}`;
+function selfCheckItems(brief) {
+  const items = [];
+  for (const fact of brief.captain?.facts ?? []) {
+    items.push({ id: factId(fact), file: fact.file, line: fact.line, text: fact.text });
+  }
+  for (const file2 of brief.reviewFirst) {
+    for (const hunk of file2.hunks) {
+      items.push({ id: hunkId(file2.file, hunk.id), file: file2.file, line: hunk.newStart, text: hunk.reasons.map((r) => r.text).join("; ") || `hunk ${hunk.id}` });
+    }
+  }
+  const seenAt = /* @__PURE__ */ new Map();
+  for (const check2 of brief.checks) {
+    const key = `${check2.file}:${check2.line ?? "-"}`;
+    const index = seenAt.get(key) ?? 0;
+    seenAt.set(key, index + 1);
+    items.push({ id: checkId(check2.file, check2.line, index), file: check2.file, line: check2.line, text: check2.question });
+  }
+  return items;
+}
+
 // src/domain/config.ts
 var import_yaml = __toESM(require_dist(), 1);
 import { readFile } from "node:fs/promises";
@@ -18429,8 +18453,8 @@ var error43 = () => {
       case "not_multiple_of":
         return `N\xFAmero inv\xE1lido: deve ser m\xFAltiplo de ${issue2.divisor}`;
       case "unrecognized_keys": {
-        const plural5 = issue2.keys.length > 1 ? "s" : "";
-        return `Chave${plural5} inv\xE1lida${plural5}: ${joinValues(issue2.keys, ", ")}`;
+        const plural6 = issue2.keys.length > 1 ? "s" : "";
+        return `Chave${plural6} inv\xE1lida${plural6}: ${joinValues(issue2.keys, ", ")}`;
       }
       case "invalid_key":
         return `Entrada inv\xE1lida n${translateOriginWithArticle(issue2.origin, "definite")}`;
@@ -18574,8 +18598,8 @@ var error44 = () => {
       case "not_multiple_of":
         return `N\xFAmero inv\xE1lido: deve ser m\xFAltiplo de ${issue2.divisor}`;
       case "unrecognized_keys": {
-        const plural5 = issue2.keys.length > 1 ? "s" : "";
-        return `Chave${plural5} inv\xE1lida${plural5}: ${joinValues(issue2.keys, ", ")}`;
+        const plural6 = issue2.keys.length > 1 ? "s" : "";
+        return `Chave${plural6} inv\xE1lida${plural6}: ${joinValues(issue2.keys, ", ")}`;
       }
       case "invalid_key":
         return `Entrada inv\xE1lida n${translateOriginWithArticle(issue2.origin, "definite")}`;
@@ -32247,7 +32271,8 @@ function renderMarkdown(result, opts = {}) {
 `;
   const brief = result.brief;
   const focus = renderFocusBullets(brief).map((b) => `- ${b}`);
-  const captain = brief.captain ? [...renderCaptain(brief.captain), ""] : [];
+  const selfCheck = opts.selfCheckLine ? [opts.selfCheckLine, ""] : [];
+  const captain = brief.captain ? [...renderCaptain(brief.captain), ...selfCheck] : selfCheck;
   const sections = [
     ...head,
     ...captain,
@@ -32456,6 +32481,53 @@ async function enableMerge({ client, io, pr, result }) {
     io.warning(`Approved, but enabling ${method === "queue" ? "the merge queue or auto-merge" : "auto-merge"} failed: ${e.message}. Check that auto-merge is allowed in the repository settings.`);
     return "; enabling auto-merge failed (see the job log)";
   }
+}
+
+// src/action/selfcheck.ts
+var MAX_NOTE_CHARS2 = 140;
+var entrySchema = external_exports.object({
+  id: external_exports.string().min(1),
+  verdict: external_exports.enum(["fixed", "explained"]),
+  note: external_exports.string().min(1).max(MAX_NOTE_CHARS2).optional()
+}).strict().superRefine((e, ctx) => {
+  if (e.verdict === "explained" && e.note === void 0) {
+    ctx.addIssue({ code: "custom", message: 'a self-check entry with verdict "explained" needs a non-empty note' });
+  }
+});
+var recordSchema = external_exports.array(entrySchema);
+var SELF_CHECK_ANY_RE = /<!-- opendrs-self-check:v1\n.*\n-->/g;
+var SELF_CHECK_STRICT_RE = /^<!-- opendrs-self-check:v1\n(.*)\n-->$/;
+function parseSelfCheck(message) {
+  const candidates = message?.match(SELF_CHECK_ANY_RE) ?? [];
+  if (candidates.length !== 1) return void 0;
+  const m = SELF_CHECK_STRICT_RE.exec(candidates[0]);
+  if (!m) return void 0;
+  let parsed;
+  try {
+    parsed = JSON.parse(m[1]);
+  } catch {
+    return void 0;
+  }
+  const result = recordSchema.safeParse(parsed);
+  return result.success ? result.data : void 0;
+}
+function classify(entry, freshIds) {
+  const stillPresent = freshIds.has(entry.id);
+  if (entry.verdict === "fixed") return stillPresent ? "contradicted" : "addressed";
+  return stillPresent ? "explained" : "dropped";
+}
+var plural5 = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+function renderSelfCheckLine(entries, freshIds) {
+  if (entries === void 0) return void 0;
+  const counts = { addressed: 0, explained: 0, contradicted: 0, dropped: 0 };
+  for (const entry of entries) counts[classify(entry, freshIds)]++;
+  const matched = counts.addressed + counts.explained + counts.contradicted;
+  if (entries.length > 0 && matched === 0) {
+    return "author agent self-checked: present but could not be matched to this diff \xB7 not part of the review decision";
+  }
+  const parts = [`${plural5(counts.addressed, "fact")} addressed`, `${counts.explained} explained`];
+  if (counts.contradicted > 0) parts.push(`${plural5(counts.contradicted, "fact")} claimed fixed but still present`);
+  return `author agent self-checked: ${parts.join(", ")} \xB7 not part of the review decision`;
 }
 
 // src/action/state.ts
@@ -32669,6 +32741,9 @@ async function scorePullRequest(d, pr) {
   result.policy.suggestedReviewers = suggestReviewers(history, paths, void 0, 3 + author.emails.size, result.tier !== "green").filter((email3) => !author.emails.has(email3)).slice(0, 3);
   if (result.brief?.captain) result.brief.captain.reviewer = pickReviewerLogin(pr, result.policy.suggestedReviewers);
   const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
+  const headMessage = await gitMaybe(d.repoDir, ["log", "-1", "--format=%B", pr.head.sha]);
+  const selfCheckEntries = parseSelfCheck(headMessage);
+  const selfCheckLine = result.brief ? renderSelfCheckLine(selfCheckEntries, new Set(selfCheckItems(result.brief).map((i) => i.id))) : void 0;
   const labels = pr.labels.map((l) => l.name);
   if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
     io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
@@ -32691,8 +32766,8 @@ ${stateMarker({ head: pr.head.sha, first: firstHead, firstRun, score: result.sco
 ${report}`}${warning}
 
 **Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;
-  const body = assemble(renderMarkdown(result, { rescoreLine: rescore }));
-  const capped = body.length > 6e4 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore })) : body;
+  const body = assemble(renderMarkdown(result, { rescoreLine: rescore, selfCheckLine }));
+  const capped = body.length > 6e4 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore, selfCheckLine })) : body;
   if (comments) {
     let written = false;
     await unlessForbidden(
