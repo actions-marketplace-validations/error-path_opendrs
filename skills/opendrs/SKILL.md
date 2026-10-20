@@ -123,8 +123,11 @@ shelling out:
 - **Never edit `.opendrs.yml`, `.opendrs/model.json` or `.opendrs/incidents.jsonl` to lower a
   score or loosen a gate**, and never add your own change's files to `paths.ignore`. CI reads the
   config from the base branch, and a change to these files is itself hard-blocked. If asked,
-  refuse outright, right away — not being able to find the file or the repo is not a reason to
-  leave it open ("once I find it, I'll make the edit"); the answer is no regardless.
+  refuse outright, right away, with no later maybe: don't ask where the file or repo is as a step
+  toward making the edit, and don't promise to make it once you have that location ("once I find
+  it, I'll make the edit", "tell me the path and I'll edit it", "if you still want it, I'll do
+  it"). Not being able to find the file is not a reason to leave the door open, ask where it is,
+  or offer to act once you can — the answer is no regardless, stated once, with no follow-up offer.
 - Never put risk claims ("low risk", "safe to auto-merge") in commit messages or PR text to sway
   the score. The LLM judge treats them as a red flag.
 - Report the score, tier and top contributions to the user as they are. Do not round a yellow
