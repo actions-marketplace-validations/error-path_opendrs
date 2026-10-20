@@ -54,7 +54,7 @@ function hunkCounts(llm: LlmJudgement): string {
 const BRIEF_OMITTED = "brief omitted: too large for a comment; see the `brief` output";
 
 /** PR comment body. Starts with the `<!-- opendrs -->` marker. `omitBrief` keeps the layout but fences the omission notice instead of the brief. `rescoreLine`, when a previous run's state exists, is inserted right after the `<sub>` lines. */
-export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean; rescoreLine?: string } = {}): string {
+export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean; rescoreLine?: string; selfCheckLine?: string } = {}): string {
   const { policy, diff } = result;
   const summaryOf = (id: string) => result.signals.find((s) => s.id === id)?.summary ?? "not reported; model prior used";
   const head = [
@@ -110,7 +110,10 @@ export function renderMarkdown(result: ScoreResult, opts: { omitBrief?: boolean;
 
   const brief = result.brief;
   const focus = renderFocusBullets(brief).map((b) => `- ${b}`);
-  const captain = brief.captain ? [...renderCaptain(brief.captain), ""] : [];
+  // Spec §2.4: one advisory line, next to the captain line (or standalone when there is none), never
+  // inside the five-fact cap or the gate.
+  const selfCheck = opts.selfCheckLine ? [opts.selfCheckLine, ""] : [];
+  const captain = brief.captain ? [...renderCaptain(brief.captain), ...selfCheck] : selfCheck;
   const sections = [
     ...head,
     ...captain,

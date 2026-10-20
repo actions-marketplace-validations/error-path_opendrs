@@ -4,7 +4,11 @@ description: Review the current diff using the opendrs review brief as a reading
 
 ## Context
 
-- Build the review brief: !`npx @error-path/opendrs brief` (or call the MCP tool `review_brief` if the opendrs MCP server is connected).
+- Build the review brief: !`npx @error-path/opendrs brief`. If that command doesn't hand you a
+  brief for any reason — no Bash, a blocked registry, `git` itself erroring, or the repo's files
+  not visible yet — call the MCP tool `review_brief {repoDir, base?, head?, maxTokens?}` directly
+  instead; it computes the diff itself and does not depend on `git` or `npm` working. Don't fall
+  back to raw `git diff`/`git log` as a substitute, and don't give up on getting a brief.
 
 ## Your task
 
@@ -13,7 +17,10 @@ description: Review the current diff using the opendrs review brief as a reading
    evidence: the file and line, and what the code actually does there.
 2. Then read **every other changed hunk** at least once, including anything under "Not ranked" and
    "Safe to skim". The brief orders the review; it does not limit it. Report any finding outside
-   the focus hunks explicitly.
+   the focus hunks explicitly. Before finishing, check your answer against the brief's own file
+   list: if a file is named anywhere in "Review first", "Not ranked", or "Safe to skim" and you
+   haven't opened it, go read it now — stopping at "Review first" is an incomplete review even if
+   it found real bugs there.
 3. Report findings with a priority (P0-P3), file:line, the trigger (what input or sequence
    causes it) and your confidence. List any "Check specifically" question you checked and found
    nothing for.

@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { renderBriefMarkdown } from "../../brief/render.js";
+import { selfCheckItems } from "../../brief/selfcheck.js";
 import { loadConfig } from "../../domain/config.js";
 import { OpendrsError } from "../../domain/types.js";
 import { scoreDiff } from "../../engine.js";
@@ -25,6 +26,8 @@ Options:
   --json               Print the full ReviewBrief as JSON
   --max-tokens <n>     Override brief.maxTokens (default 2500, min 300, max 6000)
   --no-llm             Skip the LLM judge even when llm.enabled is true
+  --self-check-template Print the ids (captain facts, reviewFirst hunks, check questions) a pre-PR
+                        self-check should address, as JSON, instead of the brief.
 
 Exit codes: 0 ok, 2 error.`,
 
@@ -37,6 +40,7 @@ Exit codes: 0 ok, 2 error.`,
         json: { type: "boolean" },
         "max-tokens": { type: "string" },
         "no-llm": { type: "boolean" },
+        "self-check-template": { type: "boolean" },
       },
     });
     const maxTokens = parsePositiveInt("--max-tokens", values["max-tokens"]);
@@ -56,6 +60,10 @@ Exit codes: 0 ok, 2 error.`,
     });
     if (!result.brief) throw new OpendrsError("internal error: scoreDiff did not build a brief", "io");
 
+    if (values["self-check-template"]) {
+      io.out(JSON.stringify(selfCheckItems(result.brief), null, 2));
+      return 0;
+    }
     io.out(values.json ? JSON.stringify(result.brief, null, 2) : renderBriefMarkdown(result.brief));
     return 0;
   },

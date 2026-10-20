@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { renderBriefMarkdown } from "../brief/render.js";
+import { selfCheckItems } from "../brief/selfcheck.js";
 import { repoRoot } from "../cli/repo.js";
 import { loadConfig } from "../domain/config.js";
 import { scoreDiff } from "../engine.js";
@@ -60,6 +61,19 @@ export async function reviewBriefTool(args: { repoDir: string; base?: string; he
     const r = await scoreDiff({ repoDir, base, head: args.head ?? "HEAD", config, brief: { maxTokens: args.maxTokens } });
     const brief = r.brief!;
     return { content: [{ type: "text", text: renderBriefMarkdown(brief) }], structuredContent: brief as unknown as Record<string, unknown> };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** The ids (captain facts, reviewFirst hunks, check questions) a pre-PR self-check should address. */
+export async function selfCheckItemsTool(args: { repoDir: string; base?: string; head?: string; maxTokens?: number }): Promise<CallToolResult> {
+  try {
+    const repoDir = await repoRoot(resolve(args.repoDir));
+    const config = await loadConfig(repoDir);
+    const base = args.base ?? (await defaultBase(repoDir));
+    const r = await scoreDiff({ repoDir, base, head: args.head ?? "HEAD", config, brief: { maxTokens: args.maxTokens } });
+    return ok({ items: selfCheckItems(r.brief!) });
   } catch (e) {
     return fail(e);
   }

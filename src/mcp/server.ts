@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { VERSION } from "../version.js";
-import { explainFileRiskTool, listHotspotsTool, reviewBriefTool, scoreDiffTool, suggestReviewersTool } from "./tools.js";
+import { explainFileRiskTool, listHotspotsTool, reviewBriefTool, scoreDiffTool, selfCheckItemsTool, suggestReviewersTool } from "./tools.js";
 
 const repoDir = z.string().min(1).describe("Absolute path to the git repository (any directory inside the work tree).");
 
@@ -63,6 +63,28 @@ export function createMcpServer(): McpServer {
       annotations: { readOnlyHint: true },
     },
     (args) => reviewBriefTool(args),
+  );
+
+  server.registerTool(
+    "self_check_items",
+    {
+      title: "Self-check items",
+      description:
+        "Call before opening or updating a pull request: the ids (captain facts, reviewFirst hunks, check questions) from the review brief that a " +
+        "pre-PR self-check should fix or explain. Fix the diff, or write a one-line reason (<=140 chars) it does not need fixing, for each one; " +
+        "when an id names a real, unresolved problem you can't fix yourself right now, mark it needs-fix with a one-line reason instead, " +
+        "then write your verdicts as a JSON array into your head commit's own message inside a `<!-- opendrs-self-check:v1 ... -->` block " +
+        '(e.g. [{"id":"<id>","verdict":"fixed"},{"id":"<id>","verdict":"explained","note":"<why>"},{"id":"<id>","verdict":"needs-fix","note":"<why>"}]). ' +
+        "Advisory only: never part of the auto-approve gate or the captain's priority.",
+      inputSchema: {
+        repoDir,
+        base: z.string().min(1).optional().describe('Base ref to diff against. Defaults to "origin/HEAD", or "main" when that is not set.'),
+        head: z.string().min(1).optional().describe('Head ref to score. Defaults to "HEAD".'),
+        maxTokens: z.number().int().min(300).optional().describe("Token budget for the underlying brief (default 2500, min 300, max 6000)."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    (args) => selfCheckItemsTool(args),
   );
 
   server.registerTool(
