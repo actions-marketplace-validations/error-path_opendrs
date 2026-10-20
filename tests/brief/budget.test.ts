@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { estimateTokens, fitBudget } from "../../src/brief/budget.js";
 import { renderBriefMarkdown } from "../../src/brief/render.js";
-import type { ReviewBrief } from "../../src/domain/types.js";
+import type { CaptainBrief, ReviewBrief } from "../../src/domain/types.js";
 
 function bigBrief(): ReviewBrief {
   return {
@@ -118,5 +118,17 @@ describe("fitBudget", () => {
     expect(out.budget.truncated).toBe(true);
     expect(out.notes.some((n) => /too small/i.test(n))).toBe(true);
     expect(out.budget.estimatedTokens).toBeGreaterThan(1);
+  });
+
+  it("never trims the captain section, even under a tight budget", () => {
+    const captain: CaptainBrief = {
+      priority: "careful",
+      why: ["new import edge"],
+      facts: [{ id: "layers.edge", weight: "strong", file: "src/api/users.ts", line: 3, text: "new import edge" }],
+      notes: [],
+    };
+    const out = fitBudget({ ...bigBrief(), captain }, 300);
+    expect(out.captain).toEqual(captain);
+    expect(renderBriefMarkdown(out)).toContain("new import edge");
   });
 });

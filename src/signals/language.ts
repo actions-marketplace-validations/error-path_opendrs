@@ -21,7 +21,7 @@ const EXTENSIONS: Record<string, LanguageFamily> = {
   sql: "sql",
   sh: "shell", bash: "shell", zsh: "shell",
   yaml: "config", yml: "config", json: "config", toml: "config", ini: "config",
-  md: "docs", rst: "docs", txt: "docs",
+  md: "docs", rst: "docs", txt: "docs", patch: "docs", diff: "docs",
 };
 
 export function languageFamily(path: string): LanguageFamily {
@@ -29,6 +29,9 @@ export function languageFamily(path: string): LanguageFamily {
   const dot = name.lastIndexOf(".");
   return (dot > 0 && EXTENSIONS[name.slice(dot + 1).toLowerCase()]) || "other";
 }
+
+/** A `.patch`/`.diff` file: an archived record, not a hunk worth ranking even though its family is "docs". */
+export const isPatchFile = (path: string): boolean => /\.(patch|diff)$/i.test(path);
 
 /** Program code: a known language that is not config, docs or unclassified. */
 export const isCodeFamily = (family: LanguageFamily): boolean => family !== "config" && family !== "docs" && family !== "other";

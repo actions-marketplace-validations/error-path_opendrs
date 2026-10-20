@@ -2,5 +2,7 @@
 # The config is always read from the base branch, so a PR cannot change its own gate.
 autoApprove:
   enabled: true
-  # Approve low-risk PRs, but leave merging to a maintainer.
+  # Approve low-risk PRs. The workflow auto-merges only those whose captain line is "quick
+  # confirm" (.github/workflows/opendrs.yml); a maintainer merges the rest.
   mergeMethod: none
+  maxChangedLines: 1000

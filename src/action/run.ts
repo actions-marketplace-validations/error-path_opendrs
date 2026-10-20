@@ -22,6 +22,7 @@ export const COMMENT_MARKER = "<!-- opendrs -->";
 /** On a PR while its landing delay runs; the scheduled sweep re-scores the PRs that carry it. */
 export const LANDING_LABEL = "opendrs:landing";
 const RISK_LABELS = ["risk:green", "risk:yellow", "risk:red"];
+const CAPTAIN_LABELS = ["captain:careful", "captain:standard", "captain:quick"];
 const COMMENT_FORBIDDEN =
   "Could not write the PR comment (403): the token needs `pull-requests: write`. Fork PRs get a read-only token on `pull_request` events.";
 const PREDICTABLE_SAMPLING =
@@ -141,14 +142,24 @@ async function prAuthor(d: ActionDeps, pr: PullRequest): Promise<{ verified: boo
 }
 
 /**
- * For a PR that needs a human, ask one expert (a GitHub login among the suggested reviewers, picked by
- * PR so reruns agree) to review; best-effort. Returns the login when a review was requested.
+ * The GitHub login `assignReviewer` picks for this PR from its suggested reviewers (noreply logins
+ * only), picked by PR so reruns agree; never the PR's own author. Shared by the review request and
+ * the captain line (spec §7.2), so the two always agree.
+ */
+function pickReviewerLogin(pr: PullRequest, reviewers: string[]): string | undefined {
+  const logins = reviewers.map(noreplyLogin).filter((l): l is string => l !== undefined);
+  const login = assignReviewer(logins, `${pr.base.repo.full_name}#${pr.number}`);
+  return login !== undefined && !sameLogin(login, pr.user?.login) ? login : undefined;
+}
+
+/**
+ * For a PR that needs a human, ask one expert to review; best-effort. Returns the login when a
+ * review was requested.
  */
 async function requestOneReviewer({ client, io }: ActionDeps, pr: PullRequest, reviewers: string[], decision: Decision): Promise<string | undefined> {
   if (decision !== "human-review") return undefined;
-  const logins = reviewers.map(noreplyLogin).filter((l): l is string => l !== undefined);
-  const login = assignReviewer(logins, `${pr.base.repo.full_name}#${pr.number}`);
-  if (login === undefined || sameLogin(login, pr.user?.login) || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return undefined;
+  const login = pickReviewerLogin(pr, reviewers);
+  if (login === undefined || pr.requested_reviewers?.some((r) => sameLogin(r.login, login))) return undefined;
   // Re-requesting a review resets one that was already submitted.
   if ((await client.listReviews(pr.number)).some((r) => sameLogin(r.user?.login, login))) return undefined;
   try {
@@ -237,6 +248,21 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   if (viewer === undefined) io.info("Could not read the token's login: opendrs's own comment and approvals are matched by marker and bot account.");
   const changesRequestedBy = await changesRequested(client, pr.number, viewer);
 
+  // opendrs's own comment carries the previous run's state; read now so the drift detector has its
+  // baseline (first/firstRun) before scoring runs, and reused below for the landing delay and the rescore line.
+  const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : undefined;
+  // The newest one: GitHub lists comments oldest first.
+  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
+  // Re-score visibility needs the state marker, which the brief:false byte-equal guarantee forbids adding.
+  const previousState = d.inputs.brief ? readState(mine?.body ?? undefined) : undefined;
+  const runNumber = previousState ? previousState.run + 1 : 1;
+  // Spec §6.4/§7.3: first run → first = this head, firstRun = 1; later runs keep the stored first and
+  // firstRun, now persisted in the marker so it survives past the run that migrates a 0.3.x marker
+  // (no `first`); a marker from before `firstRun=` existed falls back to the old guess (spec §6.4).
+  const firstHead = previousState === undefined ? pr.head.sha : previousState.first ?? previousState.head;
+  const firstRun =
+    previousState === undefined ? 1 : previousState.firstRun ?? (previousState.first !== undefined ? 1 : previousState.run);
+
   const result = await io.group("Score", async () => {
     const r = await scoreDiff({
       repoDir: d.repoDir,
@@ -257,7 +283,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
         draft: pr.draft,
         changesRequestedBy,
       },
-      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens, onError: (m) => io.warning(m) } : undefined,
+      brief: d.inputs.brief ? { maxTokens: config.brief.maxTokens, firstHead, firstRun, onError: (m) => io.warning(m) } : undefined,
     });
     io.info(`score ${r.score.toFixed(3)}, tier ${r.tier}, decision ${r.policy.decision}`);
     for (const reason of r.policy.reasons) io.info(`  - ${reason}`);
@@ -266,6 +292,7 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   io.setOutput("score", result.score.toFixed(4));
   io.setOutput("tier", result.tier);
   io.setOutput("decision", result.policy.decision);
+  io.setOutput("captain", result.brief?.captain?.priority ?? "");
   if (result.brief) {
     io.setOutput("brief", renderBriefMarkdown(result.brief));
     const dir = d.env.RUNNER_TEMP ?? tmpdir();
@@ -295,12 +322,11 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   result.policy.suggestedReviewers = suggestReviewers(history, paths, undefined, 3 + author.emails.size, result.tier !== "green")
     .filter((email) => !author.emails.has(email))
     .slice(0, 3);
+  // The captain line shows the same login the review request uses, whether or not a request is sent.
+  if (result.brief?.captain) result.brief.captain.reviewer = pickReviewerLogin(pr, result.policy.suggestedReviewers);
   const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
 
   // opendrs's own comment carries the time this head became eligible, so a landing delay survives across runs.
-  const comments = d.inputs.comment ? await unlessForbidden(() => client.listComments(pr.number), () => io.warning(COMMENT_FORBIDDEN)) : undefined;
-  // The newest one: GitHub lists comments oldest first.
-  const mine = comments?.filter((c) => isSelf(c.user, viewer) && (c.body ?? "").includes(COMMENT_MARKER)).at(-1);
   const labels = pr.labels.map((l) => l.name);
   if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
     io.warning("The landing delay needs the comment input: the time a head became eligible is kept in opendrs's comment. Not approving.");
@@ -309,16 +335,13 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     reconcileApproval({ client, io, pr, config, result, files, viewer, now: new Date(), eligibleSince: trustedSince(mine, pr.head.sha), labels, commentEnabled: d.inputs.comment }),
   );
 
-  // Re-score visibility needs the state marker, which the brief:false byte-equal guarantee forbids adding.
-  const previousState = d.inputs.brief ? readState(mine?.body ?? undefined) : undefined;
-  const runNumber = previousState ? previousState.run + 1 : 1;
   const rescore = previousState ? rescoreLine(previousState, runNumber, pr.head.sha, result.score, result.tier) : undefined;
 
   const warning = predictable ? `\n\n**Warning:** ${PREDICTABLE_SAMPLING}` : "";
   const eligible = approval.eligibleSince ? `\n${eligibleMarker(pr.head.sha, approval.eligibleSince)}` : "";
   const reviewer = assigned ? `\n**Reviewer:** @${assigned} (one of the top experts, picked at random so the work spreads)` : "";
   const state = d.inputs.brief
-    ? `\n${stateMarker({ head: pr.head.sha, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
+    ? `\n${stateMarker({ head: pr.head.sha, first: firstHead, firstRun, score: result.score, tier: result.tier, decision: result.policy.decision, run: runNumber })}`
     : "";
   const assemble = (report: string) =>
     `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;
@@ -360,12 +383,18 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
 
   if (d.inputs.labels) {
     const want = `risk:${result.tier}`;
+    // Absent (captain.enabled: false, or no brief): no captain label is wanted, so a stale one is removed.
+    const wantCaptain = result.brief?.captain ? `captain:${result.brief.captain.priority}` : undefined;
     await unlessForbidden(
       async () => {
-        for (const label of labels) if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
+        for (const label of labels) {
+          if (RISK_LABELS.includes(label) && label !== want) await client.removeLabel(pr.number, label);
+          if (CAPTAIN_LABELS.includes(label) && label !== wantCaptain) await client.removeLabel(pr.number, label);
+        }
         if (!labels.includes(want)) await client.addLabels(pr.number, [want]);
+        if (wantCaptain && !labels.includes(wantCaptain)) await client.addLabels(pr.number, [wantCaptain]);
       },
-      () => io.warning("Could not set risk labels (403): the token needs `pull-requests: write` (and `issues: write` to create new labels)."),
+      () => io.warning("Could not set risk/captain labels (403): the token needs `pull-requests: write` (and `issues: write` to create new labels)."),
     );
   }
 

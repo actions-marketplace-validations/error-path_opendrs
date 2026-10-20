@@ -4,6 +4,147 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+### Added
+
+- Two new captain facts from the ApacheJIT captain-fact-lift experiment: `change.concurrency`
+  (strong; a changed, non-comment line of non-test code uses a concurrency primitive — 2.04× bug
+  lift) and `change.safety_removed` (info; net deleted error-handling or guard lines per hunk —
+  1.79× lift, but fires often enough to stay informational). See
+  [docs/captain.md](docs/captain.html#4-the-facts).
+- The captain brief's layers detector (`layers.edge`, `layers.cycle`) and the drift detector's
+  "outside the original modules" check now use auto-detected module boundaries instead of a flat
+  path-segment split: package roots are found from `package.json` (JS/TS), `go.mod` directories
+  (Go, one package per directory), `Cargo.toml` (Rust), `*.gemspec` (Ruby), `pyproject.toml`/
+  `setup.cfg` (Python, `src/` layout aware) and `Package.swift` targets (Swift), reusing the
+  dependency graph's existing tree-sha cache rather than adding a new one. A new `"modules: ..."`
+  note on the layers detector states how the map was built (e.g. `"modules: auto-detected 12
+  packages from pnpm-workspace.yaml"` or `"modules: no package manifest found for this language;
+  falling back to moduleDepth: 2"`).
+- New `captain.modules` config key: literal globs (e.g. `["packages/*/src/*"]`) that override
+  auto-detection for a module, highest precedence.
+- `captain.moduleDepth` is now optional; when unset, module boundaries are auto-detected per the
+  rules above.
+- `autoApprove.maxChangedLines` no longer counts every changed line: docs-family files, blank
+  lines, plain comments and files matched by the new `autoApprove.sizeCapExempt` no longer count
+  toward it by default, so a docs-only or comment-only PR no longer needs a human purely for size.
+  New `paths.instructions` (additive, like `paths.block`/`paths.critical`) lists files that steer
+  an AI agent or CI — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.claude/**`, `.cursor/**`,
+  `SKILL.md`, `*.prompt.md`, `prompts/**`, plus the already-blocked `.github/**`/`.opendrs/**` —
+  which always count in full, whatever their extension. A new strong captain fact,
+  `contract.instructions`, names a changed instruction file. See
+  [docs/specs/2026-10-20-inert-changes-design.md](docs/specs/2026-10-20-inert-changes-design.md).
+
+See [docs/specs/2026-10-19-module-boundaries-design.md](docs/specs/2026-10-19-module-boundaries-design.md)
+for the module-boundaries design.
+
+### Changed
+
+- A repo that already sets `captain.moduleDepth` explicitly in `.opendrs.yml` keeps its exact
+  current behaviour: setting it disables auto-detection repo-wide and module boundaries stay a
+  flat split on that many path segments from the repo root, unchanged.
+- A repo that has never set `captain.moduleDepth` now gets auto-detected module boundaries instead
+  of the old default (first 2 path segments from the repo root). This can change which
+  `layers.edge`/`layers.cycle` facts fire and can make the drift detector's "outside the original
+  modules" check trigger somewhat more easily, since auto-detected modules are usually finer-
+  grained than a flat depth-2 split.
+- **Default behaviour change:** before this release, every changed line counted toward
+  `autoApprove.maxChangedLines`; now docs and comment-only lines do not, by default
+  (`autoApprove.countInertLines: false`). This only loosens the gate — every other rule still runs
+  on the full diff — but a repo that relied on the raw line count as a blunt "keep docs PRs small"
+  policy will see more PRs pass the cap. Set `autoApprove.countInertLines: true` to restore the
+  exact old count.
+
+### Fixed
+
+- `history.incident` now matches a changed file against a past revert or incident at file level
+  only: a changed file counts as touched by a past revert/incident when the revert/incident's own
+  file list contains that exact path (or an `.opendrs/incidents.jsonl` `paths` prefix, unchanged),
+  not when it merely shares a containing folder. The folder-level match flagged unrelated files in
+  a monorepo directory (e.g. one old revert in vite flagging hundreds of unrelated files).
+
+## 0.4.1 - 2026-10-19
+
+A patch release from the field test on six new repositories (Python, Go, Rust, TypeScript
+monorepo, Ruby and Swift), fixing captain and review-brief accuracy across languages. See
+[docs/research/2026-10-19-field-test.md](docs/research/2026-10-19-field-test.md) for the field test
+that found them.
+
+### Fixed
+
+- A `.patch`/`.diff` file is now classified as docs, like `.md`: it lists under "Safe to skim", is
+  never ranked into "Review first" (even as the only changed file), and no longer produces a
+  "No test changed for ..." check.
+- The drift fact's "since run k" wording now survives past the run that migrates a 0.3.x state
+  marker: the first run's number is persisted in the marker's new `firstRun=` field instead of
+  being re-derived (and wrongly reset to "run 1") on every later run.
+- The contracts detector now parses `pyproject.toml` requirements that nest a PEP 508 marker in
+  quotes (e.g. `"winloop>=0.5.0; sys_platform == 'win32'"`) without producing fake dependency
+  names, treats a `go.mod` dependency promoted from `// indirect` to direct as a new runtime
+  dependency, recognizes `Cargo.toml`'s `[target.'cfg(...)'.dependencies]` and
+  `[workspace.dependencies]` tables, parses `Package.swift`'s `.package(...)` declarations, and
+  recognizes more environment-variable reads (Go's `os.LookupEnv`, Python's
+  `os.environ.setdefault`, Swift's `ProcessInfo.processInfo.environment`, and `Environment.get`).
+- Go import resolution no longer sends every import under a module path to a test fixture's
+  `go.mod` (e.g. under `.github/codeql/tests/**`) when it declares the same module path as the
+  real root go.mod; the resolver now tries every matching module in path order and ignores
+  fixture-like `go.mod` files under `testdata/` or `.github/`.
+- RSpec (`**/spec/**`, `**/*_spec.rb`) and Swift (`**/Tests/**`, `**/*Tests.swift`) test files are
+  now recognized by the default `paths.tests` globs, so Ruby and Swift changes get the "source
+  changed without tests" check.
+- Ruby and Swift now get public-declaration detection (`contract.api`, `blast.public_surface`).
+  Both are approximations: Ruby counts top-level `class`/`module`/`def` and `def self.x` but can't
+  track a `private` call on an earlier line, and Swift requires an explicit `public`/`open`
+  keyword but still has no import-graph extractor, so `blast.public_surface`/`contract.api` keep
+  reporting unknown for it.
+- The captain "why" line no longer truncates to a bare backtick when a fact's text contains a file
+  path or line number; it now only splits into a short summary at a sentence boundary outside
+  backtick spans, falling back to a fact-type-based summary when needed.
+- The git history scan's timeout is now configurable via the new `history.gitTimeoutMs` setting
+  (default 600000ms), and a timeout is now reported distinctly from a git error, telling you to
+  raise `history.gitTimeoutMs` or lower `history.maxCommits`.
+
+## 0.4.0 - 2026-10-19
+
+The captain release. When AI writes the code and AI reviews it twice, the last human reviewer, the
+captain, judges design rather than style. opendrs now tells them how much attention a PR needs
+(careful review, standard review or quick confirm), who has the most relevant history, and up to
+five facts that neither the editor nor the AI review rounds show: files that usually change
+together but were not changed together, new import edges and cycles between modules, new
+dependencies, public API, schema and environment changes, and what a PR picked up during its AI
+fix rounds. The captain line is advisory: the gate, the score and auto-approval are unchanged.
+See [docs/captain.md](docs/captain.md).
+
+### Added
+
+- The **captain brief**: a priority line (`careful review`, `standard review` or `quick confirm`)
+  with one named reviewer (a GitHub login, never an email) on every PR comment, job summary and
+  Action output (`captain`), plus `captain:careful` / `captain:standard` / `captain:quick` labels
+  alongside the existing `risk:*` labels. See [docs/captain.md](docs/captain.md).
+- `contract.dependency`, `contract.api`, `contract.schema` and `contract.env` facts: a new
+  manifest dependency, a changed public contract with dependents, a changed schema/contract file,
+  and a newly read environment variable.
+- `layers.edge` and `layers.cycle` facts: a new import edge between modules, or a new import cycle,
+  comparing the dependency graph at the PR's base and head.
+- `coupling.missing` facts: a file that historically changes together with another, where this PR
+  changed only one of them. On ApacheJIT's test split, commits with this fact were bug-inducing at
+  1.9× the base rate; it is a captain fact only and does not change the score.
+- `drift.scope` facts, Action only: what a PR picked up after opendrs's first scored run on it,
+  from the state marker's new `first=` field.
+- A mandatory `## For the captain` section in the review brief for AI reviewers, carrying the same
+  priority and facts as the PR comment's captain line, every fact included and never trimmed by
+  the token budget.
+
+### Changed
+
+- Review focus bullets in the PR comment no longer use the `dependents` reason (for example "6
+  files depend on it"); that count now only appears in the AI brief's hunk reasons, in Score
+  details, and as evidence on a `contract.api` captain fact.
+
+### Fixed
+
+- Policy reasons that compare a score against a threshold now show enough decimals when the two
+  would otherwise round to the same two-decimal display (e.g. a score of 0.3004 against a green
+  threshold of 0.30 now reads "score 0.3004 ≥ green threshold 0.30" instead of "0.30 ≥ 0.30").
 - The change notice is posted only after the main report comment was written, so a forbidden
   update can no longer announce a change the report does not show.
 - Docs: the `brief` input row now says `brief: false` omits the state marker, the re-score line and

@@ -196,4 +196,69 @@ describe("buildBrief", () => {
     expect(md).not.toContain("## Safe to skim");
     repo.cleanup();
   });
+
+  it("treats a .patch file as a record: safe to skim, no ranked hunk, no no-tests check, even as the only changed file", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit({ "archive/foo.patch": "diff --git a/x b/x\n--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n" }, "archive a patch");
+    const ctx = await ctxFor(repo, "HEAD~1");
+
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.reviewFirst).toEqual([]);
+    expect(Array.isArray(brief.skim) ? brief.skim : "collapsed").toEqual([{ file: "archive/foo.patch", category: "docs" }]);
+    expect(brief.checks).toEqual([]);
+    repo.cleanup();
+  });
+
+  it("still ranks a real code file when the PR also touches a .patch file", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n2\n3\n" }, "base");
+    repo.commit(
+      { "a.ts": "1\n2\nCHANGED\n", "archive/foo.patch": "diff --git a/x b/x\n--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n" },
+      "change plus archive a patch",
+    );
+    const ctx = await ctxFor(repo, "HEAD~1");
+
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.reviewFirst.map((f) => f.file)).toEqual(["a.ts"]);
+    expect(brief.reviewFirstScope).toBe("code");
+    expect(Array.isArray(brief.skim) ? brief.skim : "collapsed").toEqual([{ file: "archive/foo.patch", category: "docs" }]);
+    repo.cleanup();
+  });
+
+  it("builds a quick-confirm captain brief when no detector reports a fact; drift says it is not tracked outside the Action", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    repo.commit({ "a.ts": "2\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.captain).toEqual({
+      priority: "quick",
+      why: [],
+      facts: [],
+      notes: ["modules: no package.json found; falling back to moduleDepth: 2", "drift: not tracked here"],
+    });
+    repo.cleanup();
+  });
+
+  it("omits the captain brief when captain.enabled is false", async () => {
+    const repo = makeRepo();
+    repo.commit({ "a.ts": "1\n" }, "base");
+    repo.commit({ "a.ts": "2\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    ctx.config.captain.enabled = false;
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.captain).toBeUndefined();
+    repo.cleanup();
+  });
+
+  it("is careful for a changed file matching paths.critical, even at a quiet tier", async () => {
+    const repo = makeRepo();
+    repo.commit({ "src/auth/token.ts": "1\n" }, "base");
+    repo.commit({ "src/auth/token.ts": "2\n" }, "change");
+    const ctx = await ctxFor(repo, "HEAD~1");
+    const brief = await buildBrief(fakeResult(0.1), ctx, { llm: false });
+    expect(brief.captain?.priority).toBe("careful");
+    repo.cleanup();
+  });
 });

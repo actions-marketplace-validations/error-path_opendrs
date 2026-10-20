@@ -1,22 +1,32 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve as resolvePath } from "node:path";
+import { buildModuleResolver } from "../architecture/module.js";
 import type { OpendrsConfig } from "../domain/config.js";
 import type { DependencyGraph } from "../domain/types.js";
 import { git } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 import { extractImports, languageOf } from "./imports.js";
 import { baseName } from "./path-util.js";
+import { computePackageRoots, type PackageRootIndex } from "./package-roots.js";
 import { createResolver } from "./resolve.js";
 import { listTree, readBlobs } from "./tree.js";
 
 const MAX_FILE_BYTES = 1024 * 1024;
-const CACHE_VERSION = 1;
-/** Files the resolvers read for aliases, workspace names and module paths. */
-const CONFIG_FILES = new Set(["package.json", "tsconfig.json", "jsconfig.json", "go.mod"]);
+const CACHE_VERSION = 2;
+/** Files the resolvers read for aliases, workspace names, module paths and (Package.swift) target roots. */
+const CONFIG_FILES = new Set(["package.json", "tsconfig.json", "jsconfig.json", "go.mod", "Package.swift"]);
 
 export interface RepoGraph extends DependencyGraph {
   /** Files in the graph vs. non-ignored files in the tree (they differ when graph.maxFiles is hit). */
   coverage: { files: number; total: number };
+  /** Covered files, sorted by path; what `importsOf` and `dependentsOf` resolve against (layers detector, spec §6.2). */
+  files: readonly string[];
+  /** Files that `path` imports directly (forward edges), for the layers detector (spec §6.2). */
+  importsOf(path: string): string[];
+  /** This tree's module for `path` (module-boundaries spec §3): captain.modules glob, else auto-detected package root, else flat moduleDepth. */
+  moduleOf(path: string): string;
+  /** How the module map above was built, one line per ecosystem present (module-boundaries spec §3). */
+  moduleNotes: readonly string[];
 }
 
 interface GraphData {
@@ -28,6 +38,8 @@ interface GraphData {
   files: string[];
   /** Forward edges: edges[i] = indexes of the files that files[i] imports. */
   edges: number[][];
+  /** Ecosystem package/crate/gem/target roots, derived once from this tree's manifests (module-boundaries spec §3). */
+  moduleRoots: PackageRootIndex;
 }
 
 /**
@@ -41,10 +53,10 @@ export async function buildDependencyGraph(repoDir: string, ref: string, config:
   const cacheFile = join(gitDir, "opendrs-cache", `graph-${treeSha}.json`);
 
   const cached = await readCache(cacheFile, key);
-  if (cached) return toGraph(cached);
+  if (cached) return toGraph(cached, config);
   const data = await computeGraph(repoDir, treeSha, config, key);
   await writeCache(cacheFile, data);
-  return toGraph(data);
+  return toGraph(data, config);
 }
 
 async function computeGraph(repoDir: string, treeSha: string, config: OpendrsConfig, key: string): Promise<GraphData> {
@@ -77,11 +89,13 @@ async function computeGraph(repoDir: string, treeSha: string, config: OpendrsCon
     for (const spec of specs.get(from) ?? []) for (const to of resolve(from, spec)) targets.add(index.get(to)!);
     return [...targets];
   });
-  return { version: CACHE_VERSION, key, total: all.length, files, edges };
+  const moduleRoots = computePackageRoots(files, contents);
+  return { version: CACHE_VERSION, key, total: all.length, files, edges, moduleRoots };
 }
 
-function toGraph(data: GraphData): RepoGraph {
+function toGraph(data: GraphData, config: OpendrsConfig): RepoGraph {
   const { files, edges } = data;
+  const { moduleOf, notes: moduleNotes } = buildModuleResolver(files, data.moduleRoots, config);
   const index = new Map(files.map((f, i) => [f, i]));
   const reverse: number[][] = files.map(() => []);
   edges.forEach((targets, from) => {
@@ -93,9 +107,16 @@ function toGraph(data: GraphData): RepoGraph {
   return {
     fileCount: files.length,
     coverage: { files: files.length, total: data.total },
+    files,
+    moduleOf,
+    moduleNotes,
     dependentsOf(path) {
       const i = index.get(path);
       return i === undefined ? [] : reverse[i]!.map((j) => files[j]!);
+    },
+    importsOf(path) {
+      const i = index.get(path);
+      return i === undefined ? [] : edges[i]!.map((j) => files[j]!);
     },
     transitiveDependents(path, maxDepth) {
       const start = index.get(path);
@@ -132,7 +153,9 @@ async function readCache(file: string, key: string): Promise<GraphData | undefin
       data.key === key &&
       typeof data.total === "number" &&
       data.edges.length === n &&
-      data.edges.every((targets) => targets.every((t) => Number.isInteger(t) && t >= 0 && t < n));
+      data.edges.every((targets) => targets.every((t) => Number.isInteger(t) && t >= 0 && t < n)) &&
+      typeof data.moduleRoots === "object" &&
+      data.moduleRoots !== null;
     return valid ? data : undefined;
   } catch {
     return undefined;

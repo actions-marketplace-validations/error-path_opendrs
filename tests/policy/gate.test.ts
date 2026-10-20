@@ -17,6 +17,17 @@ const file = (path: string, added = 10, deleted = 5, ignored = false): ChangedFi
   ignored,
 });
 
+const hunk = (lines: string[]) => ({ oldStart: 1, oldLines: 0, newStart: 1, newLines: lines.length, lines });
+const fileWithHunks = (path: string, hunks: ReturnType<typeof hunk>[], added: number, deleted: number): ChangedFile => ({
+  path,
+  status: "modified",
+  added,
+  deleted,
+  binary: false,
+  hunks,
+  ignored: false,
+});
+
 const unknown = (id: string, value: number): Signal => ({ id, value, status: "unknown", summary: `${id} unknown`, evidence: [] });
 
 const history = fakeHistory([
@@ -59,6 +70,17 @@ describe("decide: rule 7 (auto-approve)", () => {
 
   it("suggests recent authors of the changed files, excluding the PR author", () => {
     expect(decide(input()).suggestedReviewers).toEqual(["bob@x.com", "carol@x.com"]);
+  });
+
+  it("shows enough decimals when the score rounds to the same two decimals as green", () => {
+    const out = decide(input({ score: 0.2996 }));
+    expect(out.reasons[0]).toContain("score 0.2996 < green 0.30");
+    expect(out.reasons[0]).not.toContain("0.30 < green 0.30");
+  });
+
+  it("shows enough decimals on both sides when the threshold itself has more than two decimals", () => {
+    const out = decide(input({ cfg: { thresholds: { green: 0.3012 } }, score: 0.3004 }));
+    expect(out.reasons[0]).toContain("score 0.3004 < green 0.3012");
   });
 });
 
@@ -228,6 +250,54 @@ describe("decide: rule 2 (size cap)", () => {
     const out = decide(input({ files: [file("src/a.ts", 300, 100), bin] }));
     expect(out.reasons).toContain("401 changed lines exceeds autoApprove.maxChangedLines (400)");
   });
+
+  it("excludes a pure-docs PR from the size cap entirely", () => {
+    const f = fileWithHunks("README.md", [hunk(Array(500).fill("+x"))], 500, 0);
+    const out = decide(input({ files: [f], cfg: { autoApprove: { maxChangedLines: 400, sampleRate: 0 } } }));
+    expect(out.decision).toBe("auto-approve");
+    expect(out.reasons.some((r) => /maxChangedLines/.test(r))).toBe(false);
+  });
+
+  it("reports both numbers when inert lines were excluded", () => {
+    const docs = fileWithHunks("README.md", [hunk(Array(300).fill("+x"))], 300, 0);
+    const code = fileWithHunks("src/a.ts", [hunk(Array(200).fill("+const x = 1;"))], 200, 0);
+    const out = decide(input({ files: [docs, code], cfg: { autoApprove: { maxChangedLines: 100, sampleRate: 0 } } }));
+    expect(out.reasons).toContain(
+      "500 changed lines, 200 counted toward maxChangedLines after excluding 300 inert docs/comment lines (cap 100)",
+    );
+  });
+
+  it("an instructions file overrides sizeCapExempt and docs-family: it still counts in full", () => {
+    const cfg = { autoApprove: { maxChangedLines: 10, sampleRate: 0, sizeCapExempt: ["**/*"] } };
+    const f = fileWithHunks("CLAUDE.md", [hunk(Array(50).fill("+x"))], 50, 0);
+    const out = decide(input({ files: [f], cfg }));
+    expect(out.reasons).toContain("50 changed lines exceeds autoApprove.maxChangedLines (10)");
+  });
+
+  it("a test file under sizeCapExempt still counts in full", () => {
+    const cfg = { autoApprove: { maxChangedLines: 10, sampleRate: 0, sizeCapExempt: ["**/*"] } };
+    const f = fileWithHunks("tests/a.test.ts", [hunk(Array(50).fill("+x"))], 50, 0);
+    const out = decide(input({ files: [f], cfg }));
+    expect(out.reasons).toContain("50 changed lines exceeds autoApprove.maxChangedLines (10)");
+  });
+
+  it("countInertLines: true reproduces today's single-number reason exactly", () => {
+    const cfg = { autoApprove: { maxChangedLines: 10, sampleRate: 0, countInertLines: true } };
+    const f = fileWithHunks("README.md", [hunk(Array(50).fill("+x"))], 50, 0);
+    const out = decide(input({ files: [f], cfg }));
+    expect(out.reasons).toContain("50 changed lines exceeds autoApprove.maxChangedLines (10)");
+  });
+
+  it("a comment-only hunk excludes only that hunk; a sibling real-code hunk still counts", () => {
+    const f = fileWithHunks(
+      "src/a.ts",
+      [hunk(Array(300).fill("+// comment")), hunk(Array(150).fill("+const x = 1;"))],
+      450,
+      0,
+    );
+    const out = decide(input({ files: [f], cfg: { autoApprove: { maxChangedLines: 400, sampleRate: 0 } } }));
+    expect(out.reasons.some((r) => /maxChangedLines/.test(r))).toBe(false); // 150 <= 400
+  });
 });
 
 describe("decide: rule 3 (tier)", () => {
@@ -242,6 +312,11 @@ describe("decide: rule 3 (tier)", () => {
     const out = decide(input({ score: 0.45 }));
     expect(out.decision).toBe("human-review");
     expect(out.reasons[0]).toMatch(/yellow.*0\.45.*0\.30/);
+  });
+
+  it("shows enough decimals when the score rounds to the same two decimals as green", () => {
+    const out = decide(input({ score: 0.3004 }));
+    expect(out.reasons[0]).toContain("score 0.3004 ≥ green threshold 0.30");
   });
 
   it("maps percentile thresholds through the model's history percentiles, interpolating", () => {
@@ -292,6 +367,12 @@ describe("decide: freezes", () => {
     expect(out).toMatchObject({ tier: "green", decision: "human-review" });
     expect(out.reasons[0]).toBe('freeze "black-friday": score 0.20 ≥ freeze green 0.15');
     expect(decide(input({ ...freeze(window), score: 0.1 })).decision).toBe("auto-approve");
+  });
+
+  it("shows enough decimals when the freeze score rounds to the same two decimals as the freeze green", () => {
+    const window = { name: "black-friday", days: ["fri"], green: 0.15 };
+    const out = decide(input({ ...freeze(window), score: 0.1504 }));
+    expect(out.reasons[0]).toBe('freeze "black-friday": score 0.1504 ≥ freeze green 0.15');
   });
 
   it("maps a percentile freeze green through the model's percentiles", () => {
@@ -366,6 +447,11 @@ describe("decide: per-source policy", () => {
     expect(out).toMatchObject({ tier: "green", decision: "human-review" });
     expect(out.reasons[0]).toBe("source agent: score 0.24 ≥ source green 0.20");
     expect(decide(input({ ...sources({ green: 0.2 }), source: agent, score: 0.19 })).decision).toBe("auto-approve");
+  });
+
+  it("shows enough decimals when the source score rounds to the same two decimals as the source green", () => {
+    const out = decide(input({ ...sources({ green: 0.2 }), source: agent, score: 0.2004 }));
+    expect(out.reasons[0]).toBe("source agent: score 0.2004 ≥ source green 0.20");
   });
 
   it("never fires for another kind", () => {
@@ -688,6 +774,11 @@ describe("decide: deferred review", () => {
     expect(out).toMatchObject({ tier: "yellow", decision: "deferred-review", mergeMethod: "queue", hardBlocked: false, sampled: false });
     expect(out.reasons[0]).toBe("deferred review: score 0.34 is in the deferred band (0.30–0.45); lands now, reviewed after merge");
     expect(out.reasons).toContain("dry run: autoApprove.enabled=false");
+  });
+
+  it("shows enough decimals when the score rounds to the same two decimals as green", () => {
+    const out = decide(input({ score: 0.3004, cfg: deferred() }));
+    expect(out.reasons[0]).toBe("deferred review: score 0.3004 is in the deferred band (0.30–0.45); lands now, reviewed after merge");
   });
 
   it("includes the green edge and excludes the below edge", () => {

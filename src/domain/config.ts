@@ -69,6 +69,7 @@ export const DEFAULT_BLOCK: readonly string[] = [
   "**/Cargo.toml",
   "**/build.rs",
   "**/go.mod",
+  "**/Package.swift",
   "**/Gemfile",
   "**/Rakefile",
   "**/*.gemspec",
@@ -119,6 +120,27 @@ export const DEFAULT_BLOCK: readonly string[] = [
 
 /** Default `paths.critical`. A config's own `critical` adds to it. */
 export const DEFAULT_CRITICAL: readonly string[] = ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"];
+
+/**
+ * Default `paths.instructions`: files that steer an AI agent or CI, never excluded from the size
+ * cap (2026-10-20 inert-changes spec §3). Additive only, like DEFAULT_BLOCK/DEFAULT_CRITICAL — no
+ * unblock-style removal.
+ */
+export const DEFAULT_INSTRUCTIONS: readonly string[] = [
+  "**/CLAUDE.md",
+  "**/AGENTS.md",
+  "**/GEMINI.md",
+  ".claude/**",
+  ".cursor/**",
+  ".cursorrules",
+  ".windsurfrules",
+  ".github/copilot-instructions.md",
+  ".github/instructions/**",
+  "**/SKILL.md",
+  "**/*.prompt.md",
+  "**/prompts/**",
+  ".opendrs/**",
+];
 
 /** An unblock entry must name a default block glob exactly, so a typo cannot pass silently. */
 function unblockable(glob: string, ctx: z.RefinementCtx): void {
@@ -211,6 +233,10 @@ export const configSchema = z.object({
       mergeMethod: z.enum(["queue", "auto-merge", "none"]).default("queue"),
       sampleRate: z.number().min(0).max(1).default(0.1),
       maxChangedLines: z.number().int().positive().default(400),
+      /** Never excluded from the size cap (spec §2.3), whatever its language family; glob-matched like paths.*. */
+      sizeCapExempt: globs([]),
+      /** true restores pre-2026-10-20 behaviour: every changed line counts, nothing is excluded. */
+      countInertLines: z.boolean().default(false),
       /** Minutes an eligible PR waits, on the same head commit, before opendrs approves it (a veto window). */
       landingDelayMinutes: z.number().int().min(0).default(0),
       /**
@@ -232,6 +258,7 @@ export const configSchema = z.object({
       block: globs([]),
       critical: globs([]),
       unblock: z.array(z.string().superRefine(unblockable)).default([]),
+      instructions: globs([]),
       ignore: globs([
         "**/*.lock",
         "**/package-lock.json",
@@ -251,6 +278,10 @@ export const configSchema = z.object({
         "**/*.spec.*",
         "**/*_test.*",
         "**/test_*.py",
+        "**/spec/**",
+        "**/*_spec.rb",
+        "**/Tests/**",
+        "**/*Tests.swift",
       ]),
     })
     // block and critical extend the defaults (ignore and tests replace theirs); unblock wins over both.
@@ -258,6 +289,7 @@ export const configSchema = z.object({
       ...p,
       block: union(DEFAULT_BLOCK, p.block).filter((g) => !p.unblock.includes(g)),
       critical: union(DEFAULT_CRITICAL, p.critical),
+      instructions: union(DEFAULT_INSTRUCTIONS, p.instructions),
     }))
     .prefault({}),
   content: z
@@ -287,6 +319,8 @@ export const configSchema = z.object({
       maxCommits: z.number().int().positive().default(20_000),
       /** calibrate/backtest leave out commits this many days younger than the newest: their bugs may not be found yet. 0 = off. */
       labelHorizonDays: z.number().int().min(0).default(60),
+      /** Timeout for the one-time `git log` history scan, in ms. Raise this (or lower maxCommits) if it times out on a large or blobless clone. */
+      gitTimeoutMs: z.number().int().positive().default(600_000),
     })
     .prefault({}),
   graph: z
@@ -302,6 +336,37 @@ export const configSchema = z.object({
     .object({
       /** Token budget for the review brief's Markdown (characters / 3.5); 300 is roughly the cost of the mandatory sections alone, the hard ceiling is 6000. */
       maxTokens: z.number().int().min(300, "brief.maxTokens must be at least 300 (the mandatory sections alone cost roughly that many tokens)").max(6_000).default(2_500),
+    })
+    .prefault({}),
+  captain: z
+    .object({
+      /** false: no captain line, block, labels, output or brief section (spec §9). */
+      enabled: z.boolean().default(true),
+      /**
+       * Path segments that make a module for the layers detector (spec §6.2), when set explicitly.
+       * Unset (the default): modules are auto-detected from each ecosystem's own package/workspace
+       * manifests (module-boundaries spec §3), falling back to a flat depth of 2 only where no
+       * manifest is found. Setting this disables auto-detection for the whole repo and goes back to
+       * today's flat-depth behaviour everywhere.
+       */
+      moduleDepth: z.number().int().min(1).max(6).optional(),
+      /** Literal globs overriding auto-detection, e.g. one glob per package's source tree; highest precedence (module-boundaries spec §5). */
+      modules: globs([]),
+      coupling: z
+        .object({
+          // Tuned on ApacheJIT (spec §10.1; docs/experiments.md, "Change coupling on ApacheJIT"):
+          // test lift 1.931x at minSupport 8 / minConfidence 0.6, chosen by train lift.
+          enabled: z.boolean().default(true),
+          minSupport: z.number().int().min(2).default(8),
+          minConfidence: z.number().min(0).max(1).default(0.6),
+        })
+        .prefault({}),
+      contracts: z
+        .object({
+          /** Extra schema/contract globs, added to the defaults (spec §6.3). */
+          paths: globs([]),
+        })
+        .prefault({}),
     })
     .prefault({}),
   freezes: z.array(freezeSchema).default([]),

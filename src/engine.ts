@@ -47,8 +47,9 @@ export interface ScoreOptions {
   /**
    * Build a review brief (ScoreResult.brief). maxTokens defaults to config.brief.maxTokens. With
    * onError, a failure to build it is reported there and the result has no brief; without, it propagates.
+   * firstHead/firstRun feed the drift detector (spec §6.4; Action only).
    */
-  brief?: { maxTokens?: number; llm?: boolean; onError?: (message: string) => void };
+  brief?: { maxTokens?: number; llm?: boolean; firstHead?: string; firstRun?: number; onError?: (message: string) => void };
 }
 
 /** Load the calibrated model if config.model exists in the repo; else the default priors. */
@@ -195,6 +196,8 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
       result.brief = await buildBrief(result, ctx, {
         maxTokens: opts.brief.maxTokens ?? config.brief.maxTokens,
         llm: opts.brief.llm,
+        firstHead: opts.brief.firstHead,
+        firstRun: opts.brief.firstRun,
       });
     } catch (e) {
       // The brief is an add-on to the score: the Action keeps the decision and posts without it.

@@ -20,6 +20,12 @@ autoApprove:
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human, to detect drift
   maxChangedLines: 400  # never auto-approve above this, whatever the score
+  # Lines excluded from maxChangedLines by default: docs-family files, blank lines, plain
+  # comments, and anything listed below. paths.instructions always counts in full regardless.
+  # sizeCapExempt:
+  #   - "docs/assets/**"   # e.g. Jekyll/site assets under docs/ are not docs-family and would
+  #                         # otherwise count in full; list them here once you trust them
+  countInertLines: false  # true: every changed line counts, nothing excluded (old behaviour)
   landingDelayMinutes: 0  # minutes an eligible PR waits, on the same head commit, before approval
   deferredReview:       # RADAR: land now, review after merge, for scores just above green
     enabled: false
@@ -62,6 +68,7 @@ paths:
     - "**/Cargo.toml"
     - "**/build.rs"
     - "**/go.mod"
+    - "**/Package.swift"
     - "**/Gemfile"
     - "**/Rakefile"
     - "**/*.gemspec"
@@ -138,6 +145,27 @@ paths:
     - "**/*.spec.*"
     - "**/*_test.*"
     - "**/test_*.py"
+    - "**/spec/**"
+    - "**/*_spec.rb"
+    - "**/Tests/**"
+    - "**/*Tests.swift"
+  # Files that steer an AI agent or CI; never excluded from autoApprove.sizeCapExempt or the
+  # docs-family exclusion (see autoApprove above), whatever their extension. Additive, like
+  # block and critical.
+  instructions:
+    - "**/CLAUDE.md"
+    - "**/AGENTS.md"
+    - "**/GEMINI.md"
+    - ".claude/**"
+    - ".cursor/**"
+    - ".cursorrules"
+    - ".windsurfrules"
+    - ".github/copilot-instructions.md"
+    - ".github/instructions/**"
+    - "**/SKILL.md"
+    - "**/*.prompt.md"
+    - "**/prompts/**"
+    - ".opendrs/**"
 
 # JS regular expressions matched against each added line; a match is never auto-approved.
 # No inline flags such as (?i): write [Dd]rop instead.

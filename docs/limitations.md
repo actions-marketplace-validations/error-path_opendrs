@@ -47,3 +47,9 @@ estimate is weaker than it looks, grouped by the model, the [signals](signals.ht
   needs full history (`fetch-depth: 0`). In a shallow clone, `diffusion.authors` and `history.*`
   are reported as `unknown` ("shallow clone: history incomplete"), keeping what they saw as a lower
   bound, so a missing history never reads as low risk.
+- **The one-time history scan can be slow on a large or blobless clone.** A blobless clone's
+  on-demand blob fetch, or a repo with a very long history, can make the single `git log` scan that
+  `history.*`/`diffusion.authors`/`coupling.missing` depend on take minutes of wall-clock time rather
+  than seconds, especially under host I/O contention. Raise `history.gitTimeoutMs` (default 600000,
+  i.e. 10 minutes) or lower `history.maxCommits` if `brief`/`score` fails with a
+  "git log timed out ..." error.

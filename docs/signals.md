@@ -19,7 +19,7 @@ Meta's baseline is a logistic regression over about a dozen features, chosen fro
 | Comment-only change ("has no risk", §II-B) | `size.comment_only` | 1 when every added or deleted line is blank or a plain comment in the file's own syntax (not a lone `/*` or `*/`, not a directive such as `//go:embed` or `// @ts-nocheck`), with no renames or binary files |
 | Log of number of files | `diffusion.files`, `diffusion.dirs` | `log1p` of changed files and of distinct top-level directories |
 | Log of distinct authors of the changed files | `diffusion.authors` | `log1p` of distinct authors in the files' history |
-| Previous SEV in the file or folder | `history.incident`, `history.prior_fixes` | a recorded incident or revert touched the file or folder; `log1p` of fix and revert commits in the lookback window |
+| Previous SEV in the file | `history.incident`, `history.prior_fixes` | a recorded incident or revert touched the exact file (or an explicit `incidents.jsonl` `paths` prefix); `log1p` of fix and revert commits in the lookback window |
 | High-criticality service | `paths.critical` | changed file matches `paths.critical` globs |
 | Total logical complexity | `complexity.touched` | `log1p` of branch keywords in the touched files (language-agnostic heuristic) |
 | Language indicators | `lang.*` | one indicator per language family present |

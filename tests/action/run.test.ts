@@ -688,24 +688,56 @@ describe("re-scoring", () => {
     ({ head: PREV_HEAD, score: 0.76, tier: "yellow" as const, decision: "human-review" as const, run: 1, ...over });
   const rescoreOpts = () => vi.mocked(renderMarkdown).mock.calls[0]![1];
 
-  it("first run: no re-score line, marker written with run=1", async () => {
+  it("first run: no re-score line, marker written with run=1 and first=this head", async () => {
     const t = await run({ result: result(0.76, "yellow", "human-review") });
     await t.promise;
     expect(rescoreOpts()).toEqual({});
-    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 1 }));
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: t.headSha, firstRun: 1 });
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: t.headSha, firstRun: 1, score: 0.76, tier: "yellow", decision: "human-review", run: 1 }),
+    );
     expect(t.gh.comments.some((c) => c.body.includes("Re-scored for"))).toBe(false);
     expect(t.gh.ops("createComment")).toHaveLength(1);
   });
 
-  it("re-run, no change: shows the re-score line, bumps run, posts no new comment", async () => {
+  it("re-run, no change: shows the re-score line, bumps run, posts no new comment, keeps the first run's first", async () => {
     const t = await run({ result: result(0.76, "yellow", "human-review"), ownComment: () => stateMarker(prevState()) });
     await t.promise;
     expect(rescoreOpts()).toMatchObject({
       rescoreLine: `Re-scored for \`${t.headSha.slice(0, 7)}\` (run 2) · was 0.76 yellow → now 0.76 yellow`,
     });
-    expect(t.gh.comments[0]!.body).toContain(stateMarker({ head: t.headSha, score: 0.76, tier: "yellow", decision: "human-review", run: 2 }));
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 1 });
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: PREV_HEAD, firstRun: 1, score: 0.76, tier: "yellow", decision: "human-review", run: 2 }),
+    );
     expect(t.gh.comments.some((c) => c.body.includes("risk changed"))).toBe(false);
     expect(t.gh.ops("createComment")).toEqual([]);
+  });
+
+  it("a previous 0.3.x marker (no first=): first becomes its head, firstRun becomes its run", async () => {
+    const t = await run({
+      result: result(0.76, "yellow", "human-review"),
+      ownComment: () => `<!-- opendrs-state: v1 head=${PREV_HEAD} score=0.76 tier=yellow decision=human-review run=3 -->`,
+    });
+    await t.promise;
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 3 });
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: PREV_HEAD, firstRun: 3, score: 0.76, tier: "yellow", decision: "human-review", run: 4 }),
+    );
+  });
+
+  it("the run after a 0.3.x migration keeps firstRun from the marker instead of resetting to 1", async () => {
+    // Simulates the marker the previous test's run would have written: first= and firstRun= already
+    // carried over from the 0.3.x migration (run 3), one run later (run 4).
+    const t = await run({
+      result: result(0.76, "yellow", "human-review"),
+      ownComment: () => stateMarker({ head: PREV_HEAD, first: PREV_HEAD, firstRun: 3, score: 0.76, tier: "yellow", decision: "human-review", run: 4 }),
+    });
+    await t.promise;
+    expect(t.scoreArgs().brief).toMatchObject({ firstHead: PREV_HEAD, firstRun: 3 });
+    expect(t.gh.comments[0]!.body).toContain(
+      stateMarker({ head: t.headSha, first: PREV_HEAD, firstRun: 3, score: 0.76, tier: "yellow", decision: "human-review", run: 5 }),
+    );
   });
 
   it("re-run on the same head commit still bumps run and shows the line", async () => {
@@ -821,6 +853,67 @@ describe("labels", () => {
     const t = await run({ gh: { forbid: new Set(["addLabels"]) } });
     await expect(t.promise).resolves.toMatchObject({ tier: "green" });
     expect(t.log()).toMatch(/::warning::.*label/i);
+  });
+});
+
+describe("captain", () => {
+  const withCaptain = (priority: "careful" | "standard" | "quick", scored = result(0.1, "green", "auto-approve")): ScoreResult => ({
+    ...scored,
+    brief: { ...BRIEF, captain: { priority, why: [], facts: [], notes: [] } },
+  });
+
+  it("creates the captain:<priority> label with its colour", async () => {
+    const t = await run({ result: withCaptain("careful") });
+    await t.promise;
+    expect(t.gh.labels).toContain("captain:careful");
+    expect(t.gh.repoLabels["captain:careful"]).toEqual({ color: "d93f0b", description: "opendrs: captain should review carefully" });
+  });
+
+  it("swaps the stale captain label on a rerun with a different priority", async () => {
+    const t = await run({ labels: ["captain:careful"], result: withCaptain("quick") });
+    await t.promise;
+    expect(t.gh.ops("removeLabel").map((e) => decodeURIComponent(e.path.split("/").pop()!))).toContain("captain:careful");
+    expect(t.gh.labels).toContain("captain:quick");
+    expect(t.gh.labels).not.toContain("captain:careful");
+  });
+
+  it("sets the captain output to the priority", async () => {
+    const t = await run({ result: withCaptain("standard") });
+    await t.promise;
+    expect(t.output()).toMatch(/^captain<<(\S+)\nstandard\n\1$/m);
+  });
+
+  it("leaves the captain output empty, and adds no captain label, when the brief has no captain", async () => {
+    const t = await run({ result: { ...result(0.1, "green", "auto-approve"), brief: BRIEF } });
+    await t.promise;
+    expect(t.output()).toMatch(/^captain<<(\S+)\n\n\1$/m);
+    expect(t.gh.ops("addLabels").flatMap((e) => (e.body as { labels: string[] }).labels)).not.toEqual(expect.arrayContaining([expect.stringMatching(/^captain:/)]));
+  });
+
+  it("shows the captain line and block in the job summary", async () => {
+    const { renderMarkdown: real } = await vi.importActual<typeof import("../../src/report/markdown.js")>("../../src/report/markdown.js");
+    vi.mocked(renderMarkdown).mockImplementationOnce(real).mockImplementationOnce(real);
+    const brief = { ...BRIEF, captain: { priority: "careful" as const, why: [], facts: [{ id: "layers.edge" as const, weight: "strong" as const, file: "src/a.ts", text: "new import" }], notes: [] } };
+    const t = await run({ result: { ...result(0.1, "green", "auto-approve"), brief } });
+    await t.promise;
+    expect(t.summary()).toContain("**Captain: careful review**");
+    expect(t.summary()).toContain("**For the captain**");
+    expect(t.summary()).toContain("- new import");
+  });
+
+  it("sets the captain reviewer to the same login the review request uses", async () => {
+    const experts = (repo: TestRepo) => {
+      for (const [n, login] of [["1", "ana"], ["2", "bo"], ["3", "cy"], ["4", "di"]]) {
+        repo.commit({ "src/a.ts": `${n}\n` }, `fix ${n}`, { name: login!, email: `${n}0+${login}@users.noreply.github.com` });
+      }
+    };
+    const t = await run({ before: experts, result: withCaptain("careful", result(0.6, "yellow", "human-review")) });
+    await t.promise;
+    const requested = t.gh.ops("requestReviewers").map((e) => e.body as { reviewers: string[] });
+    expect(requested).toHaveLength(1);
+    const [login] = requested[0]!.reviewers;
+    const sentBrief = vi.mocked(renderMarkdown).mock.calls[0]![0].brief;
+    expect(sentBrief?.captain?.reviewer).toBe(login);
   });
 });
 

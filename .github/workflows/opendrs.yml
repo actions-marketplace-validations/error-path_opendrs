@@ -1,4 +1,5 @@
-# Dogfood: score this repository's own PRs and approve the low-risk ones (.opendrs.yml).
+# Dogfood: score this repository's own PRs and approve the low-risk ones (.opendrs.yml), and
+# auto-merge only those that are also a captain "quick confirm", once the required checks pass.
 # Runs the RELEASED action (@v0), never the PR's own copy: a PR must not be able to edit the
 # code that decides whether to approve it.
 name: opendrs
@@ -12,6 +13,8 @@ concurrency:
   group: opendrs-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# GITHUB_TOKEN only checks out and, on fork PRs, comments; the opendrs-bot app token below does
+# the rest, including enabling auto-merge.
 permissions:
   contents: read
   pull-requests: write
@@ -24,12 +27,40 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # required: the score reads past commits, authors and the merge-base
+      # opendrs comments, labels, approves and merges as the opendrs-bot GitHub App, not as
+      # github-actions. The token lasts one hour, covers this repository only and is revoked when
+      # the job ends. Fork PRs get no secrets: they fall back to GITHUB_TOKEN and are never approved.
+      - name: Mint an opendrs-bot token
+        id: app-token
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.OPENDRS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.OPENDRS_APP_PRIVATE_KEY }}
       - uses: error-path/opendrs@v0
         id: opendrs
         with:
+          github-token: ${{ steps.app-token.outputs.token || github.token }}
           sample-salt: ${{ secrets.OPENDRS_SAMPLE_SALT }}
       - env:
           SCORE: ${{ steps.opendrs.outputs.score }}
           TIER: ${{ steps.opendrs.outputs.tier }}
           DECISION: ${{ steps.opendrs.outputs.decision }}
-        run: echo "score=$SCORE tier=$TIER decision=$DECISION"
+          CAPTAIN: ${{ steps.opendrs.outputs.captain }}
+        run: echo "score=$SCORE tier=$TIER decision=$DECISION captain=$CAPTAIN"
+      # The decision and captain come from this run, never from labels: anyone with triage access
+      # can add a label. auto-approve already means green with every safety rule passed.
+      - name: Auto-merge a green, quick-confirm PR once the required checks pass
+        if: steps.app-token.outputs.token != '' && steps.opendrs.outputs.decision == 'auto-approve' && steps.opendrs.outputs.captain == 'quick'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR" --auto --squash --repo "$GITHUB_REPOSITORY"
+      # Turn it off in every other case, including a failed opendrs step, so a later push that is no
+      # longer quick-confirm cannot merge on auto-merge set by an earlier run.
+      - name: Otherwise turn auto-merge off
+        if: ${{ !cancelled() && !(steps.opendrs.outputs.decision == 'auto-approve' && steps.opendrs.outputs.captain == 'quick') }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR" --disable-auto --repo "$GITHUB_REPOSITORY" || true

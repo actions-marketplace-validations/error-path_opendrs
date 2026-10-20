@@ -99,6 +99,16 @@ flowchart LR
    absolute scores or percentiles of your own history.
 4. **Policy.** Ordered rules turn the score into a decision. [Policy and safety rails](docs/policy.md)
 
+## Where opendrs sits in your PR flow
+
+A PR now often gets two rounds of AI review before a human looks at it. Those rounds catch local
+defects: typos, missing null checks, an obvious off-by-one. By the time a human opens the PR, that
+work is done, and what is left is a design and architecture judgment call made with less context
+than before. opendrs is built for that moment: it tells the final human how much attention the PR
+needs and names up to five architecture and history facts — a new import between modules, a broken
+public contract, a file that usually changes with one the PR didn't touch — that neither the
+editor nor the AI review comments showed. See [the captain brief](docs/captain.md).
+
 ## Features
 
 | Feature | What it does | Default | Docs |
@@ -156,6 +166,7 @@ Flags, exit codes, MCP tools and the agent skill: [CLI, MCP server and agent ski
 | [What is the blast radius of a PR?](docs/blast-radius.md) | understand blast radius |
 | [LLM judge](docs/llm-judge.md) | turn on the optional LLM judge or the `requireSafe` gate |
 | [Feeding the review brief to an LLM reviewer](docs/llm-reviewers.md) | get opendrs's findings in front of Claude Code, claude-code-action, Bugbot, CodeRabbit, Copilot or Codex |
+| [The captain brief](docs/captain.md) | know what the final human reviewer sees: priority, reviewer, and the architecture and history facts |
 | [Calibration and backtesting](docs/calibration.md) | fit the model to your repository and choose thresholds |
 | [Benchmark results](docs/results.md) | see how opendrs ranks risk on public repositories |
 | [Experiments](docs/experiments.md) | see what we tried and what did not work |

@@ -10,13 +10,14 @@ description: "Every key in .opendrs.yml with its default: thresholds, auto-appro
 | Section | What it controls |
 |---|---|
 | `thresholds` | The green, yellow and red cut-offs, in absolute scores or percentiles of your calibrated history (ordering rule under [What opendrs refuses](#what-opendrs-refuses)) |
-| `autoApprove` | Whether auto-approval is on, the AI-review checks that must have passed, the merge method, the share of eligible PRs still routed to a human and the changed-lines ceiling |
-| `paths` | Blocked, unblocked, critical, ignored and test globs (see [Why the default block list is long](#why-the-default-block-list-is-long) and [Your lists add to the defaults](#your-lists-add-to-the-defaults)) |
+| `autoApprove` | Whether auto-approval is on, the AI-review checks that must have passed, the merge method, the share of eligible PRs still routed to a human, the changed-lines ceiling and which lines count toward it |
+| `paths` | Blocked, unblocked, critical, instructions, ignored and test globs (see [Why the default block list is long](#why-the-default-block-list-is-long), [Your lists add to the defaults](#your-lists-add-to-the-defaults) and [Inert lines and the size cap](#inert-lines-and-the-size-cap)) |
 | `llm` | The optional LLM judge: provider, model, endpoint, API key variable, whether the PR body is included, diff size limit |
-| `history` | Lookback window, fix-commit pattern, commit cap and the label horizon that `calibrate` and `backtest` skip |
+| `history` | Lookback window, fix-commit pattern, commit cap, the `git log` timeout and the label horizon that `calibrate` and `backtest` skip |
 | `graph` | The import graph: on or off, depth and file cap |
 | `model` | Where `opendrs calibrate` writes the fitted model; priors are used until it exists |
 | `brief` | Token budget for the review brief's Markdown |
+| `captain` | The [captain brief](captain.html): the module map for the layers detector (auto-detected by default, or a flat depth / literal globs), the change-coupling detector's thresholds, and extra schema/contract globs |
 | `content` | JS regexes matched against each added line (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `freezes` | Windows in which auto-approval is suspended or held to a stricter green (see [What opendrs refuses](#what-opendrs-refuses)) |
 | `sources` | Per-source policy for agent, bot and human PRs; every setting only tightens the gate |
@@ -40,6 +41,8 @@ autoApprove:
   mergeMethod: queue    # queue | auto-merge | none
   sampleRate: 0.1       # share of eligible PRs still routed to a human
   maxChangedLines: 400  # never auto-approve above this, whatever the score
+  sizeCapExempt: []     # never counts toward maxChangedLines, whatever its language family
+  countInertLines: false   # true restores the old behaviour: every changed line counts
 
 paths:
   # block and critical are matched ignoring case, and a list you set adds to these defaults.
@@ -71,7 +74,13 @@ paths:
   ignore: ["**/*.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/go.sum", "**/dist/**",
            "**/vendor/**", "**/node_modules/**", "**/*.min.js", "**/*.snap"]
   tests: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*",
-          "**/*_test.*", "**/test_*.py"]
+          "**/*_test.*", "**/test_*.py", "**/spec/**", "**/*_spec.rb", "**/Tests/**",
+          "**/*Tests.swift"]
+  # Never excluded from the size cap, whatever the extension; additive like block and critical.
+  instructions: ["**/CLAUDE.md", "**/AGENTS.md", "**/GEMINI.md", ".claude/**", ".cursor/**",
+                 ".cursorrules", ".windsurfrules", ".github/copilot-instructions.md",
+                 ".github/instructions/**", "**/SKILL.md", "**/*.prompt.md", "**/prompts/**",
+                 ".opendrs/**"]
 
 llm:
   enabled: false
@@ -86,6 +95,8 @@ history:
   lookbackDays: 365
   fixPattern: "\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"
   maxCommits: 20000
+  gitTimeoutMs: 600000   # timeout for the one-time `git log` history scan; raise this (or lower maxCommits)
+                         # if brief/score fails with "git log timed out ..." on a large or blobless clone
   labelHorizonDays: 60   # calibrate/backtest skip the newest 60 days: their bugs may not be found yet (0 = off)
 
 graph:
@@ -97,6 +108,17 @@ model: .opendrs/model.json   # written by `opendrs calibrate`; priors are used u
 
 brief:
   maxTokens: 2500   # token budget for the review brief's Markdown (characters / 3.5); min 300, max 6000
+
+captain:
+  enabled: true          # false: no captain line, block, labels, output or brief section
+  # moduleDepth: 2        # unset by default (auto-detection on); set to disable it and use a flat depth everywhere
+  modules: []             # literal globs overriding auto-detection, e.g. one per package's source tree
+  coupling:
+    enabled: true         # set by the ApacheJIT experiment; see docs/experiments.md
+    minSupport: 8         # set by the ApacheJIT experiment; see docs/experiments.md
+    minConfidence: 0.6    # set by the ApacheJIT experiment; see docs/experiments.md
+  contracts:
+    paths: []              # extra schema/contract globs, added to the defaults
 
 content:
   block: []   # JS regexes matched against each added line, e.g. ["\\beval\\(", "dangerouslySetInnerHTML"]
@@ -135,18 +157,61 @@ one-line change there (a `postinstall` hook, a registry pointed at another host,
 step) scores as small and low-risk, but runs on every developer machine and CI runner. Dependency
 bumps also change a lockfile, which is in `paths.ignore` and so already goes to a human.
 
+## Inert lines and the size cap
+
+`autoApprove.maxChangedLines` no longer counts every changed line by default. Blank lines, plain
+comments, and whole files in the docs family (`.md`, `.rst`, `.txt`, `.patch`, `.diff`) are
+excluded, in this order (first match wins): a `paths.instructions` file always counts in full;
+then a `paths.tests` file always counts in full; then a file matching `autoApprove.sizeCapExempt`
+never counts; then a docs-family file never counts; then, in any other file, a hunk where every
+changed line is blank or a plain comment in that file's own syntax never counts (a sibling
+real-code hunk in the same file still does); everything else counts in full. A binary file always
+counts as 1. The reason shown when the cap fires names both numbers, e.g. "500 changed lines, 200
+counted toward maxChangedLines after excluding 300 inert docs/comment lines (cap 400)".
+
+**Docs folders with executable content are not exempt by default.** A Jekyll layout
+(`docs/_layouts/*.html`), a notebook (`.ipynb`), or site JS/CSS under `docs/assets/**` is not
+`.md`/`.rst`/`.txt`, so it is classified `"other"`, not `"docs"` — those lines keep counting in
+full unless you explicitly add them to `autoApprove.sizeCapExempt` (e.g. `sizeCapExempt:
+["docs/assets/**"]`) on the default branch, the same trust boundary every other `.opendrs.yml`
+setting has. `countInertLines: true` turns this whole feature off and restores the old,
+unfiltered count.
+
 ## Your lists add to the defaults
 
-A `paths.block` or `paths.critical` you set extends the
+A `paths.block`, `paths.critical` or `paths.instructions` you set extends the
 default list; it never replaces it, so `block: ["infra/**"]` blocks `infra/**` as well as
 everything above. To drop a default block entry, name it under `paths.unblock` on the default
 branch, written exactly as in the list, for example `unblock: ["**/go.mod"]` if you trust `go.mod`
 edits to code review alone. An `unblock` entry that is not a default block glob is a config error
 that lists the valid ones, so a typo cannot pass silently. `paths.unblock` wins over the same glob
-under `paths.block`. Default `critical` globs cannot be removed. `paths.ignore` and `paths.tests`
+under `paths.block`. Default `critical` and `instructions` globs cannot be removed —
+`instructions` has no `unblock`-style escape at all. `paths.ignore` and `paths.tests`
 work the other way: a list you set replaces the default. In the Action, the self-modification
 guard keeps `.github/**`, `.opendrs.yml`, `.opendrs/**`, the action, `.gitmodules` and
 `.gitattributes` blocked whatever the lists say.
+
+## Repositories that use Conventional Commits
+
+The default `history.fixPattern` counts any commit subject matching
+`\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\d?|revert)\b` as a prior fix for
+`history.prior_fixes`. On a repository that uses Conventional Commits heavily, this also counts
+routine housekeeping — `fix(deps): update dependencies`, `chore(deps)`, `fix(ci)`, `fix(docs)`,
+`fix: typo` — as if it were a real bug fix. The [score-saturation
+experiment](experiments.html#score-saturation-fixpattern-and-incident-granularity-on-apachejit)
+measured this on `vitejs/vite`: excluding those commits dropped the share matched by
+`fixPattern` by 21.6 %. It was not significant pooled across ApacheJIT's mostly pre-Conventional-
+Commits Java projects, so it is not a new default — but it is worth setting per repo if you use the
+convention:
+
+```yaml
+history:
+  fixPattern: "^(?!(?:deps?|dependencies|ci|docs?|build|chore|style|tests?)(?:\\([^)]*\\))?:)(?!\\w+\\((?:deps?|dependencies|ci|docs?|build|chore|style|tests?)\\):)(?!fix:\\s*typo\\b).*\\b(fix(es|ed)?|bug|hotfix|regression|incident|sev\\d?|revert)\\b"
+```
+
+This is the same keyword match as the default, unless the subject opens with a Conventional-Commit
+header whose type or scope is `deps[/dependencies]`, `ci`, `docs`, `build`, `chore`, `style` or
+`test[s]`, or is the literal `fix: typo`.
 
 ## What opendrs refuses
 

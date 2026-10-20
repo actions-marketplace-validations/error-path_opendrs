@@ -1,5 +1,8 @@
-import type { Incident, ReviewBrief, ScoreResult, ScoringContext } from "../domain/types.js";
+import { detectArchitecture } from "../architecture/index.js";
+import { captainPriority } from "../architecture/priority.js";
+import type { ArchitectureFact, CaptainBrief, Incident, PolicyRule, ReviewBrief, ScoreResult, ScoringContext } from "../domain/types.js";
 import { gitMaybe } from "../git/exec.js";
+import { matchAny } from "../git/glob.js";
 import { INCIDENTS_FILE, parseIncidents } from "../model/label.js";
 import { untrusted } from "../report/escape.js";
 import { blameFixes } from "./blame.js";
@@ -20,6 +23,80 @@ export interface BuildBriefOptions {
   maxTokens?: number;
   /** False ignores the judge's per-hunk verdicts even when it ran. */
   llm?: boolean;
+  /** The head of opendrs's first run on this PR, for the drift detector (spec §6.4; Action only). */
+  firstHead?: string;
+  /** That first run's number, for an old marker's "since run k" phrasing. */
+  firstRun?: number;
+}
+
+const MAX_WHY_CHARS = 100;
+
+/**
+ * The index of the first sentence boundary (`.` or `;`) outside any backtick-quoted code span -
+ * followed by a space, or at the very end of the text - or undefined if there is none. `code()`
+ * (src/report/escape.ts) never leaves a literal backtick inside a span's content, so a simple
+ * backtick toggle reliably tracks whether a position is inside one.
+ */
+function sentenceBoundary(text: string): number | undefined {
+  let inCode = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "`") {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    if ((ch === "." || ch === ";") && (i === text.length - 1 || text[i + 1] === " ")) return i;
+  }
+  return undefined;
+}
+
+/** A short, fact-type-based summary used when a fact's own text can't be safely shortened. */
+function fallbackWhy(fact: ArchitectureFact): string {
+  const spans = [...fact.text.matchAll(/`([^`]*)`/g)].map((m) => m[1]!);
+  switch (fact.id) {
+    case "layers.edge":
+      return spans.length >= 2 ? `new import edge ${spans[0]} → ${spans[1]}` : `new import edge in ${fact.file}`;
+    case "layers.cycle":
+      return spans.length >= 2 ? `new import cycle ${spans.join(" → ")}` : `new import cycle in ${fact.file}`;
+    case "contract.api":
+      return spans.length >= 1 ? `exported API change: ${spans[0]}` : `exported API change in ${fact.file}`;
+    case "contract.dependency":
+      return spans.length >= 1 ? `new dependency ${spans[0]}` : `dependency change in ${fact.file}`;
+    case "contract.schema":
+      return `schema/contract file changed: ${fact.file}`;
+    case "contract.env":
+      return spans.length >= 1 ? `new env var ${spans[0]}` : `new environment variable in ${fact.file}`;
+    case "coupling.missing":
+      return `missing historical co-change partner for ${fact.file}`;
+    case "drift.scope":
+      return `review scope drifted for ${fact.file}`;
+    default:
+      return `change in ${fact.file}`;
+  }
+}
+
+/**
+ * Spec §6.5: a short one-line summary of a fact's text for the captain "why" line. Never cuts inside
+ * a backtick-quoted code span (which usually holds a file path or identifier with dots of its own),
+ * and only splits at a real sentence boundary. Falls back to a short, fact-type-based summary when
+ * the result would be empty or too long to read as a one-liner.
+ */
+export function shortenWhy(fact: ArchitectureFact): string {
+  const boundary = sentenceBoundary(fact.text);
+  const candidate = (boundary === undefined ? fact.text : fact.text.slice(0, boundary)).trim();
+  if (candidate.length > 0 && candidate.length <= MAX_WHY_CHARS) return candidate;
+  return fallbackWhy(fact);
+}
+
+/** Spec §5, §7.1: run the architecture detectors and turn tier, facts and the fired gate rules into the captain brief. */
+async function buildCaptain(result: ScoreResult, ctx: ScoringContext, opts: { firstHead?: string; firstRun?: number }): Promise<CaptainBrief> {
+  const { facts, notes } = await detectArchitecture(ctx, { firstHead: opts.firstHead, firstRun: opts.firstRun });
+  const criticalTouched = ctx.diff.files.some((f) => matchAny(ctx.config.paths.critical, f.path));
+  const firedRules: PolicyRule[] = (result.policy.rules ?? []).map((r) => r.rule);
+  const priority = captainPriority({ tier: result.tier, facts, firedRules, criticalTouched });
+  const why = facts.slice(0, 2).map((f: ArchitectureFact) => shortenWhy(f));
+  return { priority, why, facts, notes };
 }
 
 /** Spec §4: rank hunks (blame on the top candidates), build questions, skim list and hard rules, then fit the budget. */
@@ -66,6 +143,8 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
   }
   if (!ctx.trust.historyComplete) notes.push("history is incomplete (shallow clone): blame and fix counts are lower bounds");
 
+  const captain = ctx.config.captain.enabled ? await buildCaptain(result, ctx, options) : undefined;
+
   const maxTokens = Math.min(options.maxTokens ?? DEFAULT_MAX_TOKENS, HARD_CEILING);
   return fitBudget(
     {
@@ -83,6 +162,7 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
       notRanked: { hunks: totalHunks - shownHunks, files: pool.length - shown.length },
       budget: { maxTokens, estimatedTokens: 0, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
       notes,
+      captain,
     },
     maxTokens,
   );

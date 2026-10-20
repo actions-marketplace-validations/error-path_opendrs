@@ -1,0 +1,377 @@
+From 36a36c74feba5919c46c370b80dd91c72efb338a Mon Sep 17 00:00:00 2001
+From: error-path <95665869+error-path@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 15:44:42 +0530
+Subject: [PATCH] feat(signals): removed safety code, concurrency and weakened
+ tests
+
+Three deterministic signals from AI code reviewers' checklists (research
+R4-R6): change.safety_removed (log1p of deleted error-handling and guard
+lines, net per hunk), change.concurrency (a changed line uses a
+concurrency primitive) and tests.weakened (net assertion lines removed
+or a skip marker added). Small positive priors until calibration fits
+them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/model/defaults.ts        |  6 +++
+ src/policy/gate.ts           |  3 ++
+ src/signals/change.ts        | 65 +++++++++++++++++++++++++
+ src/signals/index.ts         |  2 +
+ src/signals/tests.ts         | 34 ++++++++++++-
+ tests/signals/change.test.ts | 92 ++++++++++++++++++++++++++++++++++++
+ tests/signals/tests.test.ts  | 43 ++++++++++++++++-
+ 7 files changed, 243 insertions(+), 2 deletions(-)
+ create mode 100644 src/signals/change.ts
+ create mode 100644 tests/signals/change.test.ts
+
+diff --git a/src/model/defaults.ts b/src/model/defaults.ts
+index 9c16203..42d5724 100644
+--- a/src/model/defaults.ts
++++ b/src/model/defaults.ts
+@@ -30,6 +30,9 @@ import type { ModelWeights } from "../domain/types.js";
+  *   they get 0.6 (a bit under paths.critical); performance, structural and complex say "look
+  *   closer" rather than "this is wrong" and get 0.3. All positive: like llm.semantic, the judge can
+  *   only add risk. Calibration floors every llm.* weight at 0 for the same reason.
++ * - change.safety_removed (log1p of deleted error-handling and guard lines), change.concurrency and
++ *   tests.weakened come from AI code reviewers' checklists (review-heuristics research, R4–R6), not
++ *   from a measured effect: small positive priors until calibration fits them.
+  * - intercept -2.85 puts an empty diff at ≈ 0.05.
+  */
+ export const DEFAULT_WEIGHTS: ModelWeights = {
+@@ -55,6 +58,9 @@ export const DEFAULT_WEIGHTS: ModelWeights = {
+     "paths.blocked": 0.5,
+     "tests.missing": 0.7,
+     "tests.deleted": 1.0,
++    "tests.weakened": 0.3,
++    "change.safety_removed": 0.2,
++    "change.concurrency": 0.2,
+     "lang.docs": -0.4,
+     "lang.config": -0.3,
+     "llm.semantic": 0.8,
+diff --git a/src/policy/gate.ts b/src/policy/gate.ts
+index fec449e..23ca45f 100644
+--- a/src/policy/gate.ts
++++ b/src/policy/gate.ts
+@@ -60,6 +60,9 @@ const PLAUSIBLE_RANGE: Record<string, [number, number]> = {
+   "paths.critical": [0, 1],
+   "paths.blocked": [0, 1],
+   "tests.missing": [0, 1],
++  "tests.weakened": [0, 1],
++  "change.safety_removed": [0, Math.log1p(10)],
++  "change.concurrency": [0, 1],
+   "llm.semantic": [0, Math.log(0.9 / 0.1) - Math.log(0.2 / 0.8)],
+ };
+ 
+diff --git a/src/signals/change.ts b/src/signals/change.ts
+new file mode 100644
+index 0000000..6228cb9
+--- /dev/null
++++ b/src/signals/change.ts
+@@ -0,0 +1,65 @@
++import type { ChangedFile, Evidence, SignalProvider } from "../domain/types.js";
++import { changedLines } from "../git/diff.js";
++import { matchAny } from "../git/glob.js";
++import { isCodeFamily, languageFamily } from "./language.js";
++import { countedFiles, plural, topEvidence } from "./util.js";
++
++/** Error handling, null checks, assertions and precondition helpers: code that rejects bad states. */
++const SAFETY =
++  /\b(catch|except|rescue|finally)\b|\bthrow\b(?!s)|\braise\b|\bassert\b|[!=]==?\s*(null|nil|None|undefined)\b|\b(null|nil|None|undefined)\s*[!=]==?|\bis (not )?None\b|\bcheck(Argument|State|NotNull|Index|ElementIndex|PositionIndex)\s*\(|\brequireNonNull\s*\(|\bValidate\.\w+\s*\(/;
++
++/** Locks, atomics, executors and thread or goroutine primitives (not async/await, which is everywhere in JS). */
++const CONCURRENCY =
++  /\b(synchronized|volatile|ReentrantLock|ReadWriteLock|ReentrantReadWriteLock|StampedLock|Semaphore|CountDownLatch|CyclicBarrier|Phaser|ExecutorService|Executors|ThreadPoolExecutor|ForkJoinPool|CompletableFuture|ConcurrentHashMap|ConcurrentLinkedQueue|BlockingQueue|ThreadLocal|Atomic(Integer|Long|Boolean|Reference)\w*|Mutex|RwLock|RWMutex|WaitGroup|threading|multiprocessing)\b|\bnew Thread\b|\bThread\.(sleep|start|interrupt|yield)\b|\.(wait|notify|notifyAll|lock|unlock|tryLock)\s*\(|\bgo func\b/;
++
++/** A whole-line comment in any of the supported syntaxes; such lines are never counted. */
++const isComment = (text: string): boolean => /^\s*(\/\/|#|\/\*|\*)/.test(text);
++
++/** Non-test code files: the change.* signals read program code only. */
++function codeFiles(files: ChangedFile[], tests: string[]): ChangedFile[] {
++  return files.filter((f) => !f.binary && isCodeFamily(languageFamily(f.path)) && !matchAny(tests, f.path));
++}
++
++/**
++ * "change.safety_removed": log1p of safety lines (SAFETY) deleted with no matching
++ * addition. Per hunk, deleted safety lines minus added ones, so a reworded guard does not count.
++ *
++ * "change.concurrency": 1 when any changed line of non-test code uses a concurrency
++ * primitive (CONCURRENCY), added or deleted.
++ */
++export const changeSignals: SignalProvider = async (ctx) => {
++  const files = codeFiles(countedFiles(ctx), ctx.config.paths.tests);
++  const removed: Evidence[] = [];
++  const concurrency: Evidence[] = [];
++  for (const f of files) {
++    for (const h of f.hunks) {
++      const deleted: Evidence[] = [];
++      let added = 0;
++      for (const { kind, line, text } of changedLines(h)) {
++        if (isComment(text)) continue;
++        if (CONCURRENCY.test(text)) concurrency.push({ file: f.path, line, detail: `${kind} ${text.trim().slice(0, 100)}` });
++        if (!SAFETY.test(text)) continue;
++        if (kind === "-") deleted.push({ file: f.path, line, detail: `- ${text.trim().slice(0, 100)}` });
++        else added++;
++      }
++      removed.push(...deleted.slice(0, Math.max(0, deleted.length - added)));
++    }
++  }
++
++  return [
++    {
++      id: "change.safety_removed",
++      value: Math.log1p(removed.length),
++      status: "observed",
++      summary: removed.length > 0 ? `${plural(removed.length, "error-handling or guard line")} deleted without a replacement` : "no error handling or guard removed",
++      evidence: topEvidence(removed),
++    },
++    {
++      id: "change.concurrency",
++      value: concurrency.length > 0 ? 1 : 0,
++      status: "observed",
++      summary: concurrency.length > 0 ? `${plural(concurrency.length, "changed line")} use concurrency primitives` : "no concurrency primitive changed",
++      evidence: topEvidence(concurrency),
++    },
++  ];
++};
+diff --git a/src/signals/index.ts b/src/signals/index.ts
+index 5c7f130..e858247 100644
+--- a/src/signals/index.ts
++++ b/src/signals/index.ts
+@@ -1,5 +1,6 @@
+ import type { SignalProvider } from "../domain/types.js";
+ import { blastSignals } from "./blast.js";
++import { changeSignals } from "./change.js";
+ import { complexitySignals } from "./complexity.js";
+ import { diffusionSignals } from "./diffusion.js";
+ import { expertiseSignals } from "./expertise.js";
+@@ -21,5 +22,6 @@ export const SIGNAL_PROVIDERS: SignalProvider[] = [
+   blastSignals,
+   pathsSignals,
+   testsSignals,
++  changeSignals,
+   llmSignals,
+ ];
+diff --git a/src/signals/tests.ts b/src/signals/tests.ts
+index 7c1a6ae..804a265 100644
+--- a/src/signals/tests.ts
++++ b/src/signals/tests.ts
+@@ -1,4 +1,5 @@
+-import type { ChangedFile, SignalProvider } from "../domain/types.js";
++import type { ChangedFile, Evidence, SignalProvider } from "../domain/types.js";
++import { changedLines } from "../git/diff.js";
+ import { matchAny } from "../git/glob.js";
+ import { isCodeFamily, languageFamily } from "./language.js";
+ import { countedFiles, plural, topEvidence } from "./util.js";
+@@ -9,6 +10,12 @@ const EXPECTED_TEST_SHARE = 0.3;
+ /** Net deleted test lines (deleted − added) at which `tests.deleted` fires. */
+ const NET_TEST_DELETION = 10;
+ 
++/** An assertion call or statement in a test (JUnit, AssertJ, Jest, Mockito, pytest, Go testify). */
++const ASSERTION = /\bassert\w*\s*\(|\bassert\s|\bexpect\s*\(|\bverify\s*\(|\.should\b/;
++
++/** A marker that disables a test. */
++const SKIP = /@Ignore\b|@Disabled\b|\benabled\s*=\s*false\b|\bpytest\.mark\.skip|@unittest\.skip|\b(xit|xdescribe|xtest)\s*\(|\b(it|test|describe)\.skip\s*\(|\bt\.Skip(Now)?\s*\(/;
++
+ /**
+  * Spec §4 "tests.missing": 1 when source changed and no test lines were added; otherwise
+  * max(0, 1 − addedTestLines / (0.3 · sourceLines)), so a token test edit barely helps. Deleted test
+@@ -49,6 +56,24 @@ export const testsSignals: SignalProvider = async (ctx) => {
+     netDeleted >= NET_TEST_DELETION && `${plural(netDeleted, "test line")} more deleted than added`,
+   ].filter(Boolean);
+ 
++  // tests.weakened: more assertion lines deleted than added across the test files, or a test disabled.
++  let netAsserts = 0;
++  const lost: Evidence[] = [];
++  const skips: Evidence[] = [];
++  for (const f of tests) {
++    let fileNet = 0;
++    for (const h of f.hunks) {
++      for (const { kind, line, text } of changedLines(h)) {
++        if (ASSERTION.test(text)) fileNet += kind === "-" ? 1 : -1;
++        if (kind === "+" && SKIP.test(text)) skips.push({ file: f.path, line, detail: `skip marker added: ${text.trim().slice(0, 100)}` });
++      }
++    }
++    netAsserts += fileNet;
++    if (fileNet > 0) lost.push({ file: f.path, detail: `${plural(fileNet, "assertion line")} more deleted than added` });
++  }
++  const weakened = netAsserts > 0 || skips.length > 0;
++  const weakenedSummary = [netAsserts > 0 && `${plural(netAsserts, "assertion line")} more deleted than added`, skips.length > 0 && `${plural(skips.length, "skip marker")} added`].filter(Boolean);
++
+   return [
+     {
+       id: "tests.missing",
+@@ -73,5 +98,12 @@ export const testsSignals: SignalProvider = async (ctx) => {
+           ])
+         : [],
+     },
++    {
++      id: "tests.weakened",
++      value: weakened ? 1 : 0,
++      status: "observed",
++      summary: weakened ? weakenedSummary.join("; ") : "no assertion removed or test disabled",
++      evidence: weakened ? topEvidence([...(netAsserts > 0 ? lost : []), ...skips]) : [],
++    },
+   ];
+ };
+diff --git a/tests/signals/change.test.ts b/tests/signals/change.test.ts
+new file mode 100644
+index 0000000..b0a51a6
+--- /dev/null
++++ b/tests/signals/change.test.ts
+@@ -0,0 +1,92 @@
++import { afterEach, describe, expect, it } from "vitest";
++import { changeSignals } from "../../src/signals/change.js";
++import { makeRepo, type TestRepo } from "../helpers/repo.js";
++import { byId, contextFor } from "./context.js";
++
++async function signals(repo: TestRepo, base: Record<string, string>, change: Record<string, string | null>) {
++  repo.commit({ "seed.txt": "s\n", ...base }, "init");
++  repo.commit(change, "change");
++  return changeSignals(await contextFor(repo, "HEAD~1"));
++}
++
++const GUARDED = [
++  "class A {",
++  "  int f(String s) {",
++  "    if (s == null) throw new IllegalArgumentException();",
++  "    Preconditions.checkArgument(s.length() > 0);",
++  "    try {",
++  "      return g(s);",
++  "    } catch (IOException e) {",
++  "      return -1;",
++  "    }",
++  "  }",
++  "}",
++  "",
++].join("\n");
++
++describe("change.safety_removed", () => {
++  let repo: TestRepo;
++  afterEach(() => repo?.cleanup());
++
++  it("counts deleted guards and error handling with no replacement", async () => {
++    repo = makeRepo();
++    const bare = ["class A {", "  int f(String s) {", "    return g(s);", "  }", "}", ""].join("\n");
++    const s = byId(await signals(repo, { "src/A.java": GUARDED }, { "src/A.java": bare }), "change.safety_removed");
++    // the null check with its throw, checkArgument, and the catch
++    expect(s).toMatchObject({ value: Math.log1p(3), status: "observed" });
++    expect(s.evidence.map((e) => e.file)).toEqual(["src/A.java", "src/A.java", "src/A.java"]);
++  });
++
++  it("is 0 when a guard is only reworded in the same hunk", async () => {
++    repo = makeRepo();
++    const reworded = GUARDED.replace("if (s == null) throw new IllegalArgumentException();", "if (s == null) throw new NullPointerException(\"s\");");
++    const s = byId(await signals(repo, { "src/A.java": GUARDED }, { "src/A.java": reworded }), "change.safety_removed");
++    expect(s.value).toBe(0);
++  });
++
++  it("ignores comments, test files and non-code files", async () => {
++    repo = makeRepo();
++    const s = byId(
++      await signals(
++        repo,
++        { "src/a.ts": "// throw if x == null\nx();\n", "src/a.test.ts": "assert(x != null);\n", "conf.yml": "catch: true\n" },
++        { "src/a.ts": "x();\n", "src/a.test.ts": "", "conf.yml": "" },
++      ),
++      "change.safety_removed",
++    );
++    expect(s.value).toBe(0);
++  });
++});
++
++describe("change.concurrency", () => {
++  let repo: TestRepo;
++  afterEach(() => repo?.cleanup());
++
++  it("is 1 when a changed code line uses a concurrency primitive", async () => {
++    repo = makeRepo();
++    const s = byId(
++      await signals(repo, { "src/C.java": "class C {\n  int n;\n}\n" }, { "src/C.java": "class C {\n  private final AtomicInteger n = new AtomicInteger();\n}\n" }),
++      "change.concurrency",
++    );
++    expect(s).toMatchObject({ value: 1, status: "observed" });
++    expect(s.evidence[0]).toMatchObject({ file: "src/C.java", line: 2 });
++  });
++
++  it("sees a removed synchronized block", async () => {
++    repo = makeRepo();
++    const s = byId(
++      await signals(repo, { "src/C.java": "void f() {\n  synchronized (lock) {\n    n++;\n  }\n}\n" }, { "src/C.java": "void f() {\n  n++;\n}\n" }),
++      "change.concurrency",
++    );
++    expect(s.value).toBe(1);
++  });
++
++  it("is 0 for plain code, comments and docs", async () => {
++    repo = makeRepo();
++    const s = byId(
++      await signals(repo, {}, { "src/a.go": "// uses a sync.Mutex upstream\nx := 1\n", "docs/threads.md": "synchronized volatile\n" }),
++      "change.concurrency",
++    );
++    expect(s).toMatchObject({ value: 0, evidence: [] });
++  });
++});
+diff --git a/tests/signals/tests.test.ts b/tests/signals/tests.test.ts
+index e1c3d73..a7a6c2c 100644
+--- a/tests/signals/tests.test.ts
++++ b/tests/signals/tests.test.ts
+@@ -9,7 +9,7 @@ async function missing(repo: TestRepo, change: Record<string, string>) {
+   repo.commit({ "seed.txt": "s\n" }, "init");
+   repo.commit(change, "change");
+   const signals = await testsSignals(await contextFor(repo, "HEAD~1"));
+-  expect(signals.map((s) => s.id)).toEqual(["tests.missing", "tests.deleted"]);
++  expect(signals.map((s) => s.id)).toEqual(["tests.missing", "tests.deleted", "tests.weakened"]);
+   return signals[0]!;
+ }
+ 
+@@ -83,6 +83,47 @@ describe("tests.deleted", () => {
+   });
+ });
+ 
++/** tests.weakened for a change on top of `base`. */
++async function weakened(repo: TestRepo, base: Record<string, string>, change: Record<string, string | null>) {
++  repo.commit({ "seed.txt": "s\n", ...base }, "init");
++  repo.commit(change, "change");
++  return (await testsSignals(await contextFor(repo, "HEAD~1")))[2]!;
++}
++
++const JAVA_TEST = ["class ATest {", "  @Test", "  void f() {", "    int x = a.f();", "    assertEquals(1, x);", "    assertTrue(a.ok());", "  }", "}", ""].join("\n");
++
++describe("tests.weakened", () => {
++  let repo: TestRepo;
++  afterEach(() => repo?.cleanup());
++
++  it("is 1 when test files lose more assertions than they gain, naming the file", async () => {
++    repo = makeRepo();
++    const s = await weakened(repo, { "src/test/java/ATest.java": JAVA_TEST }, { "src/test/java/ATest.java": JAVA_TEST.replace("    assertTrue(a.ok());\n", "") });
++    expect(s).toMatchObject({ id: "tests.weakened", value: 1, status: "observed" });
++    expect(s.evidence.map((e) => e.file)).toEqual(["src/test/java/ATest.java"]);
++    expect(s.summary).toMatch(/1 assertion/);
++  });
++
++  it("is 1 when a test is disabled", async () => {
++    repo = makeRepo();
++    const s = await weakened(repo, { "src/test/java/ATest.java": JAVA_TEST }, { "src/test/java/ATest.java": JAVA_TEST.replace("  @Test\n", "  @Test\n  @Ignore\n") });
++    expect(s.value).toBe(1);
++    expect(s.summary).toMatch(/skip/);
++  });
++
++  it("is 0 when assertions are rewritten one for one, or only added", async () => {
++    repo = makeRepo();
++    const rewritten = JAVA_TEST.replace("assertEquals(1, x);", "assertThat(x).isEqualTo(1);");
++    expect((await weakened(repo, { "src/test/java/ATest.java": JAVA_TEST }, { "src/test/java/ATest.java": rewritten })).value).toBe(0);
++  });
++
++  it("ignores assertions removed from non-test files", async () => {
++    repo = makeRepo();
++    const s = await weakened(repo, { "src/A.java": "assert x > 0;\nf();\n" }, { "src/A.java": "f();\n" });
++    expect(s).toMatchObject({ value: 0, evidence: [] });
++  });
++});
++
+ describe("testsSignals", () => {
+   let repo: TestRepo;
+   afterEach(() => repo?.cleanup());
+-- 
+2.39.5 (Apple Git-154)
+

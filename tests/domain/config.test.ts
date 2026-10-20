@@ -21,6 +21,35 @@ describe("default paths.ignore", () => {
   });
 });
 
+describe("default paths.tests", () => {
+  const isTest = (path: string) => matchAny(defaultConfig().paths.tests, path);
+
+  it.each([
+    "spec/models/user_spec.rb", // RSpec directory
+    "lib/foo/thing_spec.rb", // RSpec file suffix, no spec/ directory
+    "Tests/VaporTests/EnvironmentTests.swift", // Swift XCTest directory (capital T)
+    "Sources/Vapor/Utilities/DotEnvTests.swift", // Swift XCTest file suffix
+    "pkg/cart/cart_test.go", // Go
+    "pkg/test_mod.py", // Python test_*.py
+    "pkg/mod_test.py", // Python *_test.py
+    "tests/test_integration.py", // Python tests/** directory
+    "src/foo.test.ts", // JS/TS
+    "src/foo.spec.ts",
+    "src/__tests__/foo.ts",
+    "src/test/java/com/acme/FooTest.java", // Kotlin/Java src/test/**
+  ])("recognises %s as a test path", (path) => {
+    expect(isTest(path)).toBe(true);
+  });
+
+  it.each([
+    "src/foo.ts",
+    "Sources/Vapor/Utilities/DotEnv.swift",
+    "lib/foo.rb",
+  ])("does not treat %s as a test path", (path) => {
+    expect(isTest(path)).toBe(false);
+  });
+});
+
 describe("default paths.block", () => {
   const blocked = (path: string) => matchAny(defaultConfig().paths.block, path);
 
@@ -54,6 +83,8 @@ describe("default paths.block", () => {
     "Cargo.toml",
     "crates/x/build.rs",
     "go.mod",
+    "Package.swift",
+    "sub/Package.swift",
     "Gemfile",
     "Rakefile",
     "lib/x.gemspec",
@@ -184,6 +215,26 @@ describe("user paths.block, paths.critical and paths.unblock", () => {
   });
 });
 
+describe("paths.instructions", () => {
+  it("is additive like block and critical: a config's own list extends the defaults", () => {
+    const defaults = defaultConfig().paths.instructions;
+    expect(defaults).toContain("**/CLAUDE.md");
+    expect(defaults).toContain(".claude/**");
+    expect(parseConfig({ paths: { instructions: ["**/MY_AGENT.md"] } }).paths.instructions).toEqual([...defaults, "**/MY_AGENT.md"]);
+  });
+});
+
+describe("autoApprove.sizeCapExempt and autoApprove.countInertLines", () => {
+  it("sizeCapExempt defaults to empty and gets the same glob validation as other lists", () => {
+    expect(defaultConfig().autoApprove.sizeCapExempt).toEqual([]);
+    expect(() => parseConfig({ autoApprove: { sizeCapExempt: ["[bad"] } })).toThrow(/\[ or \].*sizeCapExempt/s);
+  });
+
+  it("countInertLines defaults to false", () => {
+    expect(defaultConfig().autoApprove.countInertLines).toBe(false);
+  });
+});
+
 describe("glob validation", () => {
   it.each([
     ["block", "src/[ab]/**"],
@@ -243,6 +294,20 @@ describe("history.labelHorizonDays", () => {
 
   it("rejects a negative horizon", () => {
     expect(configError({ history: { labelHorizonDays: -1 } })).toMatch(/labelHorizonDays/);
+  });
+});
+
+describe("history.gitTimeoutMs", () => {
+  it("defaults to a timeout well above the old fixed 120s, for large or blobless clones", () => {
+    expect(defaultConfig().history.gitTimeoutMs).toBeGreaterThan(120_000);
+  });
+
+  it("is overridable", () => {
+    expect(parseConfig({ history: { gitTimeoutMs: 5_000 } }).history.gitTimeoutMs).toBe(5_000);
+  });
+
+  it("rejects a non-positive timeout", () => {
+    expect(configError({ history: { gitTimeoutMs: 0 } })).toMatch(/gitTimeoutMs/);
   });
 });
 
@@ -382,5 +447,34 @@ describe("brief", () => {
   it("rejects a maxTokens too small to fit the brief's mandatory sections", () => {
     expect(configError({ brief: { maxTokens: 299 } })).toMatch(/brief\.maxTokens.*at least 300/i);
     expect(parseConfig({ brief: { maxTokens: 300 } }).brief.maxTokens).toBe(300);
+  });
+});
+
+describe("captain", () => {
+  it("defaults to enabled with moduleDepth unset (auto-detection on) and the coupling/contracts defaults", () => {
+    const captain = defaultConfig().captain;
+    expect(captain).toEqual({
+      enabled: true,
+      moduleDepth: undefined,
+      modules: [],
+      coupling: { enabled: true, minSupport: 8, minConfidence: 0.6 },
+      contracts: { paths: [] },
+    });
+  });
+
+  it("rejects a moduleDepth outside 1..6", () => {
+    expect(configError({ captain: { moduleDepth: 0 } })).toMatch(/captain.*moduleDepth/i);
+    expect(configError({ captain: { moduleDepth: 7 } })).toMatch(/captain.*moduleDepth/i);
+    expect(parseConfig({ captain: { moduleDepth: 1 } }).captain.moduleDepth).toBe(1);
+  });
+
+  it("accepts captain.modules globs, defaulting to none", () => {
+    expect(defaultConfig().captain.modules).toEqual([]);
+    expect(parseConfig({ captain: { modules: ["packages/*/src/*"] } }).captain.modules).toEqual(["packages/*/src/*"]);
+  });
+
+  it("rejects a coupling.minConfidence outside 0..1", () => {
+    expect(configError({ captain: { coupling: { minConfidence: 1.5 } } })).toMatch(/coupling.*minConfidence/i);
+    expect(parseConfig({ captain: { coupling: { minConfidence: 0.75 } } }).captain.coupling.minConfidence).toBe(0.75);
   });
 });

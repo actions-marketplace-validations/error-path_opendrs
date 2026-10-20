@@ -4,6 +4,7 @@ import { matchAny } from "../git/glob.js";
 import type { Authorship, HistoryIndex, LlmJudgement, ModelWeights, PolicyOutcome, PolicyRule, Signal, DiffInfo, Contribution, Tier, Decision } from "../domain/types.js";
 import { defaultConfig, type OpendrsConfig } from "../domain/config.js";
 import { featureValues, sigmoid } from "../model/logistic.js";
+import { countedChangedLines } from "../signals/size.js";
 import { suggestReviewers } from "./reviewers.js";
 
 export interface GateInput {
@@ -125,10 +126,18 @@ export function decide(input: GateInput): PolicyOutcome {
     fire("human-review", `content.block /${pattern}/ matched ${list(hits)}`, "content.block");
   }
 
-  // 2. size cap (a binary file counts as one line)
-  const changedLines = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
-  if (changedLines > auto.maxChangedLines) {
-    fire("human-review", `${changedLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})`, "size-cap");
+  // 2. size cap (a binary file counts as one line; docs, comment-only hunks and configured
+  // exemptions do not count toward the cap by default — spec 2026-10-20 §2-§5)
+  const cappedFiles = diff.files.filter((f) => !f.ignored);
+  const rawLines = cappedFiles.reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
+  const counted = countedChangedLines(cappedFiles, config);
+  if (counted > auto.maxChangedLines) {
+    const reason =
+      counted === rawLines
+        ? `${rawLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})`
+        : `${rawLines} changed lines, ${counted} counted toward maxChangedLines after excluding ` +
+          `${rawLines - counted} inert docs/comment lines (cap ${auto.maxChangedLines})`;
+    fire("human-review", reason, "size-cap");
   }
 
   // Commit text can raise the kind (a trailer makes it "agent") but never lower it, so the policy of
@@ -151,7 +160,8 @@ export function decide(input: GateInput): PolicyOutcome {
     input.score < deferredBelow &&
     (kinds.length > 0 ? kinds : ["human" as const]).every((k) => deferredReview.sources.includes(k));
   if (tier !== "green" && !deferrable) {
-    fire("human-review", `tier ${tier}: score ${input.score.toFixed(2)} ≥ green threshold ${thresholds.green.toFixed(2)}`, "tier");
+    const [scoreStr, greenStr] = formatScore(input.score, thresholds.green);
+    fire("human-review", `tier ${tier}: score ${scoreStr} ≥ green threshold ${greenStr}`, "tier");
   }
 
   // 3b. freeze windows: suspend auto-approval, or hold it to a stricter green; the tier stays
@@ -165,7 +175,8 @@ export function decide(input: GateInput): PolicyOutcome {
     if (green === undefined) {
       fire("human-review", `freeze "${f.name}": percentile green ${f.green} needs a calibrated model; auto-approval suspended`, "freeze");
     } else if (input.score >= green) {
-      fire("human-review", `freeze "${f.name}": score ${input.score.toFixed(2)} ≥ freeze green ${green.toFixed(2)}`, "freeze");
+      const [scoreStr, greenStr] = formatScore(input.score, green);
+      fire("human-review", `freeze "${f.name}": score ${scoreStr} ≥ freeze green ${greenStr}`, "freeze");
     }
   }
 
@@ -181,7 +192,8 @@ export function decide(input: GateInput): PolicyOutcome {
       if (green === undefined) {
         fire("human-review", `source ${kind}: percentile green ${source.green} needs a calibrated model; auto-approval suspended`, "source");
       } else if (input.score >= green) {
-        fire("human-review", `source ${kind}: score ${input.score.toFixed(2)} ≥ source green ${green.toFixed(2)}`, "source");
+        const [scoreStr, greenStr] = formatScore(input.score, green);
+        fire("human-review", `source ${kind}: score ${scoreStr} ≥ source green ${greenStr}`, "source");
       }
     }
     // Landed commits of this source in the last `ms`: in the index, at or before now, not in this PR.
@@ -287,14 +299,16 @@ export function decide(input: GateInput): PolicyOutcome {
   const decision: Decision = fired[0]?.decision ?? (deferrable ? "deferred-review" : "auto-approve");
   const lands = decision === "auto-approve" || decision === "deferred-review";
   if (decision === "auto-approve") {
+    const [scoreStr, greenStr] = formatScore(input.score, thresholds.green);
     fired.push({
       decision,
-      reason: `auto-approve: score ${input.score.toFixed(2)} < green ${thresholds.green.toFixed(2)} and every gate passed (merge: ${auto.mergeMethod})`,
+      reason: `auto-approve: score ${scoreStr} < green ${greenStr} and every gate passed (merge: ${auto.mergeMethod})`,
     });
   } else if (decision === "deferred-review") {
+    const [scoreStr, greenStr] = formatScore(input.score, thresholds.green);
     fired.push({
       decision,
-      reason: `deferred review: score ${input.score.toFixed(2)} is in the deferred band (${thresholds.green.toFixed(2)}–${deferredBelow!.toFixed(2)}); lands now, reviewed after merge`,
+      reason: `deferred review: score ${scoreStr} is in the deferred band (${greenStr}–${deferredBelow!.toFixed(2)}); lands now, reviewed after merge`,
     });
   }
   // Only the tier rule stood in the way, but a percentile `below` has no calibrated model to map it.
@@ -385,3 +399,21 @@ function percentileScore(table: Record<string, number> | undefined, p: number): 
 }
 
 const list = (paths: string[]) => (paths.length > 3 ? `${paths.slice(0, 3).join(", ")} (+${paths.length - 3} more)` : paths.join(", "));
+
+/** Up to four decimals of `n`, trailing zeros trimmed, never below two decimals. */
+function preciseScore(n: number): string {
+  const short = n.toFixed(2);
+  let precise = n.toFixed(4);
+  while (precise.endsWith("0") && precise.length > short.length) precise = precise.slice(0, -1);
+  return precise;
+}
+
+/**
+ * Score and threshold formatted for a reason that compares them: two decimals each, unless they'd
+ * render equal at two decimals (e.g. 0.3004 vs 0.3012, or 0.3004 vs 0.30), in which case each gets
+ * up to four decimals with its own trailing zeros trimmed, so the comparison still reads as true.
+ */
+function formatScore(score: number, threshold: number): [string, string] {
+  if (score.toFixed(2) !== threshold.toFixed(2)) return [score.toFixed(2), threshold.toFixed(2)];
+  return [preciseScore(score), preciseScore(threshold)];
+}

@@ -77,6 +77,9 @@ const OPENDRS_LABELS: Record<string, { color: string; description: string }> = {
   "opendrs:landing": { color: "1d76db", description: "opendrs: approval is waiting out the landing delay" },
   "opendrs:hold": { color: "b60205", description: "opendrs: do not approve until this label is removed" },
   "opendrs:review-after-merge": { color: "5319e7", description: "opendrs: landed, needs a human review after merge" },
+  "captain:careful": { color: "d93f0b", description: "opendrs: captain should review carefully" },
+  "captain:standard": { color: "fbca04", description: "opendrs: captain standard review" },
+  "captain:quick": { color: "0e8a16", description: "opendrs: captain quick confirm" },
 };
 /** The colour GitHub gives a label it creates on the fly when one is added that does not exist. */
 const DEFAULT_LABEL_COLOR = "ededed";
