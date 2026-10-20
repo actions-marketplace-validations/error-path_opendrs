@@ -30,6 +30,152 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
 
+## Default weights: re-centred intercept and repo-age scaling on ApacheJIT
+
+**Status.** Pre-registered 2026-10-20, before any replay; run completed the same day. The
+question, setup and decision rule below are unchanged from the pre-registration, with two
+pre-registered choices resolved (the pre-registration left the exact candidate(s) and the
+field-test-repo check optional): both candidate approaches were implemented, and the field-test
+repositories were not re-scored (see Result).
+
+**Question.** Do re-centred default weights reduce out-of-the-box saturation on mature
+repositories? The [score-saturation experiment](#score-saturation-fixpattern-and-incident-granularity-on-apachejit)
+rejected both `history.fixPattern` exclusion and file-level `history.incident` matching as
+saturation fixes: neither moved the default-prior score distribution's spread, only its position,
+and both fell short of the 25 % red-share-reduction bar. That experiment's own recommendation
+(point 3) names the likely larger cause: diffusion and history signals are raw, un-normalized
+counts that run high on an old, busy repository regardless of a specific PR's risk, which neither
+variant touched. This asks whether changing where the score's default weights are centred, rather
+than which signals fire, addresses that directly.
+
+**Setup.**
+- **Baseline.** ApacheJIT's default-prior (uncalibrated `DEFAULT_WEIGHTS`) red share (≥
+  `thresholds.red`, 0.8) and yellow-or-red share (≥ `thresholds.green`, 0.3), and calibrated AUC,
+  pooled on the test split exactly as reported in the score-saturation experiment above (red 25.6 %,
+  yellow+red 60.8 %, AUC 0.823) — the same row cache, no new replay needed.
+- **Field-test repositories, if feasible.** The six repositories from the [2026-10-19 field
+  test](research/2026-10-19-field-test.md) (vite, black and the others), each re-scored with the
+  candidate approach on fresh clones, to check whether a change tuned on ApacheJIT's distribution
+  also helps the mature, actively-developed repositories the field test flagged as saturated. Not a
+  hard requirement if cloning or scoring all six is too slow for the bench budget; ApacheJIT alone
+  still answers the question, descriptively weaker.
+- **Candidate approach(es).** Not chosen yet; at least one of:
+  - Re-centre the model's intercept (or, equivalently, the default priors as a group) so the
+    median commit lands mid-yellow instead of near red, without changing any individual signal's
+    relative weight.
+  - Scale `history.*` and `expertise.*` priors by a repo-age or repo-size factor (for example,
+    divide by `log1p(repo age in days)` or `log1p(total commits)`), so an old repository's raw
+    counts do not dominate the score the way they do today.
+- **Metrics.** Same as the score-saturation experiment: default-prior red share and yellow-or-red
+  share, score distribution SD/IQR, and calibrated AUC with a paired bootstrap against the current
+  defaults.
+
+**Decision rule.** Adopt a candidate as the new `src/` default when its default-prior red-share
+drops by at least 25 % relative to the current defaults **and** its calibrated-AUC paired bootstrap
+95 % CI against the current defaults includes 0 or is entirely positive (no significant loss) —
+the same bar the score-saturation experiment used, so the two results are comparable. Otherwise:
+reject, or ship conditionally with the reasoning recorded against the specific numbers.
+
+**Candidates implemented.** Both bulleted approaches, reusing the existing row cache and the
+already-downloaded ApacheJIT CSVs; no new clone, no new signal replay (`bench/apachejit/default-weights-experiment.ts`).
+- **V1 (intercept re-centred).** Intercept shifted by a constant chosen from the **train** split's
+  own default-prior median score (never test), so the median lands at mid-yellow (0.55 = midpoint
+  of `[thresholds.green, thresholds.red)`). A pure logit shift: ranking, hence AUC, is unaffected
+  by construction.
+- **V2 (history/expertise scaled by repo age).** Of `history.*`/`expertise.*`, only the three
+  unbounded log1p-count signals (`history.churn`, `history.prior_fixes`, `expertise.author_commits`)
+  are each divided by `max(1, log1p(days since the project's earliest row-cache-resolved commit))`,
+  computed per commit from the cached commit time — `history.incident` (0/1) and
+  `expertise.owner_ratio` (already 0–1) are left alone, since dividing a bounded value does not
+  match the "raw counts" diagnosis. Only one of the pre-registration's two scaling sub-variants
+  (age, not total-commit count) was run.
+- **V3.** V1 and V2 together.
+- **Field-test repositories.** Not re-scored: both ApacheJIT candidates already reject decisively
+  (see Result), and the pre-registration allowed skipping this when the bench budget does not
+  support six fresh clones.
+
+**Result.** 66,653 row-cache commits (the same coverage as the score-saturation experiment above).
+Test-split base rate: 23.6 % buggy.
+
+| Variant | Calibrated AUC | AUC gain vs V0 (95 % CI) | Default-prior red share (≥0.8) | Yellow+red share (≥0.3) | Red share, relative change |
+|---|---:|---|---:|---:|---:|
+| V0 (current) | 0.823 | — | 25.6 % | 60.8 % | — |
+| V1 (intercept re-centred) | 0.823 | +0.0000 (0.0000 to 0.0000) | 40.3 % | 76.4 % | **+57.5 %** |
+| V2 (history/expertise scaled by repo age) | 0.818 | −0.0052 (−0.0058 to −0.0046) | 33.9 % | 78.7 % | **+32.4 %** |
+| V3 (both) | 0.818 | −0.0052 (−0.0058 to −0.0046) | 53.4 % | 94.6 % | **+108.9 %** |
+
+Buggy rate within each default-prior tier (does green still mean low risk?):
+
+| Variant | Green (buggy rate) | Yellow (buggy rate) | Red (buggy rate) |
+|---|---|---|---|
+| V0 | 9,667 (7.4 %) | 8,707 (22.9 %) | 6,312 (49.3 %) |
+| V1 | 5,816 (4.8 %) | 8,928 (15.6 %) | 9,942 (41.7 %) |
+| V2 | 5,267 (5.2 %) | 11,062 (16.9 %) | 8,357 (43.9 %) |
+| V3 | 1,329 (2.0 %) | 10,172 (10.4 %) | 13,185 (35.9 %) |
+
+Every variant moves saturation in the **wrong direction** — red and yellow+red share rise, not
+fall — so none clears the 25 % relative *reduction* bar, and V2/V3 also lose calibrated AUC
+significantly (CI entirely negative). The mechanism differs by candidate:
+
+- **V1's premise does not hold on ApacheJIT.** The pre-registration assumed today's median sits
+  near red; it does not. The train-split default-prior median is 0.307, barely past the
+  green/yellow boundary. Moving it up to mid-yellow (0.55) necessarily pushes a large share of the
+  distribution that was in green or low yellow into high yellow and red.
+- **V2 backfires on sign, not magnitude.** `expertise.author_commits` carries a *negative*,
+  protective weight (−0.3) of the same magnitude as `history.prior_fixes` (+0.3). Dividing all
+  three signals' raw values by the same per-commit age divisor shrinks every contribution toward
+  zero, but a mature project's author-commit counts are typically larger in magnitude than its
+  prior-fix/churn counts, so the protective contribution shrinks by more than the risk
+  contributions do — net, scores rise.
+- Tier buggy rates still separate meaningfully in every variant (red is always riskier than
+  yellow, yellow always riskier than green), so "green still means low risk" in a relative sense,
+  but V1/V3 shrink green's *size* sharply (9,667 → 5,816 → 1,329 commits) while raising its buggy
+  rate only modestly (7.4 % → 4.8 % → 2.0 %) — fewer commits get the fast path, not a cleaner one.
+
+**Decision (pre-registered rule, applied exactly).**
+- **V1.** Red-share relative change +57.5 % (an increase, not the required ≥25 % *decrease*) →
+  **reject**. AUC-gain CI is non-negative only because the transform cannot affect ranking by
+  construction — that is not evidence the candidate works.
+- **V2.** Red-share relative change +32.4 % (an increase) and AUC-gain CI −0.0058 to −0.0046
+  (significant loss) → **reject** on both counts.
+- **V3.** Red-share relative change +108.9 % and the same significant AUC loss as V2 → **reject**.
+
+**Recommendation for `src/` defaults.** No change. Neither candidate, implemented exactly as
+pre-registered, reduces out-of-the-box saturation on ApacheJIT; both make it measurably worse, for
+reasons specific to ApacheJIT's own score distribution and to one signal's sign. The
+[score-saturation experiment](#score-saturation-fixpattern-and-incident-granularity-on-apachejit)'s
+recommendation (point 3) — that diffusion/history signals need per-repo normalization — is not
+disproved by this result, but this experiment's two literal operationalizations of "re-centre" do
+not deliver it; a future attempt should test on a per-repo basis (e.g. a repo-relative percentile
+transform) rather than a single global intercept shift or a single global division, and should
+re-derive which signals are protective before scaling any of them.
+
+**Caveats.**
+- **ApacheJIT's pooled median is not "near red."** This is the central, non-obvious finding: the
+  pre-registration's rationale assumed a near-red median, built from the qualitative field-test
+  evidence on black/vite (not ApacheJIT). ApacheJIT's 15 mature Java projects are saturated in the
+  sense that red/yellow shares are already substantial (60.8 % yellow+red) but the *median* commit
+  is still just past green, so "re-centre to mid-yellow" is a shift in the wrong direction for this
+  specific dataset.
+- **Repo-age anchor is the dataset's visible window, not true repo age.** The earliest
+  row-cache-resolved commit per project (train starts 2003 for most), not the actual repository
+  creation date.
+- **Only one scaling sub-variant was run** (age, not total-commit count) and **the field-test
+  repositories were not re-cloned**; see Where.
+- **No rename detection, no new history walk**: every signal value is the existing row cache's,
+  unchanged; only the intercept shift and the age-based division are new.
+
+**Outcome.** Rejected. Both pre-registered candidates make ApacheJIT's out-of-the-box saturation
+worse, not better, when implemented exactly as specified: intercept re-centring because the
+dataset's median score was never near red to begin with, and repo-age scaling because it shrinks a
+protective signal (`expertise.author_commits`) more than it shrinks the risk signals it was meant
+to tame. No `src/` default change is recommended on this evidence.
+
+**Where.** `bench/apachejit/default-weights-experiment.ts`; results in
+[`bench/apachejit/default-weights-experiment.md`](../bench/apachejit/default-weights-experiment.md).
+No LLM calls, no API spend. No clones were made or deleted (the row cache and CSVs were already
+cached).
+
 ## Score saturation: fixPattern and incident granularity on ApacheJIT
 
 **Status.** Pre-registered 2026-10-19, before any run; run completed 2026-10-20. The question,
@@ -189,152 +335,6 @@ unrelated files (confirmed on vite, where one old revert flagged hundreds of fil
 0.0014). V1 (the Conventional-Commits `fixPattern` exclusion) is documented as a per-repo override
 in [`docs/configuration.md`](configuration.html#repositories-that-use-conventional-commits) rather
 than shipped as a new default.
-
-## Default weights: re-centred intercept and repo-age scaling on ApacheJIT
-
-**Status.** Pre-registered 2026-10-20, before any replay; run completed the same day. The
-question, setup and decision rule below are unchanged from the pre-registration, with two
-pre-registered choices resolved (the pre-registration left the exact candidate(s) and the
-field-test-repo check optional): both candidate approaches were implemented, and the field-test
-repositories were not re-scored (see Result).
-
-**Question.** Do re-centred default weights reduce out-of-the-box saturation on mature
-repositories? The [score-saturation experiment](#score-saturation-fixpattern-and-incident-granularity-on-apachejit)
-rejected both `history.fixPattern` exclusion and file-level `history.incident` matching as
-saturation fixes: neither moved the default-prior score distribution's spread, only its position,
-and both fell short of the 25 % red-share-reduction bar. That experiment's own recommendation
-(point 3) names the likely larger cause: diffusion and history signals are raw, un-normalized
-counts that run high on an old, busy repository regardless of a specific PR's risk, which neither
-variant touched. This asks whether changing where the score's default weights are centred, rather
-than which signals fire, addresses that directly.
-
-**Setup.**
-- **Baseline.** ApacheJIT's default-prior (uncalibrated `DEFAULT_WEIGHTS`) red share (≥
-  `thresholds.red`, 0.8) and yellow-or-red share (≥ `thresholds.green`, 0.3), and calibrated AUC,
-  pooled on the test split exactly as reported in the score-saturation experiment above (red 25.6 %,
-  yellow+red 60.8 %, AUC 0.823) — the same row cache, no new replay needed.
-- **Field-test repositories, if feasible.** The six repositories from the [2026-10-19 field
-  test](research/2026-10-19-field-test.md) (vite, black and the others), each re-scored with the
-  candidate approach on fresh clones, to check whether a change tuned on ApacheJIT's distribution
-  also helps the mature, actively-developed repositories the field test flagged as saturated. Not a
-  hard requirement if cloning or scoring all six is too slow for the bench budget; ApacheJIT alone
-  still answers the question, descriptively weaker.
-- **Candidate approach(es).** Not chosen yet; at least one of:
-  - Re-centre the model's intercept (or, equivalently, the default priors as a group) so the
-    median commit lands mid-yellow instead of near red, without changing any individual signal's
-    relative weight.
-  - Scale `history.*` and `expertise.*` priors by a repo-age or repo-size factor (for example,
-    divide by `log1p(repo age in days)` or `log1p(total commits)`), so an old repository's raw
-    counts do not dominate the score the way they do today.
-- **Metrics.** Same as the score-saturation experiment: default-prior red share and yellow-or-red
-  share, score distribution SD/IQR, and calibrated AUC with a paired bootstrap against the current
-  defaults.
-
-**Decision rule.** Adopt a candidate as the new `src/` default when its default-prior red-share
-drops by at least 25 % relative to the current defaults **and** its calibrated-AUC paired bootstrap
-95 % CI against the current defaults includes 0 or is entirely positive (no significant loss) —
-the same bar the score-saturation experiment used, so the two results are comparable. Otherwise:
-reject, or ship conditionally with the reasoning recorded against the specific numbers.
-
-**Candidates implemented.** Both bulleted approaches, reusing the existing row cache and the
-already-downloaded ApacheJIT CSVs; no new clone, no new signal replay (`bench/apachejit/default-weights-experiment.ts`).
-- **V1 (intercept re-centred).** Intercept shifted by a constant chosen from the **train** split's
-  own default-prior median score (never test), so the median lands at mid-yellow (0.55 = midpoint
-  of `[thresholds.green, thresholds.red)`). A pure logit shift: ranking, hence AUC, is unaffected
-  by construction.
-- **V2 (history/expertise scaled by repo age).** Of `history.*`/`expertise.*`, only the three
-  unbounded log1p-count signals (`history.churn`, `history.prior_fixes`, `expertise.author_commits`)
-  are each divided by `max(1, log1p(days since the project's earliest row-cache-resolved commit))`,
-  computed per commit from the cached commit time — `history.incident` (0/1) and
-  `expertise.owner_ratio` (already 0–1) are left alone, since dividing a bounded value does not
-  match the "raw counts" diagnosis. Only one of the pre-registration's two scaling sub-variants
-  (age, not total-commit count) was run.
-- **V3.** V1 and V2 together.
-- **Field-test repositories.** Not re-scored: both ApacheJIT candidates already reject decisively
-  (see Result), and the pre-registration allowed skipping this when the bench budget does not
-  support six fresh clones.
-
-**Result.** 66,653 row-cache commits (the same coverage as the score-saturation experiment above).
-Test-split base rate: 23.6 % buggy.
-
-| Variant | Calibrated AUC | AUC gain vs V0 (95 % CI) | Default-prior red share (≥0.8) | Yellow+red share (≥0.3) | Red share, relative change |
-|---|---:|---|---:|---:|---:|
-| V0 (current) | 0.823 | — | 25.6 % | 60.8 % | — |
-| V1 (intercept re-centred) | 0.823 | +0.0000 (0.0000 to 0.0000) | 40.3 % | 76.4 % | **+57.5 %** |
-| V2 (history/expertise scaled by repo age) | 0.818 | −0.0052 (−0.0058 to −0.0046) | 33.9 % | 78.7 % | **+32.4 %** |
-| V3 (both) | 0.818 | −0.0052 (−0.0058 to −0.0046) | 53.4 % | 94.6 % | **+108.9 %** |
-
-Buggy rate within each default-prior tier (does green still mean low risk?):
-
-| Variant | Green (buggy rate) | Yellow (buggy rate) | Red (buggy rate) |
-|---|---|---|---|
-| V0 | 9,667 (7.4 %) | 8,707 (22.9 %) | 6,312 (49.3 %) |
-| V1 | 5,816 (4.8 %) | 8,928 (15.6 %) | 9,942 (41.7 %) |
-| V2 | 5,267 (5.2 %) | 11,062 (16.9 %) | 8,357 (43.9 %) |
-| V3 | 1,329 (2.0 %) | 10,172 (10.4 %) | 13,185 (35.9 %) |
-
-Every variant moves saturation in the **wrong direction** — red and yellow+red share rise, not
-fall — so none clears the 25 % relative *reduction* bar, and V2/V3 also lose calibrated AUC
-significantly (CI entirely negative). The mechanism differs by candidate:
-
-- **V1's premise does not hold on ApacheJIT.** The pre-registration assumed today's median sits
-  near red; it does not. The train-split default-prior median is 0.307, barely past the
-  green/yellow boundary. Moving it up to mid-yellow (0.55) necessarily pushes a large share of the
-  distribution that was in green or low yellow into high yellow and red.
-- **V2 backfires on sign, not magnitude.** `expertise.author_commits` carries a *negative*,
-  protective weight (−0.3) of the same magnitude as `history.prior_fixes` (+0.3). Dividing all
-  three signals' raw values by the same per-commit age divisor shrinks every contribution toward
-  zero, but a mature project's author-commit counts are typically larger in magnitude than its
-  prior-fix/churn counts, so the protective contribution shrinks by more than the risk
-  contributions do — net, scores rise.
-- Tier buggy rates still separate meaningfully in every variant (red is always riskier than
-  yellow, yellow always riskier than green), so "green still means low risk" in a relative sense,
-  but V1/V3 shrink green's *size* sharply (9,667 → 5,816 → 1,329 commits) while raising its buggy
-  rate only modestly (7.4 % → 4.8 % → 2.0 %) — fewer commits get the fast path, not a cleaner one.
-
-**Decision (pre-registered rule, applied exactly).**
-- **V1.** Red-share relative change +57.5 % (an increase, not the required ≥25 % *decrease*) →
-  **reject**. AUC-gain CI is non-negative only because the transform cannot affect ranking by
-  construction — that is not evidence the candidate works.
-- **V2.** Red-share relative change +32.4 % (an increase) and AUC-gain CI −0.0058 to −0.0046
-  (significant loss) → **reject** on both counts.
-- **V3.** Red-share relative change +108.9 % and the same significant AUC loss as V2 → **reject**.
-
-**Recommendation for `src/` defaults.** No change. Neither candidate, implemented exactly as
-pre-registered, reduces out-of-the-box saturation on ApacheJIT; both make it measurably worse, for
-reasons specific to ApacheJIT's own score distribution and to one signal's sign. The
-[score-saturation experiment](#score-saturation-fixpattern-and-incident-granularity-on-apachejit)'s
-recommendation (point 3) — that diffusion/history signals need per-repo normalization — is not
-disproved by this result, but this experiment's two literal operationalizations of "re-centre" do
-not deliver it; a future attempt should test on a per-repo basis (e.g. a repo-relative percentile
-transform) rather than a single global intercept shift or a single global division, and should
-re-derive which signals are protective before scaling any of them.
-
-**Caveats.**
-- **ApacheJIT's pooled median is not "near red."** This is the central, non-obvious finding: the
-  pre-registration's rationale assumed a near-red median, built from the qualitative field-test
-  evidence on black/vite (not ApacheJIT). ApacheJIT's 15 mature Java projects are saturated in the
-  sense that red/yellow shares are already substantial (60.8 % yellow+red) but the *median* commit
-  is still just past green, so "re-centre to mid-yellow" is a shift in the wrong direction for this
-  specific dataset.
-- **Repo-age anchor is the dataset's visible window, not true repo age.** The earliest
-  row-cache-resolved commit per project (train starts 2003 for most), not the actual repository
-  creation date.
-- **Only one scaling sub-variant was run** (age, not total-commit count) and **the field-test
-  repositories were not re-cloned**; see Where.
-- **No rename detection, no new history walk**: every signal value is the existing row cache's,
-  unchanged; only the intercept shift and the age-based division are new.
-
-**Outcome.** Rejected. Both pre-registered candidates make ApacheJIT's out-of-the-box saturation
-worse, not better, when implemented exactly as specified: intercept re-centring because the
-dataset's median score was never near red to begin with, and repo-age scaling because it shrinks a
-protective signal (`expertise.author_commits`) more than it shrinks the risk signals it was meant
-to tame. No `src/` default change is recommended on this evidence.
-
-**Where.** `bench/apachejit/default-weights-experiment.ts`; results in
-[`bench/apachejit/default-weights-experiment.md`](../bench/apachejit/default-weights-experiment.md).
-No LLM calls, no API spend. No clones were made or deleted (the row cache and CSVs were already
-cached).
 
 ## Captain-fact lift on ApacheJIT
 
