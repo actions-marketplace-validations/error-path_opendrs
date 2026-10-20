@@ -112,6 +112,22 @@ at the PR's base:
 
 > Reads a new environment variable `JWT_SECRET` (`src/auth/token.ts:12`).
 
+### `change.concurrency` — a changed line uses a concurrency primitive
+
+A changed, non-comment line of non-test code uses a concurrency primitive (locks, atomics,
+executors, thread/goroutine primitives, and the obvious TS/JS and Swift equivalents). One fact per
+file, at the file's first matching line:
+
+> Changes concurrency code: `synchronized` (`src/x/Cache.java:42`).
+
+### `change.safety_removed` — error-handling or guard lines were deleted
+
+Net deleted error-handling or guard lines (`catch`/`except`/`rescue`, `throw`/`raise`, `assert`,
+null/`None` checks, `checkArgument`-style preconditions), counted per hunk so a line only reworded
+in the same hunk does not count. One fact for the whole PR, at the first deleted line:
+
+> Removes 3 error-handling or guard lines (`src/x.ts:10`).
+
 ### `coupling.missing` — a file that usually changes together, didn't
 
 Two files that changed together often enough in the project's history, where this PR changed only
@@ -180,10 +196,19 @@ own captain brief off. See the [configuration reference](configuration.html) for
   score did not raise AUC (0.823 with and without), so it stays a captain fact and is not a
   score signal. The defaults (`minSupport: 8`, `minConfidence: 0.6`) were tuned on the training
   split only. Details: [Experiments](experiments.html).
-- **Layers and contracts** (`layers.edge`, `layers.cycle`, `contract.*`) are decisions a captain
-  signs off on, not bug predictors. opendrs does not claim that a new import edge or a new
-  dependency makes a PR more likely to cause an incident — only that it is a decision the captain,
-  not the editor or the AI review rounds, would otherwise have to notice on their own.
+- **Contracts and change risk** (`contract.dependency`, `contract.api`, `contract.schema`,
+  `change.concurrency`, `change.safety_removed`) cleared the same pre-registered bug-lift bar
+  (≥ 1.2×, ≥ 50 firing test commits) on ApacheJIT's test split (24,690 commits, pooled):
+  `contract.dependency` 1.47×, `contract.api` 1.72× (approximated: its dependents come from a
+  single-snapshot `git grep` of imports, not the real per-commit graph), `contract.schema` 2.39×,
+  `change.concurrency` 2.04× (firing on 13 % of test commits), and `change.safety_removed` 1.79×
+  (firing on 21 % of test commits — too common to weight `strong` without pushing most PRs to
+  "careful review", hence `info`). The docs may say these predict bugs; the facts still ship
+  regardless of the number, as decisions a captain signs off on either way. Details:
+  [Experiments](experiments.html#captain-fact-lift-on-apachejit).
+- **Layers** (`layers.edge`, `layers.cycle`) is not shown to predict bugs: `layers.edge` lifted
+  only 1.12× on a 2,000-commit sample (19 firings), short of the bar. It still ships — a new import
+  edge is a decision a captain signs off on, not a claim that it causes incidents.
 - **Drift** (`drift.scope`) is not measured against ApacheJIT: that benchmark has no PR rounds to
   measure drift across. It is validated by tests and by dogfooding opendrs's own PRs.
 
