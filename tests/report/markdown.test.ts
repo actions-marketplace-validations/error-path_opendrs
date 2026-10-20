@@ -370,3 +370,31 @@ describe("renderMarkdown captain line and block", () => {
     expect(renderMarkdown(result({ brief: brief() }))).not.toContain("**Captain:");
   });
 });
+
+describe("renderMarkdown selfCheckLine", () => {
+  it("renders it right after the captain block, before Review focus", () => {
+    const md = renderMarkdown(result({ brief: { ...brief(), captain: { priority: "careful", why: [], facts: [], notes: [] } } }), {
+      selfCheckLine: "author agent self-checked: 2 facts addressed, 1 explained · not part of the review decision",
+    });
+    expect(md).toContain("author agent self-checked: 2 facts addressed, 1 explained · not part of the review decision");
+    expect(md.indexOf("**Captain:")).toBeLessThan(md.indexOf("author agent self-checked:"));
+    expect(md.indexOf("author agent self-checked:")).toBeLessThan(md.indexOf("**Review focus**"));
+  });
+
+  it("renders standalone, right after the <sub> lines, when there is no captain block", () => {
+    const md = renderMarkdown(result({ brief: brief() }), {
+      selfCheckLine: "author agent self-checked: 0 facts addressed, 0 explained · not part of the review decision",
+    });
+    expect(md.indexOf("<sub>Source:")).toBeLessThan(md.indexOf("author agent self-checked:"));
+    expect(md).not.toContain("**Captain:");
+  });
+
+  it("omits the line entirely when selfCheckLine is not given", () => {
+    expect(renderMarkdown(result({ brief: brief() }))).not.toContain("self-checked");
+  });
+
+  it("is never shown without a brief (brief:false runs never build one to compare against)", () => {
+    const md = renderMarkdown(result(), { selfCheckLine: "author agent self-checked: 1 fact addressed, 0 explained · not part of the review decision" });
+    expect(md).not.toContain("self-checked");
+  });
+});
