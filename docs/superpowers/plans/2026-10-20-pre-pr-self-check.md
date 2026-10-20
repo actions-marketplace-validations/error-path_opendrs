@@ -379,14 +379,20 @@ describe("renderSelfCheckLine", () => {
 
   it("calls out a fixed id that is still present, distinctly from addressed", () => {
     expect(renderSelfCheckLine([{ id: "a", verdict: "fixed" }], ids)).toBe(
-      "author agent self-checked: 0 facts addressed, 0 explained, 1 claimed fixed but still present · not part of the review decision",
+      "author agent self-checked: 0 facts addressed, 0 explained, 1 fact claimed fixed but still present · not part of the review decision",
     );
   });
 
-  it("drops an explained id that is absent from the fresh brief silently (most likely stale, not a lie worth surfacing)", () => {
-    expect(renderSelfCheckLine([{ id: "gone", verdict: "explained", note: "x" }], ids)).toBe(
-      "author agent self-checked: 0 facts addressed, 0 explained · not part of the review decision",
-    );
+  it("drops an explained id that is absent from the fresh brief silently, without it triggering the no-match fallback when something else in the record did match (most likely stale, not a lie worth surfacing)", () => {
+    expect(
+      renderSelfCheckLine(
+        [
+          { id: "a", verdict: "explained", note: "still there" },
+          { id: "gone", verdict: "explained", note: "stale" },
+        ],
+        ids,
+      ),
+    ).toBe("author agent self-checked: 0 facts addressed, 1 explained · not part of the review decision");
   });
 
   it("falls back to a not-matched line when every id in the record is unmatched, instead of a false \"0 addressed\"", () => {
