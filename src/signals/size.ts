@@ -1,5 +1,9 @@
-import type { ChangedFile, Evidence, ScoringContext, Signal, SignalProvider } from "../domain/types.js";
+import type { ChangedFile, Evidence, Hunk, ScoringContext, Signal, SignalProvider } from "../domain/types.js";
+import type { OpendrsConfig } from "../domain/config.js";
+import { changedLines } from "../git/diff.js";
+import { matchAny } from "../git/glob.js";
 import { languageFamily, type LanguageFamily } from "./language.js";
+import { isTestPath } from "./tests.js";
 import { countedFiles, historyPath, plural, topEvidence, unknown } from "./util.js";
 
 /** Spec §4 "size.*" signals. */
@@ -67,6 +71,43 @@ export function inert(line: string, family: LanguageFamily): boolean {
   if (body === undefined && HASH.has(family) && t.startsWith("#")) body = t.slice(1);
   if (body === undefined && family === "sql" && t.startsWith("--")) body = t.slice(2);
   return body !== undefined && !body.includes("/*") && !body.includes("*/") && !DIRECTIVE.test(body.trim());
+}
+
+/**
+ * Spec 2026-10-20 §2/§3: the size cap's own line count, excluding inert lines in this order
+ * (first match wins) — instructions file (full) > test file (full) > autoApprove.sizeCapExempt
+ * (zero) > docs-family file (zero) > comment-only hunk (per-hunk zero) > everything else (full).
+ * `countInertLines: true` restores the pre-2026-10-20 raw count exactly.
+ */
+export function countedChangedLines(files: ChangedFile[], config: OpendrsConfig): number {
+  if (config.autoApprove.countInertLines) {
+    return files.reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
+  }
+  return files.reduce((n, f) => n + fileCountedLines(f, config), 0);
+}
+
+function fileCountedLines(f: ChangedFile, config: OpendrsConfig): number {
+  const full = f.added + f.deleted;
+  if (f.binary) return 1;
+  if (matchAny(config.paths.instructions, f.path, { ignoreCase: true })) return full;
+  if (isTestPath(config, f.path)) return full;
+  if (matchAny(config.autoApprove.sizeCapExempt, f.path)) return 0;
+  const family = languageFamily(f.path);
+  if (family === "docs") return 0;
+  if (f.status === "renamed") return full; // never comment-only, same as size.comment_only
+  return f.hunks.reduce((n, h) => n + hunkCountedLines(h, family), 0);
+}
+
+/** 0 when every changed (+/-) line in the hunk is inert; otherwise its full changed-line count. */
+function hunkCountedLines(h: Hunk, family: LanguageFamily): number {
+  let count = 0;
+  let allInert = true;
+  for (const { kind, text } of changedLines(h)) {
+    if (kind !== "+" && kind !== "-") continue;
+    count++;
+    if (!inert(text, family)) allInert = false;
+  }
+  return allInert ? 0 : count;
 }
 
 async function relativeSize(ctx: ScoringContext, files: ChangedFile[]): Promise<Signal> {
