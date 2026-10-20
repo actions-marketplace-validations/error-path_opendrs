@@ -302,6 +302,24 @@ it neither blocks nor is blocked by (a).
    precision and noise studies), plus a per-PR token cap set in config. **All paid studies wait on
    the user's API key — not provided yet. Do not run any paid study without it.**
 
+### 4.2 Revision (2026-10-20, same day): the user has ~$57 of API credit, usable once
+
+Supersedes §2.5's and §3.6's cost framing, not their study designs:
+
+- **No paid study runs now.** Nothing in this spec authorizes spending the credit yet.
+- **Phase 1's pilot (§2.5a, 5 PRs) and the full replay (20 PRs) run on the user's Claude
+  subscription via the logged-in `claude` CLI** — the user runs the agent-under-test from their own
+  terminal, the same way the skill-eval worker runs its hill-climb — **not the API**. Zero API
+  spend for Phase 1. The $/PR estimates in §2.5 no longer apply to Phase 1; they were priced for an
+  API-billed run that is not how Phase 1 is now measured.
+- **Phase 2's precision study (§3.6a, ≈ $0.25–$0.50) is the only planned API spend**, and only
+  after Phase 2 is built — the one item the $57 is for.
+- **Phase 2's noise-on-known-clean-PRs study (§3.6b, the ApacheJIT arm 4, ≈ $7–$9) is deferred.**
+  Run it only if a headline benchmark claim later needs it, and only on the user's explicit
+  decision at that time — not scheduled by this spec.
+- **The $60 hard cap (§4.1.5) stays the outer bound** on whatever paid study work does end up
+  running, unchanged by this revision.
+
 ## 5. Risks
 
 - **Phase 1's agent-replay cost is a genuine unknown** until the 5-PR pilot runs; §2.5 prices a
