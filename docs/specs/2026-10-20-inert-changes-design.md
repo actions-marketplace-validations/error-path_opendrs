@@ -1,8 +1,8 @@
 # Inert changes: docs and comments stop counting toward the size cap
 
-Status: draft spec, written 2026-10-20 for the user's review. Nothing is built yet. Option A
-(size-cap-only exemption, no tier forcing, no gate bypass) was decided by the user in conversation
-on 2026-10-20. This document needs approval before an implementation plan is written.
+Status: **approved 2026-10-20.** Option A (size-cap-only exemption, no tier forcing, no gate
+bypass) was decided by the user in conversation on 2026-10-20; the open questions in §8 were
+resolved the same day. See §8 for the resolutions; an implementation plan follows this spec.
 
 ## 1. Goal and non-goals
 
@@ -66,11 +66,13 @@ are blocked or specially treated today, and a `CLAUDE.md` edit is plain `languag
 docs-family/comment-only. A `CLAUDE.md` matched by `sizeCapExempt: ["docs/**"]` still counts in
 full; it is still `.md` but never treated as docs for this purpose.
 
-**Captain fact.** Propose a new strong `ArchitectureFact` id `contract.instructions`, alongside
+**Captain fact.** New strong `ArchitectureFact` id `contract.instructions`, alongside
 `contract.schema` in `src/domain/types.ts`: one fact per matched file (cap 3, rest counted, same
-convention as `contract.schema`), text "Changes agent instructions: `CLAUDE.md`". This depends on
-the captain brief (`docs/specs/2026-10-19-captain-brief-design.md`, still draft); until then the
-same sentence can run as a plain Policy-section note — see open questions.
+convention as `contract.schema`), text "Changes agent instructions: `CLAUDE.md`". The captain
+brief (`docs/specs/2026-10-19-captain-brief-design.md`) shipped in 0.4.0, so this ships now as a
+real captain fact — registered in `src/architecture` alongside `contract.dependency`/
+`contract.api`/`contract.schema`/`contract.env` so detector ordering and fact ranks stay
+consistent — not as a placeholder Policy-section note (§8.2).
 
 ## 4. Gate change
 
@@ -187,15 +189,37 @@ the cap for real — the table shows the mechanism, the same way the problem sta
 Only the two PRs that were *actually* all docs (#33, #36) flip, and #36 was never over the cap. The
 rest keep today's decision because their code or test lines alone already exceed 400.
 
-## 8. Open questions
+## 8. Decisions (approved 2026-10-20)
 
-1. Should `paths.instructions` get an `unblock`-style escape for a repo whose own `SKILL.md`-named
-   file is genuinely inert (e.g. a template example)? Proposed default: no, additive only.
-2. Ship `contract.instructions` now as a plain PR-comment note (ahead of the draft captain brief),
-   or hold it until the captain brief's `contracts` detector lands?
-3. Is `countInertLines: false` (new behaviour by default) fine for a minor version, or should it
-   default to `true` for one release with a CHANGELOG call-out, then flip?
-4. Any repos you maintain where a `docs/**`-like folder already holds executable site content that
-   should be pre-listed as a `sizeCapExempt` caveat, beyond the general warning in §6?
-5. Does `opendrs init`'s generated config need a commented-out `sizeCapExempt: ["docs/**"]` example,
-   given `languageFamily` already treats most of `docs/**` as inert without it?
+1. **No `unblock`-style escape for `paths.instructions`.** It stays additive only, like
+   `paths.block`/`paths.critical`: a config's own list extends it, nothing removes a default entry.
+   A repo whose own `SKILL.md`-named file is genuinely inert still counts it in full; that is the
+   deliberate asymmetry (§3) that keeps agent-instruction files from quietly re-opening a size-cap
+   hole.
+2. **Ship `contract.instructions` now, as a real strong captain fact**, not a placeholder
+   PR-comment note: "Changes agent instructions: `CLAUDE.md`". The captain brief
+   (`docs/specs/2026-10-19-captain-brief-design.md`) shipped in 0.4.0 — it is not a draft, whatever
+   wording earlier drafts of this document used — so there is no reason to wait for it. Register
+   the fact in `src/architecture` next to `contract.dependency`/`contract.api`/`contract.schema`/
+   `contract.env` so `ArchitectureFactId`, `DETECTOR_RANK` and the sort order in
+   `src/architecture/index.ts` stay consistent; a different in-flight branch is adding its own
+   `risk` detector/fact id to the same files, so add this one cleanly (no renumbering of existing
+   ranks) rather than reshuffling.
+3. **New behaviour on by default:** `autoApprove.countInertLines: false` ships in this minor
+   version, not held behind a one-release opt-in. A CHANGELOG `### Changed` entry calls out the
+   default-behaviour change explicitly (§5's backward-compatibility note already states why: an
+   opt-in flag nobody sets would not fix the PR #39-style blocks this spec targets).
+4. **Caveat, documented, not pre-listed.** No general pre-listing of "repos with an executable
+   `docs/**`" — that is per-repo knowledge only the repo owner has. Instead, the caveat in §6
+   ("Docs folders with executable content") is written up explicitly in the user-facing docs
+   (`docs/policy.md`, `docs/auto-approve.md`, `docs/configuration.md`): a Jekyll `_layouts/**.html`,
+   a notebook's `.ipynb`, or site JS under `docs/assets/**` is `"other"` or unclassified by
+   `languageFamily`, so it is never inert by default — it only stops counting if the repo owner
+   explicitly lists it under `autoApprove.sizeCapExempt` from the base branch, the same trust
+   boundary every other `.opendrs.yml` setting has.
+5. **Yes, add a commented-out example.** `opendrs init`'s generated config (`src/cli/templates.ts`)
+   gets a commented `# sizeCapExempt: ["docs/assets/**"]`-style example next to the new
+   `autoApprove.sizeCapExempt`/`countInertLines` keys, so the caveat in (4) has a worked example
+   right where someone would reach for it. `tests/cli/init-mcp.test.ts`'s template-parity check
+   (the template must parse to exactly `defaultConfig()`) keeps passing because the example line
+   stays a comment.
