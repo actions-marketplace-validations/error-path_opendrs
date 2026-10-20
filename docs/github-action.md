@@ -304,6 +304,24 @@ workflow from another. A PR cannot add its own fake reviewer workflow: a PR that
 workflow that already exists on the base branch, so give the reviewer job a name no other job uses,
 such as `claude-review`, not `review` or `test`.
 
+## Author self-check (advisory)
+
+When the PR author (human or agent) followed [the self-check recipe](llm-reviewers.html#self-check-before-you-open-the-pr)
+and left a `<!-- opendrs-self-check:v1 ... -->` block in the head commit's own message, opendrs
+reads it from that exact commit, rebuilds the brief fresh as if the record did not exist, and adds
+one line next to the captain line:
+
+```
+author agent self-checked: 4 facts addressed, 1 explained · not part of the review decision
+```
+
+No block on the head commit → no line (never shown as "0 addressed"). Because the record lives
+inside the commit message, it is sha-pinned by construction: editing the diff or the record changes
+the sha, and a later push that drops the block simply has no record on its new head. This is purely
+advisory — it is never read by the gate or the captain's priority (`captain:*` label, auto-approve,
+tier). A self-check entry claiming a fact was fixed when it is still present in the fresh brief
+renders as "claimed fixed but still present" rather than counting as addressed.
+
 ## Deferred review and landing delay
 
 Both are off by default; see the config reference for `autoApprove.deferredReview` and

@@ -20,6 +20,34 @@ answers its questions first, then reads every other hunk at least once, and repo
 file:line and a priority. See [`skills/opendrs/SKILL.md`](../skills/opendrs/SKILL.md) for the same
 flow as an agent skill in any Claude Code session, with no slash command needed.
 
+## Self-check before you open the PR
+
+Before opening or updating a pull request (your own diff, not someone else's — that's
+`/opendrs-review` above), run the review brief as a self-check: every captain fact, `reviewFirst`
+hunk and "Check specifically" item is something to fix or explain, not just read.
+
+```bash
+npx @error-path/opendrs brief --self-check-template   # the ids to address, as JSON
+```
+
+Or the MCP tool `self_check_items {repoDir, base?, head?, maxTokens?}`.
+
+For every id: fix the diff, or write a one-line reason (<=140 chars) it does not need fixing. Then
+add this block to the end of your **head commit's own message** — not a separate commit, not the PR
+description:
+
+```
+<!-- opendrs-self-check:v1
+[{"id":"<id>","verdict":"fixed"},{"id":"<id>","verdict":"explained","note":"<why, <=140 chars>"}]
+-->
+```
+
+This is advisory only, never part of opendrs's auto-approve gate or the captain's priority. opendrs
+recomputes the brief from scratch on the exact head commit and only shows where your record and the
+fresh facts agree, disagree, or say nothing; a claimed fix that is still present in the diff is
+called out, not hidden. See [docs/github-action.md](github-action.html#author-self-check-advisory)
+for what the Action renders.
+
 ## anthropics/claude-code-action
 
 **Agent mode (a `prompt` input).** The action only sees the `prompt` you give it; pass the brief
