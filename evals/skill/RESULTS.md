@@ -971,3 +971,25 @@ targeted iterations, `$3.21` final full suite).
 
 No `src/` file changed this round — every edit was to `skills/opendrs/SKILL.md`,
 `commands/opendrs-review.md`, or an eval grader markdown file.
+
+## Round 8 — src/action/selfcheck.ts accepts needs-fix (feat/pre-pr-self-check @ 26b2a36)
+
+Round 7 added the `needs-fix` verdict to `SKILL.md` and the grader but left
+`src/action/selfcheck.ts`'s zod schema at `fixed`/`explained` only, so the Action would have
+rejected a correctly-written skill block as malformed. Fixed the schema, `classify()` (a present
+`needs-fix` item is now `flagged`; absent, `dropped`, same as `explained`), and
+`renderSelfCheckLine()` (adds `"N flagged as still needing a fix"`); extended
+`tests/brief/selfcheck-gate.test.ts` to cover a `needs-fix` block (gate unaffected). Synced
+`docs/llm-reviewers.md`, `docs/github-action.md`, the spec, the MCP tool description, and the
+Unreleased CHANGELOG entry.
+
+Re-ran `self-check-before-pr` (`--scaffold --allow-tools Bash --model sonnet --ablation none
+--runs 3 --no-publish`, `~/.docker` moved aside/restored): **0.67 (33%)**, down from round 7's
+1.00/100%. `used-self-check-tool` still PASS×3; `addresses-and-records` FAIL×3 on 2 of 3 runs. The
+failing runs' own evidence: *"git doesn't run in this sandbox... This sandbox blocks git (it can't
+create its xcrun cache file)"* — the agent correctly found the real bugs but, with no working git,
+asked the user whether to fix them instead of writing/proposing the self-check block immediately.
+This is the same Docker-credential-store sandbox flakiness recorded in Round 6 (not reproduced by
+this change — `src/action/selfcheck.ts` is Action-side parsing code the skill eval never exercises;
+nothing in this round touched the skill, the grader, or the agent's git access). Recorded as open
+environment flakiness, not a regression from this fix.
