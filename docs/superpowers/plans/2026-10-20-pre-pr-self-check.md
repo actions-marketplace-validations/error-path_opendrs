@@ -831,13 +831,11 @@ describe("opendrs brief --self-check-template", () => {
     expect(items[0]).toMatchObject({ id: expect.any(String), file: expect.any(String), text: expect.any(String) });
   });
 
-  it("is empty, not an error, when nothing needs a self-check", async () => {
+  it("is empty, not an error, when there is no diff to review", async () => {
     const repo2 = makeRepo();
     repo2.commit({ "a.ts": "1\n" }, "base");
-    repo2.git("checkout", "-q", "-b", "feature");
-    repo2.commit({ "a.ts": "1\n2\n" }, "change");
     const { io, stdout } = testIo(repo2.dir);
-    expect(await runCli(["brief", "--base", "main", "--self-check-template"], io)).toBe(0);
+    expect(await runCli(["brief", "--base", "main", "--head", "main", "--self-check-template"], io)).toBe(0);
     expect(JSON.parse(stdout())).toEqual([]);
     repo2.cleanup();
   });
