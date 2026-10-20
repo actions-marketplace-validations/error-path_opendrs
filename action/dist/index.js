@@ -27539,6 +27539,21 @@ var DEFAULT_BLOCK = [
   "**/*.bzl"
 ];
 var DEFAULT_CRITICAL = ["**/auth/**", "**/payment*/**", "**/billing/**", "**/security/**"];
+var DEFAULT_INSTRUCTIONS = [
+  "**/CLAUDE.md",
+  "**/AGENTS.md",
+  "**/GEMINI.md",
+  ".claude/**",
+  ".cursor/**",
+  ".cursorrules",
+  ".windsurfrules",
+  ".github/copilot-instructions.md",
+  ".github/instructions/**",
+  "**/SKILL.md",
+  "**/*.prompt.md",
+  "**/prompts/**",
+  ".opendrs/**"
+];
 function unblockable(glob, ctx) {
   if (DEFAULT_BLOCK.includes(glob)) return;
   ctx.addIssue({
@@ -27604,6 +27619,10 @@ var configSchema = external_exports.object({
     mergeMethod: external_exports.enum(["queue", "auto-merge", "none"]).default("queue"),
     sampleRate: external_exports.number().min(0).max(1).default(0.1),
     maxChangedLines: external_exports.number().int().positive().default(400),
+    /** Never excluded from the size cap (spec §2.3), whatever its language family; glob-matched like paths.*. */
+    sizeCapExempt: globs([]),
+    /** true restores pre-2026-10-20 behaviour: every changed line counts, nothing is excluded. */
+    countInertLines: external_exports.boolean().default(false),
     /** Minutes an eligible PR waits, on the same head commit, before opendrs approves it (a veto window). */
     landingDelayMinutes: external_exports.number().int().min(0).default(0),
     /**
@@ -27621,6 +27640,7 @@ var configSchema = external_exports.object({
     block: globs([]),
     critical: globs([]),
     unblock: external_exports.array(external_exports.string().superRefine(unblockable)).default([]),
+    instructions: globs([]),
     ignore: globs([
       "**/*.lock",
       "**/package-lock.json",
@@ -27648,7 +27668,8 @@ var configSchema = external_exports.object({
   }).transform((p) => ({
     ...p,
     block: union2(DEFAULT_BLOCK, p.block).filter((g) => !p.unblock.includes(g)),
-    critical: union2(DEFAULT_CRITICAL, p.critical)
+    critical: union2(DEFAULT_CRITICAL, p.critical),
+    instructions: union2(DEFAULT_INSTRUCTIONS, p.instructions)
   })).prefault({}),
   content: external_exports.object({
     // JS regular expressions matched against each added line; a match is never auto-approved.
@@ -28898,6 +28919,7 @@ var DEFAULT_SCHEMA_GLOBS = [
   "**/swagger*.{yaml,yml,json}"
 ];
 var MAX_SCHEMA_FACTS = 3;
+var MAX_INSTRUCTION_FACTS = 3;
 var MAX_ENV_CHECKS = 10;
 var ENV_PATTERNS = [
   /\bprocess\.env\.([A-Za-z_][A-Za-z0-9_]*)/,
@@ -29024,6 +29046,11 @@ var detectContracts = async (ctx) => {
     facts.push({ id: "contract.schema", weight: "strong", file: path, text: `Changes schema or contract file ${code(path)}.` });
   }
   if (schemaFiles.length > MAX_SCHEMA_FACTS) notes.push(plural2(schemaFiles.length - MAX_SCHEMA_FACTS, "more schema file"));
+  const instructionFiles = files.filter((f) => matchAny(ctx.config.paths.instructions, f.path, { ignoreCase: true })).map((f) => f.path).sort();
+  for (const path of instructionFiles.slice(0, MAX_INSTRUCTION_FACTS)) {
+    facts.push({ id: "contract.instructions", weight: "strong", file: path, text: `Changes agent instructions: ${code(path)}.` });
+  }
+  if (instructionFiles.length > MAX_INSTRUCTION_FACTS) notes.push(plural2(instructionFiles.length - MAX_INSTRUCTION_FACTS, "more instruction file"));
   const envCandidates = [];
   const seen = /* @__PURE__ */ new Set();
   for (const f of files) {
@@ -29865,10 +29892,71 @@ var detectLayers = async (ctx) => {
   return { facts, notes: [...head.moduleNotes] };
 };
 
+// src/architecture/risk.ts
+var SAFETY = /\b(catch|except|rescue|finally)\b|\bthrow\b(?!s)|\braise\b|\bassert\b|[!=]==?\s*(null|nil|None|undefined)\b|\b(null|nil|None|undefined)\s*[!=]==?|\bis (not )?None\b|\bcheck(Argument|State|NotNull|Index|ElementIndex|PositionIndex)\s*\(|\brequireNonNull\s*\(|\bValidate\.\w+\s*\(/;
+var CONCURRENCY = /\b(synchronized|volatile|ReentrantLock|ReadWriteLock|ReentrantReadWriteLock|StampedLock|Semaphore|CountDownLatch|CyclicBarrier|Phaser|ExecutorService|Executors|ThreadPoolExecutor|ForkJoinPool|CompletableFuture|ConcurrentHashMap|ConcurrentLinkedQueue|BlockingQueue|ThreadLocal|Atomic(Integer|Long|Boolean|Reference)\w*|Mutex|RwLock|RWMutex|WaitGroup|threading|multiprocessing)\b|\bnew Thread\b|\bThread\.(sleep|start|interrupt|yield)\b|\.(wait|notify|notifyAll|lock|unlock|tryLock)\s*\(|\bgo func\b|\bnew Worker\s*\(|\bAtomics\.|\bSharedArrayBuffer\b|\bDispatchQueue\b|\bactor\s+[A-Za-z_]|\basync let\b|\bTask\s*\{/;
+var isComment = (text) => /^\s*(\/\/|#|\/\*|\*)/.test(text);
+function locate2(file2, line2) {
+  return line2 === void 0 ? file2 : `${file2}:${line2}`;
+}
+function codeFiles(ctx) {
+  return ctx.diff.files.filter((f) => !f.ignored && !f.binary && isCodeFamily(languageFamily(f.path)) && !isTestPath(ctx.config, f.path));
+}
+function firstConcurrencyMatch(f) {
+  for (const h of f.hunks) {
+    for (const { line: line2, text } of changedLines(h)) {
+      if (isComment(text)) continue;
+      const m = CONCURRENCY.exec(text);
+      if (m) return { line: line2, primitive: m[0] };
+    }
+  }
+  return void 0;
+}
+var detectRisk = async (ctx) => {
+  const files = codeFiles(ctx);
+  const facts = [];
+  for (const f of files) {
+    const match = firstConcurrencyMatch(f);
+    if (!match) continue;
+    facts.push({
+      id: "change.concurrency",
+      weight: "strong",
+      file: f.path,
+      line: match.line,
+      text: `Changes concurrency code: ${code(match.primitive)} (${code(locate2(f.path, match.line))}).`
+    });
+  }
+  const removed = [];
+  for (const f of files) {
+    for (const h of f.hunks) {
+      const deleted = [];
+      let added = 0;
+      for (const { kind, line: line2, text } of changedLines(h)) {
+        if (isComment(text) || !SAFETY.test(text)) continue;
+        if (kind === "-") deleted.push({ file: f.path, line: line2 });
+        else added++;
+      }
+      removed.push(...deleted.slice(0, Math.max(0, deleted.length - added)));
+    }
+  }
+  if (removed.length > 0) {
+    const first = removed[0];
+    facts.push({
+      id: "change.safety_removed",
+      weight: "info",
+      file: first.file,
+      line: first.line,
+      text: `Removes ${plural2(removed.length, "error-handling or guard line")} (${code(locate2(first.file, first.line))}).`
+    });
+  }
+  return { facts, notes: [] };
+};
+
 // src/architecture/index.ts
 var DETECTORS = [
   { name: "layers", detect: detectLayers },
   { name: "contracts", detect: detectContracts },
+  { name: "risk", detect: detectRisk },
   { name: "coupling", detect: detectCoupling },
   { name: "drift", detect: detectDrift }
 ];
@@ -29880,8 +29968,11 @@ var DETECTOR_RANK = {
   "contract.api": 1,
   "contract.schema": 1,
   "contract.env": 1,
-  "coupling.missing": 2,
-  "drift.scope": 3
+  "contract.instructions": 1,
+  "change.concurrency": 2,
+  "change.safety_removed": 2,
+  "coupling.missing": 3,
+  "drift.scope": 4
 };
 function sortFacts(facts) {
   return [...facts].sort(
@@ -29918,7 +30009,7 @@ import { readFile as readFile3 } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { join as join3 } from "node:path";
 var INCIDENTS_FILE = ".opendrs/incidents.jsonl";
-var CONCURRENCY = Math.max(2, availableParallelism());
+var CONCURRENCY2 = Math.max(2, availableParallelism());
 var incidentSchema = external_exports.object({
   inducing: external_exports.string().optional(),
   fix: external_exports.string().optional(),
@@ -30529,6 +30620,33 @@ function inert(line2, family) {
   if (body === void 0 && HASH.has(family) && t.startsWith("#")) body = t.slice(1);
   if (body === void 0 && family === "sql" && t.startsWith("--")) body = t.slice(2);
   return body !== void 0 && !body.includes("/*") && !body.includes("*/") && !DIRECTIVE.test(body.trim());
+}
+function countedChangedLines(files, config2) {
+  if (config2.autoApprove.countInertLines) {
+    return files.reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
+  }
+  return files.reduce((n, f) => n + fileCountedLines(f, config2), 0);
+}
+function fileCountedLines(f, config2) {
+  const full = f.added + f.deleted;
+  if (f.binary) return 1;
+  if (matchAny(config2.paths.instructions, f.path, { ignoreCase: true })) return full;
+  if (isTestPath(config2, f.path)) return full;
+  if (matchAny(config2.autoApprove.sizeCapExempt, f.path)) return 0;
+  const family = languageFamily(f.path);
+  if (family === "docs") return 0;
+  if (f.status === "renamed" || f.hunks.length === 0) return full;
+  return f.hunks.reduce((n, h) => n + hunkCountedLines(h, family), 0);
+}
+function hunkCountedLines(h, family) {
+  let count = 0;
+  let allInert = true;
+  for (const { kind, text } of changedLines(h)) {
+    if (kind !== "+" && kind !== "-") continue;
+    count++;
+    if (!inert(text, family)) allInert = false;
+  }
+  return allInert ? 0 : count;
 }
 async function relativeSize(ctx, files) {
   const id = "size.relative";
@@ -31311,9 +31429,12 @@ function decide(input2) {
   for (const [pattern, hits] of contentHits(diff, config2.content.block)) {
     fire("human-review", `content.block /${pattern}/ matched ${list(hits)}`, "content.block");
   }
-  const changedLines3 = diff.files.filter((f) => !f.ignored).reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
-  if (changedLines3 > auto.maxChangedLines) {
-    fire("human-review", `${changedLines3} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})`, "size-cap");
+  const cappedFiles = diff.files.filter((f) => !f.ignored);
+  const rawLines = cappedFiles.reduce((n, f) => n + (f.binary ? 1 : f.added + f.deleted), 0);
+  const counted = countedChangedLines(cappedFiles, config2);
+  if (counted > auto.maxChangedLines) {
+    const reason = counted === rawLines ? `${rawLines} changed lines exceeds autoApprove.maxChangedLines (${auto.maxChangedLines})` : `${rawLines} changed lines, ${counted} counted toward maxChangedLines after excluding ${rawLines - counted} inert docs/comment lines (cap ${auto.maxChangedLines})`;
+    fire("human-review", reason, "size-cap");
   }
   const kinds = input2.source ? [.../* @__PURE__ */ new Set([input2.source.floor ?? "human", input2.source.kind])] : [];
   const deferredReview = auto.deferredReview;
