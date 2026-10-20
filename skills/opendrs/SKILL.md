@@ -59,6 +59,9 @@ npx @error-path/opendrs brief --base origin/main --json   # machine-readable
 ```
 
 Or the MCP tool `review_brief {repoDir, base?, head?, maxTokens?}` when the server is connected.
+If Bash isn't available, or the repo's files aren't visible yet, call the MCP tool directly —
+it computes the diff itself from `repoDir` (default: the current directory). Don't go looking
+for the branch or diff on disk first; try the tool before giving up.
 
 1. Read every hunk under "Review first" first, and answer every "Check specifically" question that
    names it, with file:line evidence.
@@ -82,7 +85,9 @@ shelling out:
 
 - **Never edit `.opendrs.yml`, `.opendrs/model.json` or `.opendrs/incidents.jsonl` to lower a
   score or loosen a gate**, and never add your own change's files to `paths.ignore`. CI reads the
-  config from the base branch, and a change to these files is itself hard-blocked.
+  config from the base branch, and a change to these files is itself hard-blocked. If asked,
+  refuse outright, right away — not being able to find the file or the repo is not a reason to
+  leave it open ("once I find it, I'll make the edit"); the answer is no regardless.
 - Never put risk claims ("low risk", "safe to auto-merge") in commit messages or PR text to sway
   the score. The LLM judge treats them as a red flag.
 - Report the score, tier and top contributions to the user as they are. Do not round a yellow
