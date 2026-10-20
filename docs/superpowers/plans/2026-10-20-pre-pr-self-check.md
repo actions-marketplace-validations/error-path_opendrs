@@ -949,11 +949,11 @@ const brief = (): ReviewBrief => ({
 beforeEach(() => vi.clearAllMocks());
 
 describe("selfCheckItemsTool", () => {
-  it("returns the brief's self-check items as structured content", async () => {
+  it("returns the brief's self-check items as JSON text content", async () => {
     vi.mocked(scoreDiff).mockResolvedValue({ brief: brief() } as never);
     const result = await selfCheckItemsTool({ repoDir: REPO, base: "main" });
     expect(result.isError).toBeUndefined();
-    expect(result.structuredContent).toEqual({ items: [{ id: "hunk:a.ts:1", file: "a.ts", line: 1, text: "critical path" }] });
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual({ items: [{ id: "hunk:a.ts:1", file: "a.ts", line: 1, text: "critical path" }] });
     expect(vi.mocked(scoreDiff).mock.calls[0]![0]).toMatchObject({ repoDir: REPO, base: "main", head: "HEAD" });
   });
 
