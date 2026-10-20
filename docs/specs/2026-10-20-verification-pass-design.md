@@ -1,9 +1,10 @@
 # Verification, two phases: pre-PR self-check, then a reviewer-side pass
 
-Status: draft spec, rewritten 2026-10-20 after the research memo's re-check
-(`docs/research/2026-10-20-code-review-at-anthropic.md`). Supersedes the single-phase draft of the
-same filename. Nothing is built yet; needs approval before an implementation plan is written. The
-user chose **B+**: two phases in one spec, built and shipped separately.
+Status: **approved 2026-10-20** (B+: two phases in one spec, built and shipped separately), after
+the research memo's re-check (`docs/research/2026-10-20-code-review-at-anthropic.md`). Supersedes
+the single-phase draft of the same filename. The user's answers to §4's open questions are recorded
+below, replacing that section's "recommended" framing; an implementation plan for Phase 1 follows in
+`docs/superpowers/plans/2026-10-20-pre-pr-self-check.md`.
 
 ## 1. Correcting the premise
 
@@ -286,6 +287,20 @@ it neither blocks nor is blocked by (a).
    total is cheap enough that a second model buys little] (b) a cheaper `llm.verify.model`**
 5. **Budget cap for `llm.verify`? (a) No new cap, rides the existing `llm.*` posture [recommended]
    (b) add `llm.verify.maxUsd`, fail open past it**
+
+### 4.1 Decisions (approved 2026-10-20)
+
+1. **O2.** Read the 18 noisy `coupling.missing` cases before Phase 2's precision study sets its
+   target — free, do it first.
+2. **Phase 1 pilot.** 5 PRs first; go to the full 20-PR replay only if the pilot looks sound
+   (§2.5's cost/quality read, not a fixed rule).
+3. **Release train.** v0.5.0 releases now, unchanged by this spec. Phase 1 (skill/command +
+   self-check plumbing) ships in **v0.6.0**. Phase 2 (`llm.verify`) ships in **v0.7.0**, after its
+   own studies (§3.7) pass.
+4. **Verifier model.** Sonnet 5.
+5. **Budget cap.** A hard cap of **$60 across all paid studies** (Phase 1's replay, Phase 2's
+   precision and noise studies), plus a per-PR token cap set in config. **All paid studies wait on
+   the user's API key — not provided yet. Do not run any paid study without it.**
 
 ## 5. Risks
 
