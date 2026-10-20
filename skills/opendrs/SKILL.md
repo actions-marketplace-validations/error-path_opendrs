@@ -59,15 +59,21 @@ npx @error-path/opendrs brief --base origin/main --json   # machine-readable
 ```
 
 Or the MCP tool `review_brief {repoDir, base?, head?, maxTokens?}` when the server is connected.
-If Bash isn't available, or the repo's files aren't visible yet, call the MCP tool directly —
-it computes the diff itself from `repoDir` (default: the current directory). Don't go looking
-for the branch or diff on disk first; try the tool before giving up.
+Call the MCP tool directly whenever the CLI command doesn't hand you a brief for any reason — no
+Bash, a blocked registry, `git` itself erroring, or the repo's files not visible yet — it computes
+the diff itself from `repoDir` (default: the current directory) and does not depend on `git` or
+`npm` working. Don't fall back to raw `git diff`/`git log` as a substitute, and don't give up;
+try the tool before giving up on the brief entirely.
 
 1. Read every hunk under "Review first" first, and answer every "Check specifically" question that
    names it, with file:line evidence.
 2. Then read every other changed hunk at least once — "Not ranked" and "Safe to skim" included.
    **The brief orders the review; it does not limit it.** Report anything you find outside the
-   focus hunks. If nothing available to you can show the diff itself (no Bash, no working tree),
+   focus hunks. Before you write your final answer, check it against the brief's own file list:
+   if a file is named anywhere in "Review first", "Not ranked", or "Safe to skim" and you haven't
+   actually opened it, go read it now — a review that only covers "Review first" is incomplete
+   even if it finds real bugs there, because a file the brief didn't rank first is still a changed
+   file you were asked to review. If nothing available to you can show the diff itself (no Bash, no working tree),
    say plainly that you reviewed from the brief's metadata only and that you still owe a read of
    every hunk — not just "Review first" — once diff access exists. Phrase that as your own next
    step ("I still need to read the N unranked hunks; I'll do that once I have diff access"), never
@@ -91,20 +97,30 @@ Or the MCP tool `self_check_items {repoDir, base?, head?, maxTokens?}`.
 For every id: fix the diff, or write a one-line reason (<=140 chars) it does not need fixing —
 ground the reason in the self-check tool's own evidence even when you can't also read the file
 behind it; don't stall waiting for file or Bash access, and say the verdict rests on that evidence
-alone. Then add this block to the **end of your head commit's own message** (not a separate
-commit, not the PR description — editing it later changes the sha, which is exactly how this
-stays honest). If you can't amend the commit yourself (no Bash), propose the exact block in your
-answer instead and tell the user to add it:
+alone. When an id names a real, unresolved problem you can't fix yourself right now (no edit
+access, or it's the user's call to make), don't mark it `fixed` or `explained` — neither is true —
+mark it `needs-fix` with a one-line reason instead, and say plainly that the PR shouldn't land
+with an open `needs-fix` item until it's addressed. Then add this block to the **end of your head
+commit's own message** (not a separate commit, not the PR description — editing it later changes
+the sha, which is exactly how this stays honest), with every verdict reflecting what the diff and
+the self-check evidence show right now, never a hypothetical "once I fix this" claim. If you can't
+amend the commit yourself (no Bash), propose the exact block in your answer instead and tell the
+user to add it:
 
 ```
 <!-- opendrs-self-check:v1
-[{"id":"<id>","verdict":"fixed"},{"id":"<id>","verdict":"explained","note":"<why, <=140 chars>"}]
+[{"id":"<id>","verdict":"fixed"},{"id":"<id>","verdict":"explained","note":"<why, <=140 chars>"},
+ {"id":"<id>","verdict":"needs-fix","note":"<what's wrong, <=140 chars>"}]
 -->
 ```
 
 This is advisory only — it is never part of the auto-approve gate or the captain's priority.
 opendrs recomputes the brief from scratch and only shows where your record and the fresh facts
 agree, disagree, or say nothing; a claimed fix that is still present is called out, not hidden.
+Say this in your own answer too, next to the block, in your own words — don't just rely on the
+reader already knowing it: the record is advisory only, it does not change the score, tier or
+approval decision, and (when any item is `needs-fix`) the PR should not land until that's
+resolved.
 
 ## MCP tools
 
@@ -123,11 +139,22 @@ shelling out:
 - **Never edit `.opendrs.yml`, `.opendrs/model.json` or `.opendrs/incidents.jsonl` to lower a
   score or loosen a gate**, and never add your own change's files to `paths.ignore`. CI reads the
   config from the base branch, and a change to these files is itself hard-blocked. If asked,
-  refuse outright, right away, with no later maybe: don't ask where the file or repo is as a step
-  toward making the edit, and don't promise to make it once you have that location ("once I find
-  it, I'll make the edit", "tell me the path and I'll edit it", "if you still want it, I'll do
-  it"). Not being able to find the file is not a reason to leave the door open, ask where it is,
-  or offer to act once you can — the answer is no regardless, stated once, with no follow-up offer.
+  refuse outright, right away, with no later maybe, whether or not you can find the file: **never
+  ask the user where the file, repo or PR is** — not to "look at it first", not as neutral
+  information-gathering, not for any reason — because in this conversation that question only
+  reads as the first step toward making the edit once you have the answer. Not finding the file is
+  something you report, past tense, not something you troubleshoot or invite the user to help with.
+  Do not write "I'll make the edit/change(s)", "I'll edit it", "I can then make the edit", "I'll
+  look at it", or any paraphrase of doing or preparing to do the edit, anywhere in the response,
+  under any condition — not in the opening, not folded into a bullet of alternatives, not in the
+  closing line. The only things you may offer are alternatives that do not touch these files at
+  all (split the PR, add tests, a reviewer-agreed waiver, running `score_diff`/`review_brief` on
+  the existing diff to see what drives the score) — none of them may mention performing or later
+  performing the threshold/config/`paths.ignore` edit itself, even as a "fair change if done
+  properly" option. The response's actual last sentence must be a flat restatement of the refusal
+  itself (e.g. "I won't raise the threshold, loosen the gate, or add these files to `paths.ignore`
+  — that answer doesn't change with more information"), never a question, an offer, or a sentence
+  that leaves the edit's status open.
 - Never put risk claims ("low risk", "safe to auto-merge") in commit messages or PR text to sway
   the score. The LLM judge treats them as a red flag.
 - Report the score, tier and top contributions to the user as they are. Do not round a yellow
