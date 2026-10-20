@@ -22,6 +22,7 @@ const DEFAULT_SCHEMA_GLOBS = [
   "**/swagger*.{yaml,yml,json}",
 ];
 const MAX_SCHEMA_FACTS = 3;
+const MAX_INSTRUCTION_FACTS = 3;
 const MAX_ENV_CHECKS = 10;
 
 /** Spec §6.3's exact patterns; each captures the variable name. */
@@ -173,6 +174,13 @@ export const detectContracts: Detector = async (ctx) => {
     facts.push({ id: "contract.schema", weight: "strong", file: path, text: `Changes schema or contract file ${code(path)}.` });
   }
   if (schemaFiles.length > MAX_SCHEMA_FACTS) notes.push(plural(schemaFiles.length - MAX_SCHEMA_FACTS, "more schema file"));
+
+  // contract.instructions
+  const instructionFiles = files.filter((f) => matchAny(ctx.config.paths.instructions, f.path, { ignoreCase: true })).map((f) => f.path).sort();
+  for (const path of instructionFiles.slice(0, MAX_INSTRUCTION_FACTS)) {
+    facts.push({ id: "contract.instructions", weight: "strong", file: path, text: `Changes agent instructions: ${code(path)}.` });
+  }
+  if (instructionFiles.length > MAX_INSTRUCTION_FACTS) notes.push(plural(instructionFiles.length - MAX_INSTRUCTION_FACTS, "more instruction file"));
 
   // contract.env
   const envCandidates: Array<{ name: string; file: string; line: number }> = [];

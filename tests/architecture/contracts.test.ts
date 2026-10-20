@@ -221,6 +221,45 @@ describe("detectContracts: contract.schema", () => {
   });
 });
 
+describe("detectContracts: contract.instructions", () => {
+  it("a changed CLAUDE.md is a strong contract.instructions fact", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "CLAUDE.md": "rules\n" }, "base");
+    repo.commit({ "CLAUDE.md": "rules\nmore\n" }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const instructionFacts = facts.filter((f) => f.id === "contract.instructions");
+    expect(instructionFacts).toHaveLength(1);
+    expect(instructionFacts[0]).toMatchObject({ weight: "strong", file: "CLAUDE.md" });
+    expect(instructionFacts[0]!.text).toBe("Changes agent instructions: `CLAUDE.md`.");
+  });
+
+  it("four instruction files report three facts plus a note counting the rest", async () => {
+    repo = makeRepo();
+    const base = repo.commit(
+      { "CLAUDE.md": "1\n", "AGENTS.md": "1\n", ".cursorrules": "1\n", "a/SKILL.md": "1\n" },
+      "base",
+    );
+    repo.commit({ "CLAUDE.md": "2\n", "AGENTS.md": "2\n", ".cursorrules": "2\n", "a/SKILL.md": "2\n" }, "head");
+
+    const { facts, notes } = await detectContracts(await contextFor(repo, base), {});
+
+    expect(facts.filter((f) => f.id === "contract.instructions")).toHaveLength(3);
+    expect(notes).toContain("1 more instruction file");
+  });
+
+  it("a plain .md file that is not on the instructions list is not a contract.instructions fact", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "README.md": "1\n" }, "base");
+    repo.commit({ "README.md": "2\n" }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    expect(facts.filter((f) => f.id === "contract.instructions")).toHaveLength(0);
+  });
+});
+
 describe("detectContracts: contract.env", () => {
   it("a new environment variable not present at base is a strong fact", async () => {
     repo = makeRepo();
