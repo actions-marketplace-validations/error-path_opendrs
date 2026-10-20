@@ -9,10 +9,12 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 - Pre-PR self-check (Phase 1 of the verification-pass spec,
   [docs/specs/2026-10-20-verification-pass-design.md](docs/specs/2026-10-20-verification-pass-design.html)):
   `opendrs brief --self-check-template` and the MCP tool `self_check_items` list the ids a pre-PR
-  self-check should fix or explain; the Action reads a `<!-- opendrs-self-check:v1 ... -->` block
-  from the head commit's own message, recomputes the brief fresh, and renders one advisory line next
-  to the captain line (`author agent self-checked: N facts addressed, M explained · not part of the
-  review decision`). Advisory only — never read by the gate or the captain's priority. See
+  self-check should fix, explain, or (a real, unresolved problem the agent can't fix itself) flag as
+  `needs-fix`; the Action reads a `<!-- opendrs-self-check:v1 ... -->` block from the head commit's
+  own message, recomputes the brief fresh, and renders one advisory line next to the captain line
+  (`author agent self-checked: N facts addressed, M explained, K flagged as still needing a fix ·
+  not part of the review decision`). Advisory only — never read by the gate or the captain's
+  priority. See
   [docs/llm-reviewers.md](docs/llm-reviewers.html#self-check-before-you-open-the-pr) and
   [docs/github-action.md](docs/github-action.html#author-self-check-advisory).
 - Two new captain facts from the ApacheJIT captain-fact-lift experiment: `change.concurrency`

@@ -52,10 +52,14 @@ the brief (`ArchitectureFact.id`-shaped, `reviewFirst` hunk id, `CheckItem` id):
 ```ts
 interface SelfCheckEntry {
   id: string;                      // an id the brief already assigned
-  verdict: "fixed" | "explained";
-  note?: string;                   // required when verdict is "explained"; <= 140 chars
+  verdict: "fixed" | "explained" | "needs-fix";
+  note?: string;                   // required when verdict is "explained" or "needs-fix"; <= 140 chars
 }
 ```
+
+(`needs-fix` was added after the skill eval found the agent had no honest verdict for a real,
+unresolved problem it could not fix itself — see `skills/opendrs/SKILL.md` and
+`evals/skill/RESULTS.md`'s round 7.)
 
 It is written into the **head commit's own message**, not a PR comment or a trailer value (which
 git expects single-line), as a marker block the same shape as the Action's existing
@@ -85,14 +89,17 @@ no match on either side is dropped silently (debug log only — most likely stal
 surfacing). An id still **present** with verdict `explained` renders as `(author: <note>)`, fully
 visible, never hidden; still present with verdict `fixed` renders as `(self-check claimed fixed,
 still present)` — the one case worth calling out, since it is the record contradicting the diff it
-describes. `addressed`/`explained` counts for §2.4 come straight out of this comparison.
+describes. An id still **present** with verdict `needs-fix` renders as flagged (the author's own
+agent found it and says it is not fixed yet); absent, it is dropped silently, same reasoning as an
+absent `explained` entry. `addressed`/`explained`/`flagged` counts for §2.4 come straight out of
+this comparison.
 
 ### 2.4 Rendering
 
 One advisory line, next to the captain line, never inside the five-fact cap or the gate:
 
 ```
-author agent self-checked: 4 facts addressed, 1 explained · not part of the review decision
+author agent self-checked: 4 facts addressed, 1 explained, 1 flagged as still needing a fix · not part of the review decision
 ```
 
 No record on head → the line is omitted, not shown as zero. Every id unmatched (hallucinated or

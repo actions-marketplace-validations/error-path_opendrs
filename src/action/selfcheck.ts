@@ -3,7 +3,7 @@ import { z } from "zod";
 /** One entry an agent writes into its head commit's message after a pre-PR self-check (spec §2.3). */
 export interface SelfCheckEntry {
   id: string;
-  verdict: "fixed" | "explained";
+  verdict: "fixed" | "explained" | "needs-fix";
   note?: string;
 }
 
@@ -12,13 +12,13 @@ const MAX_NOTE_CHARS = 140;
 const entrySchema = z
   .object({
     id: z.string().min(1),
-    verdict: z.enum(["fixed", "explained"]),
+    verdict: z.enum(["fixed", "explained", "needs-fix"]),
     note: z.string().min(1).max(MAX_NOTE_CHARS).optional(),
   })
   .strict()
   .superRefine((e, ctx) => {
-    if (e.verdict === "explained" && e.note === undefined) {
-      ctx.addIssue({ code: "custom", message: 'a self-check entry with verdict "explained" needs a non-empty note' });
+    if ((e.verdict === "explained" || e.verdict === "needs-fix") && e.note === undefined) {
+      ctx.addIssue({ code: "custom", message: `a self-check entry with verdict "${e.verdict}" needs a non-empty note` });
     }
   });
 
@@ -55,12 +55,13 @@ export function parseSelfCheck(message: string | undefined): SelfCheckEntry[] | 
   return result.success ? result.data : undefined;
 }
 
-type Classification = "addressed" | "explained" | "contradicted" | "dropped";
+type Classification = "addressed" | "explained" | "contradicted" | "dropped" | "flagged";
 
-/** Spec §2.3's four-way split, by comparing each entry's id against the freshly recomputed brief's ids. */
+/** Spec §2.3's split, by comparing each entry's id against the freshly recomputed brief's ids. */
 function classify(entry: SelfCheckEntry, freshIds: ReadonlySet<string>): Classification {
   const stillPresent = freshIds.has(entry.id);
   if (entry.verdict === "fixed") return stillPresent ? "contradicted" : "addressed";
+  if (entry.verdict === "needs-fix") return stillPresent ? "flagged" : "dropped"; // same reasoning as explained + absent
   return stillPresent ? "explained" : "dropped"; // explained + absent: most likely stale ranking drift, not a lie worth surfacing
 }
 
@@ -73,15 +74,16 @@ const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
  */
 export function renderSelfCheckLine(entries: SelfCheckEntry[] | undefined, freshIds: ReadonlySet<string>): string | undefined {
   if (entries === undefined) return undefined;
-  const counts = { addressed: 0, explained: 0, contradicted: 0, dropped: 0 };
+  const counts = { addressed: 0, explained: 0, contradicted: 0, dropped: 0, flagged: 0 };
   for (const entry of entries) counts[classify(entry, freshIds)]++;
 
-  const matched = counts.addressed + counts.explained + counts.contradicted;
+  const matched = counts.addressed + counts.explained + counts.contradicted + counts.flagged;
   if (entries.length > 0 && matched === 0) {
     return "author agent self-checked: present but could not be matched to this diff · not part of the review decision";
   }
 
   const parts = [`${plural(counts.addressed, "fact")} addressed`, `${counts.explained} explained`];
+  if (counts.flagged > 0) parts.push(`${plural(counts.flagged, "fact")} flagged as still needing a fix`);
   if (counts.contradicted > 0) parts.push(`${plural(counts.contradicted, "fact")} claimed fixed but still present`);
   return `author agent self-checked: ${parts.join(", ")} · not part of the review decision`;
 }

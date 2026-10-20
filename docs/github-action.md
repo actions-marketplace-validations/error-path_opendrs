@@ -312,7 +312,7 @@ reads it from that exact commit, rebuilds the brief fresh as if the record did n
 one line next to the captain line:
 
 ```
-author agent self-checked: 4 facts addressed, 1 explained · not part of the review decision
+author agent self-checked: 4 facts addressed, 1 explained, 1 flagged as still needing a fix · not part of the review decision
 ```
 
 No block on the head commit → no line (never shown as "0 addressed"). Because the record lives
@@ -320,7 +320,9 @@ inside the commit message, it is sha-pinned by construction: editing the diff or
 the sha, and a later push that drops the block simply has no record on its new head. This is purely
 advisory — it is never read by the gate or the captain's priority (`captain:*` label, auto-approve,
 tier). A self-check entry claiming a fact was fixed when it is still present in the fresh brief
-renders as "claimed fixed but still present" rather than counting as addressed.
+renders as "claimed fixed but still present" rather than counting as addressed. A `needs-fix` entry
+still present in the fresh brief renders as "flagged as still needing a fix"; absent, it is dropped
+silently, same as a stale `explained` entry.
 
 ## Deferred review and landing delay
 

@@ -32487,11 +32487,11 @@ async function enableMerge({ client, io, pr, result }) {
 var MAX_NOTE_CHARS2 = 140;
 var entrySchema = external_exports.object({
   id: external_exports.string().min(1),
-  verdict: external_exports.enum(["fixed", "explained"]),
+  verdict: external_exports.enum(["fixed", "explained", "needs-fix"]),
   note: external_exports.string().min(1).max(MAX_NOTE_CHARS2).optional()
 }).strict().superRefine((e, ctx) => {
-  if (e.verdict === "explained" && e.note === void 0) {
-    ctx.addIssue({ code: "custom", message: 'a self-check entry with verdict "explained" needs a non-empty note' });
+  if ((e.verdict === "explained" || e.verdict === "needs-fix") && e.note === void 0) {
+    ctx.addIssue({ code: "custom", message: `a self-check entry with verdict "${e.verdict}" needs a non-empty note` });
   }
 });
 var recordSchema = external_exports.array(entrySchema);
@@ -32514,18 +32514,20 @@ function parseSelfCheck(message) {
 function classify(entry, freshIds) {
   const stillPresent = freshIds.has(entry.id);
   if (entry.verdict === "fixed") return stillPresent ? "contradicted" : "addressed";
+  if (entry.verdict === "needs-fix") return stillPresent ? "flagged" : "dropped";
   return stillPresent ? "explained" : "dropped";
 }
 var plural5 = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 function renderSelfCheckLine(entries, freshIds) {
   if (entries === void 0) return void 0;
-  const counts = { addressed: 0, explained: 0, contradicted: 0, dropped: 0 };
+  const counts = { addressed: 0, explained: 0, contradicted: 0, dropped: 0, flagged: 0 };
   for (const entry of entries) counts[classify(entry, freshIds)]++;
-  const matched = counts.addressed + counts.explained + counts.contradicted;
+  const matched = counts.addressed + counts.explained + counts.contradicted + counts.flagged;
   if (entries.length > 0 && matched === 0) {
     return "author agent self-checked: present but could not be matched to this diff \xB7 not part of the review decision";
   }
   const parts = [`${plural5(counts.addressed, "fact")} addressed`, `${counts.explained} explained`];
+  if (counts.flagged > 0) parts.push(`${plural5(counts.flagged, "fact")} flagged as still needing a fix`);
   if (counts.contradicted > 0) parts.push(`${plural5(counts.contradicted, "fact")} claimed fixed but still present`);
   return `author agent self-checked: ${parts.join(", ")} \xB7 not part of the review decision`;
 }

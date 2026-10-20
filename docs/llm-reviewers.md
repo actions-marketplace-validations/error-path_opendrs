@@ -32,13 +32,16 @@ npx @error-path/opendrs brief --self-check-template   # the ids to address, as J
 
 Or the MCP tool `self_check_items {repoDir, base?, head?, maxTokens?}`.
 
-For every id: fix the diff, or write a one-line reason (<=140 chars) it does not need fixing. Then
-add this block to the end of your **head commit's own message** — not a separate commit, not the PR
-description:
+For every id: fix the diff, or write a one-line reason (<=140 chars) it does not need fixing. When
+an id names a real, unresolved problem you can't fix yourself right now, mark it `needs-fix` with a
+one-line reason instead of `fixed` or `explained`, and say the PR shouldn't land with an open
+`needs-fix` item until it's addressed. Then add this block to the end of your **head commit's own
+message** — not a separate commit, not the PR description:
 
 ```
 <!-- opendrs-self-check:v1
-[{"id":"<id>","verdict":"fixed"},{"id":"<id>","verdict":"explained","note":"<why, <=140 chars>"}]
+[{"id":"<id>","verdict":"fixed"},{"id":"<id>","verdict":"explained","note":"<why, <=140 chars>"},
+ {"id":"<id>","verdict":"needs-fix","note":"<what's wrong, <=140 chars>"}]
 -->
 ```
 

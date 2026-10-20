@@ -39,6 +39,16 @@ describe("parseSelfCheck", () => {
     expect(parseSelfCheck(`msg\n\n${marker('[{"id":"a","verdict":"maybe"}]')}`)).toBeUndefined();
   });
 
+  it('accepts verdict "needs-fix" with a note', () => {
+    const body = `msg\n\n${marker('[{"id":"a","verdict":"needs-fix","note":"can\'t fix, not my call"}]')}`;
+    expect(parseSelfCheck(body)).toEqual([{ id: "a", verdict: "needs-fix", note: "can't fix, not my call" }]);
+  });
+
+  it('rejects verdict "needs-fix" with no note, and with an empty note', () => {
+    expect(parseSelfCheck(`msg\n\n${marker('[{"id":"a","verdict":"needs-fix"}]')}`)).toBeUndefined();
+    expect(parseSelfCheck(`msg\n\n${marker('[{"id":"a","verdict":"needs-fix","note":""}]')}`)).toBeUndefined();
+  });
+
   it("is conservative: takes neither marker when the message has more than one", () => {
     const body = `msg\n\n${marker('[{"id":"a","verdict":"fixed"}]')}\n${marker('[{"id":"b","verdict":"fixed"}]')}`;
     expect(parseSelfCheck(body)).toBeUndefined();
@@ -105,5 +115,38 @@ describe("renderSelfCheckLine", () => {
         ids,
       ),
     ).toBe("author agent self-checked: 1 fact addressed, 1 explained · not part of the review decision");
+  });
+
+  it("counts a needs-fix id still present in the fresh brief as flagged, distinctly from explained", () => {
+    expect(renderSelfCheckLine([{ id: "a", verdict: "needs-fix", note: "not my call" }], ids)).toBe(
+      "author agent self-checked: 0 facts addressed, 0 explained, 1 fact flagged as still needing a fix · not part of the review decision",
+    );
+  });
+
+  it("drops a needs-fix id absent from the fresh brief silently, same as a stale explained entry", () => {
+    expect(
+      renderSelfCheckLine(
+        [
+          { id: "a", verdict: "explained", note: "still there" },
+          { id: "gone", verdict: "needs-fix", note: "stale" },
+        ],
+        ids,
+      ),
+    ).toBe("author agent self-checked: 0 facts addressed, 1 explained · not part of the review decision");
+  });
+
+  it("combines addressed, explained and flagged counts in one line", () => {
+    expect(
+      renderSelfCheckLine(
+        [
+          { id: "gone1", verdict: "fixed" },
+          { id: "gone2", verdict: "fixed" },
+          { id: "gone3", verdict: "fixed" },
+          { id: "a", verdict: "explained", note: "x" },
+          { id: "b", verdict: "needs-fix", note: "not my call" },
+        ],
+        ids,
+      ),
+    ).toBe("author agent self-checked: 3 facts addressed, 1 explained, 1 fact flagged as still needing a fix · not part of the review decision");
   });
 });
