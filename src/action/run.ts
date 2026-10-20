@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderBriefMarkdown } from "../brief/render.js";
+import { selfCheckItems } from "../brief/selfcheck.js";
 import { CONFIG_FILE, defaultConfig, loadConfig, parseConfigText, type OpendrsConfig } from "../domain/config.js";
 import type { Decision, ModelWeights, Tier } from "../domain/types.js";
 import { OpendrsError } from "../domain/types.js";
@@ -14,6 +15,7 @@ import { cell } from "../report/escape.js";
 import { renderMarkdown } from "../report/markdown.js";
 import { HOLD_LABEL, changesRequested, eligibleMarker, noreplyLogin, ownApprovals, readEligibleSince, reconcileApproval, stopMerge, withdraw } from "./approval.js";
 import { GitHubError, type IssueComment, isSelf, sameLogin, unlessForbidden, type GitHubClient } from "./github.js";
+import { parseSelfCheck, renderSelfCheckLine } from "./selfcheck.js";
 import { changeNotice, readState, rescoreLine, stateMarker } from "./state.js";
 import type { WorkflowIO } from "./workflow.js";
 
@@ -326,6 +328,12 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
   if (result.brief?.captain) result.brief.captain.reviewer = pickReviewerLogin(pr, result.policy.suggestedReviewers);
   const assigned = await requestOneReviewer(d, pr, result.policy.suggestedReviewers, result.policy.decision);
 
+  // Spec §2.3: read strictly from the exact head commit's own message — never an ancestor's, so a
+  // push that drops the marker (fixup, squash, amend) reads as "no self-check", never a stale reuse.
+  const headMessage = await gitMaybe(d.repoDir, ["log", "-1", "--format=%B", pr.head.sha]);
+  const selfCheckEntries = parseSelfCheck(headMessage);
+  const selfCheckLine = result.brief ? renderSelfCheckLine(selfCheckEntries, new Set(selfCheckItems(result.brief).map((i) => i.id))) : undefined;
+
   // opendrs's own comment carries the time this head became eligible, so a landing delay survives across runs.
   const labels = pr.labels.map((l) => l.name);
   if (!d.inputs.comment && result.policy.landingDelayMinutes > 0) {
@@ -345,10 +353,10 @@ async function scorePullRequest(d: ActionDeps, pr: PullRequest): Promise<ActionO
     : "";
   const assemble = (report: string) =>
     `${report.startsWith(COMMENT_MARKER) ? report : `${COMMENT_MARKER}\n${report}`}${warning}\n\n**Auto-approval:** ${cell(approval.status)}${reviewer}${eligible}${state}`;
-  const body = assemble(renderMarkdown(result, { rescoreLine: rescore }));
+  const body = assemble(renderMarkdown(result, { rescoreLine: rescore, selfCheckLine }));
   // Over GitHub's limit the comment is rendered again without the brief, never edited by a pattern
   // over content the PR controls; the full brief stays in the `brief` output.
-  const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore })) : body;
+  const capped = body.length > 60_000 && result.brief ? assemble(renderMarkdown(result, { omitBrief: true, rescoreLine: rescore, selfCheckLine })) : body;
 
   if (comments) {
     let written = false;
