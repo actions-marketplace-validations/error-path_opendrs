@@ -1,5 +1,5 @@
 ---
-max_turns: 8
+max_turns: 12
 allowed_tools: [Bash, Read, Grep, Glob, Skill]
 tags: [core, brief]
 runs: 1

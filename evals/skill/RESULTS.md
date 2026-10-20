@@ -675,3 +675,136 @@ Look for: `refuses-tamper` should pass 3/3 now that the refusal no longer asks f
 location as a lead-in. `review-before-pr` and `self-check-before-pr` are expected to still show
 `reading-order`/`addresses-and-records` FAIL — that's expected and tracked above, not a regression
 from this round's change (neither section touched).
+
+## Round 6 — realistic fixtures for `review-before-pr` and `self-check-before-pr`
+
+Round 5 deliberately left these two cases on the empty-sandbox fixture, reasoning that both
+graders already accept the no-repo path ("say so, state the unranked work as your own next
+step") and that the MCP mocks are canned regardless of real repo state anyway. Revisited per an
+explicit task to make these two the most meaningful version of the eval rather than one that
+only tests wording under an impossible constraint: a real agent running this skill has Bash and
+a real branch, and with no diff to read at all, `reading-order` and `addresses-and-records` can
+only ever test *phrasing about absence*, never whether the agent actually reads every hunk or
+actually records a self-check in a commit — which is what the skill (and these graders) are
+written to check.
+
+### Fixture design
+
+Added `evals/review-before-pr/case.yaml` and `evals/self-check-before-pr/case.yaml`
+(`schema_version: "1.1"`, `context.scaffold_script: fixture.sh`), and an identical
+`fixture.sh` in each case directory (duplicated, not shared, since `scaffold_script` is
+resolved relative to each case's own directory). The script:
+
+- Builds a real git repo: `main` with 4 commits (`feat` adding `src/payments/{charge,gateway,
+  types}.ts` + `tests/payments/charge.test.ts`, then 3 `fix(...)` commits touching `charge.ts`
+  twice and `gateway.ts` once), then `feat/payment-retry` branched off with one real feature
+  commit touching 3 files, 69 changed lines (`git diff --stat`: `charge.ts` +18/-6, `gateway.ts`
+  +1/-1, `retry.ts` +43/-0 new file) — inside the task's 2-3 files / 40-80 lines target.
+- Fakes `refs/remotes/origin/main` with `git update-ref` (no real remote), so `git diff
+  origin/main...HEAD` resolves exactly like the prompts' "against origin/main" / SKILL.md's
+  default base, with no network.
+- Fixes `GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE` (explicit `+00:00`) and `TZ=UTC`, so every
+  commit's SHA is byte-identical on every run: `7b74a08` (init), `409ffef` (fix: stop double
+  charge on timeout), `9ed4054` (fix: honour idempotency key), `b80c82f` (fix: surface 5xx as
+  retryable, = `main`), `5860e8a` (feature commit, = `feat/payment-retry`). Verified by running
+  the script twice in a scratch dir and diffing `git log --format=%H --all` output.
+- The feature diff is a real, reviewable change with a genuine bug, not filler: the new
+  `chargeCardWithRetry` in `retry.ts` always calls `chargeCard` with `opts.retryIdempotencyKey`
+  set, even on the *first* attempt, which silently skips the in-flight guard fix `409ffef` added
+  for every retried charge — and it catches *any* thrown error, not just gateway 5xx/429, so it
+  retries non-retryable errors (4xx, card declined) too. Both are things an agent reading the
+  actual diff (now possible with Bash) would actually find.
+
+### Mock consistency (case-local, not suite-wide)
+
+`evals/mocks/opendrs/{review_brief,score_diff,self_check_items}.md` are shared by 8 other
+passing cases (`auto-merge-safety`, `senior-reviewer-captain`, `split-risky-change`, etc.) whose
+graders don't pin exact tool-output content, but editing them anyway would be an unscoped risk
+for an unscoped gain. Used case-local overrides instead — `evals/review-before-pr/mocks/opendrs/
+{review_brief,score_diff}.md` and `evals/self-check-before-pr/mocks/opendrs/{review_brief,
+score_diff,self_check_items}.md` — which the harness documents as overriding the suite-wide file
+by name for that case only (confirmed below; the other 8 cases' mock content is untouched).
+
+Every file name, hunk line range, and fix-commit hash in the new `review_brief.md` and
+`self_check_items.md` mocks is read off the real fixture above (`src/payments/charge.ts`
+L10–28 and L43–47, `src/payments/retry.ts` L1–43 not-ranked `src/payments/gateway.ts`, fix
+hashes `409ffef`/`9ed4054`/`b80c82f`) rather than invented, so an agent that runs `git diff`,
+`git log`, or `git blame` itself sees the same facts the mocked brief states no file, hunk, or
+hash appears in one but not the other.
+
+### Operator grant and the exact commands
+
+`claude plugin eval --help` confirms `--case <glob>` takes one glob, not a repeatable flag, so
+"one `--case` per invocation" from the task is handled with a single glob that matches both
+case names (`review-before-pr`, `self-check-before-pr`) and nothing else in the suite:
+
+```sh
+# both cases, one invocation, with the real Bash grant and scaffold opt-in
+cd /Users/himanshuvachhani/personal/opendrs/.claude/worktrees/agent-a51a329a9f287013f && \
+  claude plugin eval . --case '*-before-pr' --scaffold --allow-tools Bash \
+  --model sonnet --ablation none --runs 3 --no-publish
+
+# full suite, once the two are confirmed
+cd /Users/himanshuvachhani/personal/opendrs/.claude/worktrees/agent-a51a329a9f287013f && \
+  claude plugin eval . --scaffold --allow-tools Bash --model sonnet --ablation none --runs 3 --no-publish
+```
+
+Verified free (no model calls) with `--max-cost-usd 0`: the glob resolves to exactly these two
+cases (`Ablation: 2 arms × 2 cases (4 runs)`), each case's `mocked:` line shows the case-local
+`review_brief`/`score_diff`(/`self_check_items`) overrides loading as `fixed`, and each case
+warns `not granted ... Bash` when `--allow-tools Bash` is omitted and `its scaffold_script is
+not run without --scaffold` when `--scaffold` is omitted — both flags are confirmed required,
+matching round 5's finding.
+
+**Could not get a real scored run this round.** `--scaffold --allow-tools Bash --max-cost-usd
+0.60` (model auth now works, unlike earlier rounds) fails before the agent starts, identically
+for `self-check-before-pr` and for the already-passing `auto-merge-safety`:
+
+> "the Docker (`~/.docker`, `DOCKER_CONFIG`) credential store on this machine holds a symbolic
+> link inside it, so the Bash sandbox cannot reliably exclude it — a Bash-granting evaluation
+> cannot run here"
+
+This is a pre-existing, machine-wide precondition failure in the Bash OS sandbox, unrelated to
+this round's fixture or any case's content (it reproduces on a case nobody touched). No prior
+round surfaced it because no prior round's recorded command actually passed `--allow-tools
+Bash` (round 5's own finding). Fixing it means tidying `~/.docker`'s credential store on this
+machine, which is outside this worktree and this task's scope — flagged for the user rather than
+worked around.
+
+### Grader changes
+
+None. `evals/review-before-pr/graders/*.md` and `evals/self-check-before-pr/graders/*.md` are
+unchanged — both already state criteria the new real-diff environment can satisfy (read every
+hunk; address every item and record the block in the commit), they just couldn't be truthfully
+exercised against an empty sandbox before.
+
+### Verification
+
+- `npx tsc --noEmit` — clean (no TypeScript under `skills/` or `commands/` touched; the new
+  fixture files are their own throwaway TS inside a scaffolded repo, not part of this plugin's
+  build).
+- `fixture.sh` run twice in a scratch directory outside this repo: identical commit SHAs,
+  identical `git diff --stat` both times; `git commit --amend` on the resulting HEAD works
+  (needed for the self-check case to actually record the block, not just propose it).
+- `claude plugin eval . --case '*-before-pr' --max-cost-usd 0 --scaffold --trust-plugin` (and
+  with `--allow-tools Bash`) — cases load, mocks resolve, both required flags confirmed, zero
+  cost.
+- Not scored end-to-end — blocked by the Docker-credential-store sandbox precondition above, not
+  by anything in this change. Next runner: fix that locally, then use the Round 6 commands.
+
+### Addendum: re-checked after "claude plugin eval now works from worker shells"
+
+Model auth is confirmed fixed (`claude -p "say pong"` now returns `pong`, and a no-Bash run of
+this suite completes and scores normally). The Docker-sandbox blocker is a separate,
+still-present problem: re-ran `auto-merge-safety --allow-tools Bash` (a case nobody touched this
+round) three more times, including with `DOCKER_CONFIG` pointed at a fresh empty directory for
+just that one command, and got the identical error every time. `ls -la ~/.docker` shows the
+symlinks are standard Docker Desktop CLI-plugin shims under `~/.docker/cli-plugins/` (`docker-
+compose`, `docker-buildx`, etc. — a normal install, not a stray user symlink), and the real
+`~/.docker` is checked regardless of `DOCKER_CONFIG`. Fixing it means changing how Docker
+Desktop lays out `~/.docker` on this machine, which is credential-store tooling outside this
+worktree and this task — not something to script around from here. **No `--allow-tools Bash`
+eval ran to completion this round**; the fixture, mocks, and command lines above are verified
+by inspection and the zero-cost `--max-cost-usd 0` dry run only, not by a scored run. Flagged for
+the user/orchestrator to fix `~/.docker` or run from a machine without this problem, then use the
+Round 6 commands as-is.
