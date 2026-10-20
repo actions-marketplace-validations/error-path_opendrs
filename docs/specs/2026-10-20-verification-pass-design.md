@@ -294,9 +294,9 @@ it neither blocks nor is blocked by (a).
    target — free, do it first.
 2. **Phase 1 pilot.** 5 PRs first; go to the full 20-PR replay only if the pilot looks sound
    (§2.5's cost/quality read, not a fixed rule).
-3. **Release train.** v0.5.0 releases now, unchanged by this spec. Phase 1 (skill/command +
-   self-check plumbing) ships in **v0.6.0**. Phase 2 (`llm.verify`) ships in **v0.7.0**, after its
-   own studies (§3.7) pass.
+3. **Release train (superseded 2026-10-20, same day, by §4.3 below).**~~v0.5.0 releases now,
+   unchanged by this spec. Phase 1 (skill/command + self-check plumbing) ships in v0.6.0. Phase 2
+   (`llm.verify`) ships in v0.7.0, after its own studies (§3.7) pass.~~
 4. **Verifier model.** Sonnet 5.
 5. **Budget cap.** A hard cap of **$60 across all paid studies** (Phase 1's replay, Phase 2's
    precision and noise studies), plus a per-PR token cap set in config. **All paid studies wait on
@@ -319,6 +319,14 @@ Supersedes §2.5's and §3.6's cost framing, not their study designs:
   decision at that time — not scheduled by this spec.
 - **The $60 hard cap (§4.1.5) stays the outer bound** on whatever paid study work does end up
   running, unchanged by this revision.
+
+### 4.3 Revision (2026-10-20, same day): no routine release — supersedes §4.1's item 3
+
+**v0.5.0 will not be cut now.** The merged v0.5.0 batch stays unreleased on `main`. There is no
+release until Phase 2 ships and its studies (§3.7) give measured improvements worth claiming;
+**Phase 1 and Phase 2 then ship together in that one release**, not separately. Until then,
+CHANGELOG entries for both phases stay under `## Unreleased`. This replaces §4.1 item 3's
+v0.5.0-now / v0.6.0 / v0.7.0 train; nothing else in §4.1 or §4.2 changes.
 
 ## 5. Risks
 
