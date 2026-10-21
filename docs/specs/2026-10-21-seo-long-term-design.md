@@ -87,7 +87,8 @@ page has front matter and a title, and the homepage title comes from `site.title
   4. `bundle exec jekyll build` in `docs/` into `docs/_site`, with `JEKYLL_ENV=production`.
   5. `node scripts/check-site.mjs docs/_site`. A failure stops the run, so a broken site never
      deploys.
-  6. Except on PRs, compute the IndexNow URL list (4.2) and expose it as a job output.
+  6. Except on PRs, compute the IndexNow URL list (4.2) with `scripts/indexnow-urls.mjs` and
+     expose it as a job output.
   7. Except on PRs, run `actions/upload-pages-artifact` on `docs/_site`.
 - **Job `deploy`, which needs `build` and skips PRs.** `actions/deploy-pages` with environment
   `github-pages`.
@@ -130,7 +131,8 @@ Anything else is fixed before the switch.
   The live sitemap has no `lastmod` today, so the first deploy after the switch submits every page
   once. That is expected.
 - **Submit (job `indexnow`).**
-  - An empty list logs "No published pages changed." and exits 0.
+  - An empty list is logged as "No published pages changed." in the build job, and the
+    `indexnow` job is skipped.
   - Otherwise, POST `{host, key, keyLocation, urlList}` to `https://api.indexnow.org/indexnow`.
     It uses the same key and key file as today (`docs/7761d20ca5295159e2dd2f14ffccbe2b.txt`), so
     nothing changes in Bing.
@@ -212,7 +214,8 @@ site prefix (default `https://error-path.github.io/opendrs/`). It prints every v
 | `llms` | Every site URL in `llms.txt` resolves to a built file |
 
 It parses HTML with targeted regular expressions over Jekyll's known output, which needs no
-dependency. Every rule is covered by a fixture test in `scripts/check-site.test.mjs`, run with
+dependency. Sitemap parsing is shared with `indexnow-urls.mjs` through `scripts/sitemap.mjs`. Every rule is covered by a fixture test in `scripts/check-site.test.mjs` and
+`scripts/indexnow-urls.test.mjs`, run with
 `node --test`. The test proves each rule catches a seeded violation and passes a clean fixture.
 That test runs in the `build` job before the check. It is not part of the npm suite.
 
