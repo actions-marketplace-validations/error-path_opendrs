@@ -12,6 +12,7 @@ them to the merge queue.
 
 ## Minimal workflow (comment-only)
 
+{% raw %}
 ```yaml
 name: opendrs
 on:
@@ -34,6 +35,7 @@ jobs:
       - uses: error-path/opendrs@v0
         id: opendrs
 ```
+{% endraw %}
 
 `fetch-depth: 0` is required. opendrs reads past commits (authors, earlier fixes and reverts),
 computes the merge-base of the PR, and reads the config from the base commit. With a shallow clone
@@ -62,12 +64,12 @@ opendrs checks out and reads the PR's code. opendrs scores on events that carry 
 
 | Input | Default | Meaning |
 |---|---|---|
-| `github-token` | `${{ github.token }}` | Token for the REST and GraphQL APIs. |
+| `github-token` | {% raw %}`${{ github.token }}`{% endraw %} | Token for the REST and GraphQL APIs. |
 | `base-config` | `true` | Read `.opendrs.yml` and the model from the PR's base commit. Leave it on. When `false`, the `llm` section and the `model` path still come from the base commit, so a PR cannot send the LLM key to its own `llm.baseUrl` or export another secret through `llm.apiKeyEnv`. |
 | `llm-api-key` | empty | Exported as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `llm.apiKeyEnv`. Used only when `llm.enabled`. |
 | `comment` | `true` | Create or update the PR comment (found by the `<!-- opendrs -->` marker). A landing delay needs it: the comment records when the head commit became eligible. |
 | `labels` | `true` | Set the risk label, and (when `captain.enabled`) one of `captain:careful`, `captain:standard` or `captain:quick`, and remove stale ones. opendrs creates its labels (`risk:*`, `captain:*`, `opendrs:landing`, `opendrs:hold`, `opendrs:review-after-merge`) with their own colours and descriptions, and recolours one GitHub auto-created in default grey; a colour you chose is kept. |
-| `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as `${{ secrets.OPENDRS_SAMPLE_SALT }}`. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
+| `sample-salt` | empty | **Set it when auto-approval is on**, to a secret such as {% raw %}`${{ secrets.OPENDRS_SAMPLE_SALT }}`{% endraw %}. Without it, sampling is predictable: see [Set sample-salt](#set-sample-salt). The drift sample (`autoApprove.sampleRate`) is keyed by repository, PR number and this salt, so pushing another commit does not re-roll it. |
 | `brief` | `true` | Build the review brief and fold it into the PR comment (a **Review focus** summary plus a collapsed "Review brief for AI reviewers" section), the `brief`/`brief-file` outputs, and the job summary. `false` restores today's comment layout byte for byte, leaves `brief`/`brief-file` empty, and omits the hidden state marker, the re-score line and the change notice: see [Re-scoring on new commits](#re-scoring-on-new-commits). |
 | `notify-changes` | `true` | When a re-score changes the tier or the decision, post one short new comment pointing back at the updated report. `false` keeps the re-score line in the main comment but skips the extra comment. Needs `brief` and `comment` to both be true. |
 
@@ -82,6 +84,7 @@ opendrs checks out and reads the PR's code. opendrs scores on events that carry 
 
 Use the outputs in later steps, for example to request a reviewer on red PRs:
 
+{% raw %}
 ```yaml
       - if: steps.opendrs.outputs.tier == 'red'
         env:
@@ -89,6 +92,7 @@ Use the outputs in later steps, for example to request a reviewer on red PRs:
           PR: ${{ github.event.pull_request.number }}
         run: gh pr edit "$PR" --add-reviewer my-org/oncall
 ```
+{% endraw %}
 
 ## Permissions
 
@@ -129,11 +133,13 @@ default empty salt, anyone can compute it**: for example, that `acme/app#107` is
 `#108` is not, and so open a risky PR when the next number is one that will not be sampled. Store
 a random secret and pass it:
 
+{% raw %}
 ```yaml
       - uses: error-path/opendrs@v0
         with:
           sample-salt: ${{ secrets.OPENDRS_SAMPLE_SALT }}
 ```
+{% endraw %}
 
 While `autoApprove.enabled` is true, `sampleRate` is above 0 and no salt is set, every run logs the
 warning "sampling is predictable; set sample-salt to a secret" and repeats it in the PR comment.
@@ -237,6 +243,7 @@ If the AI review has not finished when opendrs runs, the decision is `waiting-ai
 simplest way to avoid that race is one workflow where opendrs runs after the review job, whose
 check run is named after the job:
 
+{% raw %}
 ```yaml
 name: review
 on:
@@ -268,6 +275,7 @@ jobs:
           fetch-depth: 0
       - uses: error-path/opendrs@v0
 ```
+{% endraw %}
 
 A check that merely ran is not a passed review: make the review job fail when it finds a blocking
 issue. opendrs counts a check when the latest check run with that exact name concluded `success`
@@ -354,6 +362,7 @@ checkout and runs the same per-PR flow (score, comment, labels, approval). A PR 
 job fails at the end if any PR failed. The checkout must be the default branch with
 `fetch-depth: 0`, so the base commit and the history are present:
 
+{% raw %}
 ```yaml
 on:
   pull_request:
@@ -373,6 +382,7 @@ jobs:
           fetch-depth: 0
       - uses: error-path/opendrs@v0
 ```
+{% endraw %}
 
 The same `concurrency` block serves both: a sweep has no PR number, so sweeps share the group
 `opendrs-`, and the next one queues behind a running one instead of cancelling it, so a long sweep
