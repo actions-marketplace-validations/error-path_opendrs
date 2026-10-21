@@ -129,7 +129,7 @@ labelled positive.
 - **Refitting on all training commits closed the pooled gap.** Earlier versions fitted the saved
   weights on the oldest 80 % only and scored 0.819. The rest of the fit is unchanged, so the gain
   comes from the newest training years alone
-  ([`bench/apachejit/fit-experiment.md`](../bench/apachejit/fit-experiment.md)).
+  ([`bench/apachejit/fit-experiment.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/fit-experiment.md)).
 - **The refit is not a win everywhere.** Most projects moved up or stayed level, for example
   hadoop-hdfs 0.851 → 0.882 and hadoop-mapreduce 0.867 → 0.888. activemq fell 0.863 → 0.843 and
   groovy fell 0.692 → 0.609. For those two, adding the newest training years made the test-year
@@ -142,7 +142,7 @@ Every experiment behind these numbers, including the ones that did not help, is 
 [experiment log](experiments.html).
 
 The full report, with per-project numbers, coverage and caveats, is in
-[`bench/apachejit/results.md`](../bench/apachejit/results.md); [`bench/apachejit/README.md`](../bench/apachejit/README.md)
+[`bench/apachejit/results.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results.md); [`bench/apachejit/README.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/README.md)
 explains how to reproduce it.
 
 ### With the structured LLM judge
@@ -177,7 +177,7 @@ The `requireSafe` gate, applied to the same test commits (25.5 % of them buggy):
   the calibrated model. With 800 test commits that is within noise of the Kamei baseline, so treat
   it as a direction, not a result.
 
-The full report is [`bench/apachejit/results-llm.md`](../bench/apachejit/results-llm.md).
+The full report is [`bench/apachejit/results-llm.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results-llm.md).
 
 ## Reading the metrics
 

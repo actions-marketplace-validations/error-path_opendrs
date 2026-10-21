@@ -20,6 +20,7 @@ file history, author experience, size and tests.
 Add `.github/workflows/opendrs.yml`. It comments a risk report on each PR and sets a
 `risk:green`, `risk:yellow` or `risk:red` label. It approves nothing yet.
 
+{% raw %}
 ```yaml
 name: opendrs
 on:
@@ -41,6 +42,7 @@ jobs:
           fetch-depth: 0   # the score reads past commits and authors
       - uses: error-path/opendrs@v0
 ```
+{% endraw %}
 
 Leave it like this for two to four weeks and compare the scores with what reviewers found and what
 was reverted.
@@ -96,6 +98,7 @@ To auto-merge only PRs that are green *and* a captain "quick confirm", keep `mer
 and let the workflow decide from the same run's outputs. Never from labels: anyone with triage
 access can add a label.
 
+{% raw %}
 ```yaml
       - uses: error-path/opendrs@v0
         id: opendrs
@@ -106,6 +109,7 @@ access can add a label.
         env: { GH_TOKEN: "${{ github.token }}", PR: "${{ github.event.pull_request.number }}" }
         run: gh pr merge "$PR" --disable-auto --repo "$GITHUB_REPOSITORY" || true
 ```
+{% endraw %}
 
 The second step turns auto-merge off whenever a later push is no longer quick-confirm. Give the
 job `contents: write` and allow auto-merge in the repository settings. opendrs's own repository

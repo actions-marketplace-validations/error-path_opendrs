@@ -47,6 +47,24 @@ A short runbook for the maintainer.
 Users pin `@v0`, so moving `v0` ships the release to them. Never move `v0` to a version with a
 breaking change; release `v1` instead.
 
+## Docs site
+
+The site in `docs/` is built and deployed by the `pages` workflow, using Jekyll 4.4 (see
+`docs/Gemfile`). It needs no secrets. Every run:
+
+1. builds the site and runs `scripts/check-site.mjs`, which fails on a broken internal link, a
+   missing or duplicate title or description, more than one `<h1>`, a page no other page links
+   to, a sitemap entry without `lastmod`, invalid JSON-LD or a broken `llms.txt` link. Pull
+   requests that touch `docs/` run the same build and check, without deploying;
+2. deploys to GitHub Pages;
+3. sends IndexNow the pages that were added, changed (new `lastmod`) or removed, by comparing the
+   live sitemap with the new one.
+
+To tell Bing about URLs by hand, such as pages removed outside a deploy, run the workflow from the
+Actions tab and paste them into `extra_urls`, separated by spaces. The IndexNow key is the file
+`docs/7761d20ca5295159e2dd2f14ffccbe2b.txt` and `KEY` in `.github/workflows/pages.yml`. To rotate
+it, replace both. To preview locally: `cd docs && bundle install && bundle exec jekyll serve`.
+
 ## Handling a security report
 
 1. Acknowledge it within 7 days in the private advisory thread.

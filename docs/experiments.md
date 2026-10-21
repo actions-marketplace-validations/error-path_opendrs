@@ -53,8 +53,8 @@ than which signals fire, addresses that directly.
   `thresholds.red`, 0.8) and yellow-or-red share (≥ `thresholds.green`, 0.3), and calibrated AUC,
   pooled on the test split exactly as reported in the score-saturation experiment above (red 25.6 %,
   yellow+red 60.8 %, AUC 0.823) — the same row cache, no new replay needed.
-- **Field-test repositories, if feasible.** The six repositories from the [2026-10-19 field
-  test](research/2026-10-19-field-test.md) (vite, black and the others), each re-scored with the
+- **Field-test repositories, if feasible.** The six repositories from the
+  [2026-10-19 field test](research/2026-10-19-field-test.md) (vite, black and the others), each re-scored with the
   candidate approach on fresh clones, to check whether a change tuned on ApacheJIT's distribution
   also helps the mature, actively-developed repositories the field test flagged as saturated. Not a
   hard requirement if cloning or scoring all six is too slow for the bench budget; ApacheJIT alone
@@ -172,7 +172,7 @@ protective signal (`expertise.author_commits`) more than it shrinks the risk sig
 to tame. No `src/` default change is recommended on this evidence.
 
 **Where.** `bench/apachejit/default-weights-experiment.ts`; results in
-[`bench/apachejit/default-weights-experiment.md`](../bench/apachejit/default-weights-experiment.md).
+[`bench/apachejit/default-weights-experiment.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/default-weights-experiment.md).
 No LLM calls, no API spend. No clones were made or deleted (the row cache and CSVs were already
 cached).
 
@@ -323,7 +323,7 @@ convention V1 targets. ApacheJIT alone understates V1's likely effect on a repo 
   a near-no-op pooled here despite the real, larger effect the field-repo count shows on vite.
 
 **Where.** `bench/apachejit/score-saturation-experiment.ts`; results in
-[`bench/apachejit/score-saturation-experiment.md`](../bench/apachejit/score-saturation-experiment.md).
+[`bench/apachejit/score-saturation-experiment.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/score-saturation-experiment.md).
 No LLM calls, no API spend. The 15 ApacheJIT clones and the 3 field-repo clones were deleted after
 the run.
 
@@ -447,7 +447,7 @@ are now a candidate for the captain brief as informational facts — not yet wir
 `src/architecture/`.
 
 **Where.** `bench/apachejit/captain-lift-experiment.ts` and
-[`bench/apachejit/captain-lift-experiment.md`](../bench/apachejit/captain-lift-experiment.md). No
+[`bench/apachejit/captain-lift-experiment.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/captain-lift-experiment.md). No
 LLM calls; no API spend. The 15 full clones were deleted after the run.
 
 ## Change coupling on ApacheJIT
@@ -517,7 +517,7 @@ show on the same history. Full detail, including the "stays brief-only" wording'
 thresholds; it does not enter the calibrated score.
 
 **Where.** `bench/apachejit/coupling-experiment.ts` and
-[`bench/apachejit/coupling-experiment.md`](../bench/apachejit/coupling-experiment.md). No LLM
+[`bench/apachejit/coupling-experiment.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/coupling-experiment.md). No LLM
 calls; no API spend. The 15 blobless clones were deleted after the run.
 
 ## Planned: LLM plus opendrs vs the LLM alone
@@ -679,8 +679,8 @@ labelled commit. `backtest` shows the recorded held-out metrics when there are n
 Pooled, opendrs now matches the Kamei LR within noise. It does not beat it.
 
 **Where.** Commits `c14da1c` (fit experiment), `ad0d368` (fix), `35862bc` (regenerated benchmark).
-- [`bench/apachejit/fit-experiment.md`](../bench/apachejit/fit-experiment.md) and `bench/apachejit/fit-experiment.ts`.
-- [`bench/apachejit/results.md`](../bench/apachejit/results.md).
+- [`bench/apachejit/fit-experiment.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/fit-experiment.md) and `bench/apachejit/fit-experiment.ts`.
+- [`bench/apachejit/results.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results.md).
 - [Calibration and backtesting](calibration.html#what-calibrate-fits-on).
 
 ## Review-heuristic signals
@@ -844,7 +844,7 @@ failed commits were judged again with the same model and prompt.
 **Verdict.** Merged. The LLM-judge tables use the re-judged replies.
 
 **Where.** Commit `a9f4882` (structured outputs), `59e07e3` (results);
-[`bench/apachejit/results-llm.md`](../bench/apachejit/results-llm.md);
+[`bench/apachejit/results-llm.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results-llm.md);
 [Calibration and backtesting](calibration.html#with-the-structured-llm-judge).
 
 ## Structured LLM judge on sampled ApacheJIT
@@ -896,7 +896,7 @@ The test sample's base rate is 25.5 % buggy.
   has not been re-run.
 
 **Where.** Commits `2c9e452` and `59e07e3`;
-[`bench/apachejit/results-llm.md`](../bench/apachejit/results-llm.md);
+[`bench/apachejit/results-llm.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results-llm.md);
 [LLM judge](llm-judge.html).
 
 ## ApacheJIT benchmark baseline
@@ -930,7 +930,7 @@ the refit ([fit experiment](#fit-experiment-and-the-calibrate-refit)). The gap t
 would have to close.
 
 **Where.** Commit `50060c5`; `bench/apachejit/run.ts`;
-[`bench/apachejit/results.md`](../bench/apachejit/results.md);
+[`bench/apachejit/results.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results.md);
 [Calibration and backtesting](calibration.html#results-on-apachejit).
 
 ## Public-repository backtests

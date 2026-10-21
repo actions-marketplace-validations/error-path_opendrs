@@ -2,7 +2,7 @@
 layout: default
 layout_class: home
 software: true
-description: "opendrs is an open-source PR blast radius analyzer. It gives every pull request a calibrated 0-1 risk score, a review brief for your AI reviewer, and a captain brief for the final human reviewer, with optional auto-approval into the merge queue for low-risk PRs. GitHub Action, CLI, Claude Code plugin and MCP server."
+description: "Open-source PR blast radius analyzer. A calibrated 0-1 risk score per pull request: low-risk, AI-reviewed PRs auto-approve; risky ones wait for a human."
 faq:
   - q: "What is the blast radius of a pull request?"
     a: "It is how much can break if the change is wrong: how many files import the changed code, whether exported or public symbols changed, and whether the change reaches critical paths. opendrs measures it from your import graph and combines it with file history, author experience, size and missing tests into one 0-1 risk score. See [What is PR blast radius?](blast-radius.html)."
@@ -21,7 +21,7 @@ faq:
 ---
 <div class="wrap">
   <section class="hero">
-    <h1>A 0–1 risk score for every pull request</h1>
+    <h1>opendrs: a 0–1 risk score for every pull request</h1>
     <p class="lede">AI writes code and AI reviews it, so the final human review is now the bottleneck. opendrs scores each PR's risk from its blast radius and history, tells your AI reviewer where to look, and tells the last human reviewer how much attention the PR needs and what the editor and the AI rounds didn't show. Low-risk PRs can be approved and merged on their own.</p>
     <div class="actions">
       <a class="button primary" href="auto-approve.html">Set up auto-approval</a>

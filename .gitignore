@@ -6,3 +6,5 @@ coverage/
 evals/results/
 *.log
 .DS_Store
+docs/_site/
+docs/.jekyll-cache/

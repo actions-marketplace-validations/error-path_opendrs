@@ -94,8 +94,9 @@ hr { border: 0; border-top: 1px solid var(--rule); margin: 3rem 0; }
 .prose h1 + p { font-size: 1.125rem; color: var(--soft); }
 .prose li + li { margin-top: 0.4rem; }
 .prose li::marker { color: var(--muted); }
-.edit { margin-top: 3.5rem; font-size: 0.875rem; }
+.edit { margin-top: 3.5rem; font-size: 0.875rem; color: var(--muted); }
 .edit a { color: var(--muted); }
+.eyebrow { margin: 0 0 0.75rem; font-size: 0.875rem; color: var(--muted); }
 
 /* Home */
 .home section { padding-top: 4.5rem; }
