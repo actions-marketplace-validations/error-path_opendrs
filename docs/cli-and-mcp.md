@@ -39,7 +39,7 @@ Other clients take the same command: `{"command": "npx", "args": ["-y", "@error-
 The repository also has a `Dockerfile` that runs the MCP server over stdio. Mount the repository to
 score at `/repo`: `docker build -t opendrs . && docker run -i --rm -v "$PWD:/repo" opendrs`.
 
-The agent skill in [`skills/opendrs/SKILL.md`](../skills/opendrs/SKILL.md) tells an agent to run
+The agent skill in [`skills/opendrs/SKILL.md`](https://github.com/error-path/opendrs/blob/main/skills/opendrs/SKILL.md) tells an agent to run
 `opendrs score` before opening a PR and to split changes with a large blast radius.
 
 ### MCP tools

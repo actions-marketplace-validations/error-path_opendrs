@@ -1,3 +1,8 @@
+---
+title: "How AI code reviewers judge pull request risk"
+description: "How Claude Code, Superpowers, PR-Agent and other AI code reviewers judge pull request risk, the heuristics they share, and ten ranked changes for opendrs."
+---
+
 # How AI code reviewers judge PR risk, and what opendrs can take from them
 
 Research note, 2026-10-18. Sources were read on that date. Anything taken from a page summary
@@ -9,7 +14,7 @@ On ApacheJIT's held-out years, calibrated opendrs reaches AUC 0.819. That ties t
 regression (0.821), while DRS-OSS, a fine-tuned LLM that reads the diff, reaches 0.895
 ([docs/calibration.md](../calibration.md)). The prompted judge adds about +0.02 AUC (0.790 → 0.805
 calibrated, 800 test commits). Its `requireSafe` gate is the stronger result: commits it passes are
-5.3 % buggy, against a 25.5 % base rate ([bench/apachejit/results-llm.md](../../bench/apachejit/results-llm.md)).
+5.3 % buggy, against a 25.5 % base rate ([bench/apachejit/results-llm.md](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results-llm.md)).
 
 The same report shows why the categories add so little. Of 800 test commits, the judge flags 393
 (49 %) as `logic_bug` and 406 as `structural`, and those flagged sets are only 38.9 % and 37.4 %
@@ -175,7 +180,7 @@ Each one has to earn its weight on ApacheJIT. See Part 4.
 ## Part 3: Recommendations, ranked
 
 Ranked by expected value per unit of effort. "Bench" refers to
-[bench/apachejit/README.md](../../bench/apachejit/README.md). There are two ways to measure:
+[bench/apachejit/README.md](https://github.com/error-path/opendrs/blob/main/bench/apachejit/README.md). There are two ways to measure:
 
 - **Deterministic signals** need a full replay with `run.ts` (3–8 h on 16 cores; the row cache is
   keyed by opendrs version, so any `src/` change invalidates it). Compare the pooled calibrated AUC
@@ -463,7 +468,7 @@ $10 output, Claude Haiku 4.5 $1 / $5. The Message Batches API halves both.
 
 ### 5.1 What the cached data already shows ($0)
 
-[`bench/apachejit/judge-sim.ts`](../../bench/apachejit/judge-sim.ts) reuses the Sonnet 5
+[`bench/apachejit/judge-sim.ts`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/judge-sim.ts) reuses the Sonnet 5
 judgements of the first LLM run (the current judge prompt), the replay rows and the labels. It
 needs no API calls and no clones.
 
@@ -783,7 +788,7 @@ Without batch support the plan does not fit, and the Batches API is a prerequisi
   brief size, and the experiment must measure the product as shipped, not a hand-built stand-in.
   1. **Arm 2 is now "LLM + the opendrs review brief."** Its context block is
      `renderBriefMarkdown(buildBrief(...))` (design spec
-     [`docs/specs/2026-10-18-review-brief-design.md`](../specs/2026-10-18-review-brief-design.md),
+     [`docs/specs/2026-10-18-review-brief-design.md`](https://github.com/error-path/opendrs/blob/main/docs/specs/2026-10-18-review-brief-design.md),
      §10.1), built at each commit's point in time with the judge's own hunk ids and with
      `llm: false`, so there is no leakage from judge-derived reasons. It runs at the product
      default `maxTokens: 2,500` (characters ÷ 3.5), not this plan's original 900. See §5.5.
