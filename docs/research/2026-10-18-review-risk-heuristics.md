@@ -1,12 +1,19 @@
 ---
 title: "How AI code reviewers judge pull request risk"
 description: "How Claude Code, Superpowers, PR-Agent and other AI code reviewers judge pull request risk, the heuristics they share, and ten ranked changes for opendrs."
+date: 2026-10-18
 ---
 
 # How AI code reviewers judge PR risk, and what opendrs can take from them
 
-Research note, 2026-10-18. Sources were read on that date. Anything taken from a page summary
-rather than the file itself is marked *(relayed)*.
+Calibrated opendrs ties the Kamei JIT-metrics baseline on ApacheJIT (AUC 0.819 against 0.821),
+and the optional LLM judge adds only about 0.02 AUC because it flags about half of all commits as
+risky. This note reviews how Superpowers, Anthropic's `/code-review` and security-review plugins,
+PR-Agent and other AI reviewers decide a change is risky, consolidates their heuristics, and ranks
+ten changes opendrs could make, with a pre-registered plan for the next judge experiment.
+
+Sources were read on 2026-10-18. Anything taken from a page summary rather than the file itself is
+marked *(relayed)*.
 
 ## Why this note
 

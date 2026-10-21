@@ -1,11 +1,18 @@
 ---
 title: "What Anthropic's code-review write-up means for opendrs"
 description: "Research note on 'How the Claude Code team does code review' (claude.dev, 2026-10-15): a checked summary, a practice-by-practice map against opendrs's docs and code, opportunities with cost/risk/measurement, three strategic bundles, what the article implies for the chosen verification pass, open questions, and a verification log."
+date: 2026-10-20
 ---
 
 # What Anthropic's code-review write-up means for opendrs
 
-Research note, 2026-10-20, re-checked against the source the same day. Source: "How the Claude
+Anthropic's write-up on how the Claude Code team reviews code describes six layers of checks, and
+its largest stated gain comes from agents verifying their own work before a pull request exists.
+This note maps each practice to what opendrs already does: risk-tiered approval, blocked paths and
+the merge queue are in place, and verified, severity-tagged findings are not. It then weighs three
+approaches to close the gap.
+
+Re-checked against the source on 2026-10-20. Source: "How the Claude
 Code team does code review", by Addy Osmani, Morgan Westlee Lunt and Qing Wang, claude.dev blog,
 published 2026-10-15, at
 [claude.dev/blog/solving-code-review-at-anthropic](https://claude.dev/blog/solving-code-review-at-anthropic/)

@@ -23,6 +23,8 @@ social:
 plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
+  - jekyll-relative-links
+  - jekyll-last-modified-at
 include:
   - llms.txt
 exclude:
@@ -41,6 +43,8 @@ nav:
     - title: Configuration
       url: /configuration.html
   more:
+    - title: Research
+      url: /research/
     - title: Policy
       url: /policy.html
     - title: Signals
