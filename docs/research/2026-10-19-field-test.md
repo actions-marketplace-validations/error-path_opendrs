@@ -1,14 +1,19 @@
 ---
 title: "Field test: opendrs 0.4.0 on six new repositories"
 description: "opendrs 0.4.0 run against about 8 merged PRs each on psf/black, cli/cli, actix/actix-web, vitejs/vite, fastlane/fastlane and vapor/vapor: captain-fact quality, score saturation, language coverage gaps, module-boundary fit and performance, with a ranked fix list."
+date: 2026-10-19
 ---
 
 # Field test: opendrs 0.4.0 on six new repositories
 
-Research note, 2026-10-19. Based on six field-test session notes in
-`~/.cache/opendrs/field-test/notes/` (`black.md`, `cli-cli.md`, `actix-web.md`, `vite.md`,
-`fastlane.md`, `vapor.md`), plus raw `brief`/`score` JSON for a subset of PRs under `notes/raw/`.
-This note summarizes those six sessions; it does not re-run opendrs.
+opendrs 0.4.0 was run on about eight merged pull requests in each of six repositories, written in
+Python, Go, Rust, TypeScript, Ruby and Swift. On mature, active repositories most non-trivial PRs
+scored red regardless of size. Language gaps silently disabled signals: Go import resolution
+picked the wrong module, Ruby's public-declaration detector was a stub, and Swift had no import
+extractor. The note ends with a ranked list of fixes.
+
+It summarizes six field-test sessions, one per repository, and the raw `brief` and `score` JSON
+saved for a subset of PRs. It does not re-run opendrs.
 
 ## Purpose and setup
 

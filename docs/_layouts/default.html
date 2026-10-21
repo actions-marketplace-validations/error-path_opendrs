@@ -75,8 +75,9 @@
     {% else %}
     <div class="wrap">
       <article class="prose">
+        {% if page.date %}<p class="eyebrow">Research note · By {{ site.author.name }} · Published {{ page.date | date: "%-d %b %Y" }}</p>{% endif %}
         {{ content }}
-        <p class="edit"><a href="https://github.com/error-path/opendrs/blob/main/docs/{{ page.path }}">Edit this page on GitHub</a></p>
+        <p class="edit">{% if page.last_modified_at %}Updated {{ page.last_modified_at | date: "%-d %b %Y" }} · {% endif %}<a href="https://github.com/error-path/opendrs/blob/main/docs/{{ page.path }}">Edit this page on GitHub</a></p>
       </article>
     </div>
     {% endif %}
@@ -85,7 +86,7 @@
   <footer class="site-footer">
     <div class="wrap">
       <p>opendrs is open source under the MIT license. It is an independent implementation of the approach in Meta's Diff Risk Score and is not affiliated with Meta.</p>
-      <p><a href="https://github.com/error-path/opendrs">Source</a> <a href="https://github.com/error-path/opendrs/releases">Releases</a> <a href="https://github.com/marketplace/actions/opendrs-diff-risk-score">GitHub Marketplace</a> <a href="https://github.com/error-path/opendrs/issues">Issues</a> <a href="{{ '/llms.txt' | relative_url }}">llms.txt</a></p>
+      <p><a href="https://github.com/error-path/opendrs">Source</a> <a href="https://github.com/error-path/opendrs/releases">Releases</a> <a href="https://github.com/marketplace/actions/opendrs-diff-risk-score">GitHub Marketplace</a> <a href="https://github.com/error-path/opendrs/issues">Issues</a> <a href="{{ '/research/' | relative_url }}">Research</a> <a href="{{ '/about.html' | relative_url }}">About</a> <a href="{{ '/maintaining.html' | relative_url }}">Maintaining</a> <a href="{{ '/llms.txt' | relative_url }}">llms.txt</a></p>
     </div>
   </footer>
 </body>

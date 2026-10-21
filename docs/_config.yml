@@ -43,6 +43,8 @@ nav:
     - title: Configuration
       url: /configuration.html
   more:
+    - title: Research
+      url: /research/
     - title: Policy
       url: /policy.html
     - title: Signals
