@@ -23,6 +23,8 @@ social:
 plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
+  - jekyll-relative-links
+  - jekyll-last-modified-at
 include:
   - llms.txt
 exclude:
