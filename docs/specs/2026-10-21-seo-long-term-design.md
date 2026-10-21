@@ -242,7 +242,8 @@ The repo's npm test suite is not touched.
    This stops the legacy build. The site keeps serving its last build until the new deploy
    finishes.
 3. Merge. In Actions, check that the **pages** workflow is green and the site looks unchanged.
-4. Actions → **pages** → **Run workflow** with `extra_urls`:
+4. Actions → **pages** → **Run workflow** with `extra_urls` set to these six URLs on one line,
+   separated by spaces (the field is single-line):
    ```
    https://error-path.github.io/opendrs/superpowers/plans/2026-10-16-apachejit-bench.html
    https://error-path.github.io/opendrs/superpowers/plans/2026-10-18-review-brief.html

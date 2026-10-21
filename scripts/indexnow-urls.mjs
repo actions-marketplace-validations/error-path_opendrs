@@ -12,8 +12,10 @@ export function indexNowUrls(oldXml, newXml, extra, prefix) {
   const urls = new Set();
   for (const [loc, lastmod] of after) if (before.get(loc) !== lastmod) urls.add(loc);
   for (const loc of before.keys()) if (!after.has(loc)) urls.add(loc);
-  for (const url of extra.split(/\s+/).filter(Boolean)) {
+  for (const url of extra.split(/[\s,]+/).filter(Boolean)) {
     if (!url.startsWith(prefix)) throw new Error(`extra URL outside ${prefix}: ${url}`);
+    // A multi-line paste into the single-line Run workflow field loses its newlines.
+    if (url.includes("://", url.indexOf("://") + 3)) throw new Error(`extra URLs run together, separate them with spaces: ${url}`);
     urls.add(url);
   }
   return [...urls];

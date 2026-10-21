@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       extra_urls:
-        description: "Extra URLs to send to IndexNow (one per line), such as removed pages"
+        description: "Extra URLs to send to IndexNow, separated by spaces, such as removed pages"
         required: false
         default: ""
 
@@ -70,7 +70,7 @@ jobs:
         env:
           EXTRA_URLS: ${{ inputs.extra_urls }}
         run: |
-          curl -fsS "${SITE}sitemap.xml?$GITHUB_RUN_ID" -o live-sitemap.xml || : > live-sitemap.xml
+          curl -fsS --max-time 30 --retry 2 "${SITE}sitemap.xml?$GITHUB_RUN_ID" -o live-sitemap.xml || : > live-sitemap.xml
           node scripts/indexnow-urls.mjs live-sitemap.xml docs/_site/sitemap.xml "$SITE" > urls.txt
           if [ -s urls.txt ]; then cat urls.txt; else echo "No published pages changed."; fi
           { echo 'urls<<URLS_EOF'; cat urls.txt; echo 'URLS_EOF'; } >> "$GITHUB_OUTPUT"
@@ -80,7 +80,7 @@ jobs:
           path: docs/_site
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -106,5 +106,5 @@ jobs:
           printf '%s\n' "$URLS" \
             | jq -Rn --arg key "$KEY" --arg site "$SITE" \
                 '{host: "error-path.github.io", key: $key, keyLocation: ($site + $key + ".txt"), urlList: [inputs | select(length > 0)]}' \
-            | curl -fsS -X POST https://api.indexnow.org/indexnow \
+            | curl -fsS --max-time 30 -X POST https://api.indexnow.org/indexnow \
                 -H 'Content-Type: application/json; charset=utf-8' --data-binary @- -w 'IndexNow HTTP %{http_code}\n'

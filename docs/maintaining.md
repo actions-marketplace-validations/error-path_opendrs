@@ -61,7 +61,7 @@ The site in `docs/` is built and deployed by the `pages` workflow, using Jekyll 
    live sitemap with the new one.
 
 To tell Bing about URLs by hand, such as pages removed outside a deploy, run the workflow from the
-Actions tab and paste them into `extra_urls`, one per line. The IndexNow key is the file
+Actions tab and paste them into `extra_urls`, separated by spaces. The IndexNow key is the file
 `docs/7761d20ca5295159e2dd2f14ffccbe2b.txt` and `KEY` in `.github/workflows/pages.yml`. To rotate
 it, replace both. To preview locally: `cd docs && bundle install && bundle exec jekyll serve`.
 

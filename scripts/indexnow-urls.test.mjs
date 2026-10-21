@@ -40,3 +40,8 @@ test("an extra URL outside the prefix throws", () => {
 test("entities in loc are decoded", () => {
   assert.deepEqual(indexNowUrls("", sm([[`${P}a&amp;b.html`, "2026-10-21"]]), "", P), [`${P}a&b.html`]);
 });
+
+test("comma-separated extra URLs are split, and two URLs run together are rejected", () => {
+  assert.deepEqual(indexNowUrls("", "", `${P}a.html,${P}b.html`, P), [`${P}a.html`, `${P}b.html`]);
+  assert.throws(() => indexNowUrls("", "", `${P}a.html${P}b.html`, P), /run together/);
+});
