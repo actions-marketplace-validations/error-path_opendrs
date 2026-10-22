@@ -101,6 +101,19 @@ export function tallyLabels(facts: FlatLabelledFact[]): Record<FactLabel, number
   return tally;
 }
 
+/**
+ * The live `factId`s a brief's `captain.facts` actually fired, under the same collapsing
+ * `factId` every labelled fact uses. Lets a caller tell "this labelled fact never fired at all
+ * in this run" (e.g. a detector fix removed it before the verifier ever saw it) apart from "it
+ * fired and the verifier didn't drop it" — see docs/experiments.md's 2026-10-23 amendment to the
+ * verifier precision study (the `contract.dependency` WRONG-fire elimination case). Takes a
+ * loosely-typed brief shape, not `ReviewBrief` from `dist/`, so this stays testable without a
+ * build (README.md's "Testing without API calls").
+ */
+export function liveFactIds(brief: { captain?: { facts?: Array<{ id: string; file: string; line?: number }> } } | undefined): Set<string> {
+  return new Set((brief?.captain?.facts ?? []).map((f) => factId(f)));
+}
+
 // ---------------------------------------------------------------------------------------------
 // Cost-cap arithmetic
 // ---------------------------------------------------------------------------------------------

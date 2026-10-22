@@ -32,6 +32,7 @@ import {
   factId,
   flattenLabels,
   groupByFactId,
+  liveFactIds,
   PRICES,
   reconcileActualSpend,
   reserveIfAffordable,
@@ -305,19 +306,23 @@ async function scorePr(repoDir: string, repo: LabelledRepoLike, pr: { base: stri
 
 /** Recall/precision bookkeeping for one labelled fact group (several field-test instances can
  * share one factId; see lib.ts's groupByFactId doc comment). `verdict` is the live
- * `brief.verification.verdicts[id]` entry, when the PR was actually scored with verify on. */
+ * `brief.verification.verdicts[id]` entry, when the PR was actually scored with verify on.
+ * `firedAtDetector` is whether `id` ever appeared in the baseline (verify-off) brief at all —
+ * see docs/experiments.md's 2026-10-23 amendment for why this matters for WRONG fires. */
 interface Judged {
   id: string;
   facts: FlatLabelledFact[];
   verdict?: { action: string; status: string; reason?: string; source: string; droppedClass?: string };
   detectorHandledClass?: "A" | "B" | "C"; // inferred from the labelled note mentioning the deterministic classes, spec §3.8
+  firedAtDetector: boolean;
 }
 
-function judgeGroup(id: string, facts: FlatLabelledFact[], verified: ReviewBrief | undefined): Judged {
+function judgeGroup(id: string, facts: FlatLabelledFact[], baseline: ReviewBrief | undefined, verified: ReviewBrief | undefined): Judged {
   const verdict = verified?.verification?.verdicts?.[id];
   const note = facts.map((f) => f.note ?? "").join(" ");
   const detectorHandledClass = /class a \(retired file\)/i.test(note) ? "A" : /class b \(partner lacks/i.test(note) ? "B" : /class c \(test fired/i.test(note) ? "C" : undefined;
-  return { id, facts, verdict, detectorHandledClass };
+  const firedAtDetector = liveFactIds(baseline).has(id);
+  return { id, facts, verdict, detectorHandledClass, firedAtDetector };
 }
 
 async function main(): Promise<number> {
@@ -393,7 +398,7 @@ async function main(): Promise<number> {
   for (const [id, facts] of groups) {
     const first = facts[0]!;
     const outcome = outcomeByPr.get(`${first.repoSlug}:${first.prSlug}`);
-    judged.push(judgeGroup(id, facts, outcome?.verified));
+    judged.push(judgeGroup(id, facts, outcome?.baseline, outcome?.verified));
   }
 
   const trueUsefulGroups = judged.filter((j) => j.facts.some((f) => f.label === "true-useful"));
@@ -406,9 +411,15 @@ async function main(): Promise<number> {
   const couplingHandledByVerifier = couplingGroups.filter((j) => j.detectorHandledClass === undefined && (j.verdict?.action === "drop" || j.verdict?.action === "downgrade")).reduce((n, j) => n + j.facts.length, 0);
   const couplingNoiseHandled = Math.min(couplingNoiseTotal, couplingHandledByDetector + couplingHandledByVerifier);
 
+  // §3.8-style amendment (docs/experiments.md, 2026-10-23): a WRONG fire the detector no longer
+  // produces at all (`firedAtDetector` false — it's absent from the baseline, verify-off brief)
+  // is just as handled as one the verifier dropped/downgraded — the reviewer is never misled
+  // either way. Reported separately, same as coupling.missing's detector-vs-verifier split above.
   const wrongGroups = judged.filter((j) => j.facts.some((f) => f.label === "wrong"));
   const wrongFiresTotal = flat.filter((f) => f.label === "wrong").length;
-  const wrongFiresHandled = wrongGroups.filter((j) => j.verdict?.action === "drop" || j.verdict?.action === "downgrade").reduce((n, j) => n + j.facts.length, 0);
+  const wrongFiresEliminated = wrongGroups.filter((j) => !j.firedAtDetector).reduce((n, j) => n + j.facts.length, 0);
+  const wrongFiresHandledByVerifier = wrongGroups.filter((j) => j.firedAtDetector && (j.verdict?.action === "drop" || j.verdict?.action === "downgrade")).reduce((n, j) => n + j.facts.length, 0);
+  const wrongFiresHandled = wrongFiresEliminated + wrongFiresHandledByVerifier;
 
   const scoredPrs = outcomes.filter((o2) => o2.actualCost !== undefined);
   const totalCost = scoredPrs.reduce((n, o2) => n + (o2.actualCost ?? 0), 0);
@@ -437,8 +448,8 @@ async function main(): Promise<number> {
     "## Precision — coupling.missing (spec §3.7.2, §3.8 amendment)",
     `${couplingNoiseHandled} of ${couplingNoiseTotal} handled (detector classes A-C: ${couplingHandledByDetector}; verifier only: ${couplingHandledByVerifier}) — bar: >= 13 of 18 (70%).`,
     "",
-    "## Precision — contract.dependency WRONG fires (spec §3.7.2)",
-    `${wrongFiresHandled} of ${wrongFiresTotal} marked drop/downgrade (bar: both).`,
+    "## Precision — contract.dependency WRONG fires (spec §3.7.2, §3.8-style amendment 2026-10-23)",
+    `${wrongFiresHandled} of ${wrongFiresTotal} handled (eliminated at the detector, no longer fires at all: ${wrongFiresEliminated}; marked drop/downgrade by the verifier: ${wrongFiresHandledByVerifier}) — bar: both.`,
     "",
     "## Cost",
     `$${totalCost.toFixed(4)} total over ${scoredPrs.length} scored PRs; $${costPerPrUsd.toFixed(4)}/PR (bar: <= $0.02/PR). Model ${o.model}.`,

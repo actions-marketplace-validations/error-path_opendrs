@@ -9,6 +9,7 @@ import {
   factId,
   flattenLabels,
   groupByFactId,
+  liveFactIds,
   PRICES,
   reconcileActualSpend,
   reserveIfAffordable,
@@ -74,6 +75,26 @@ describe("flattenLabels / tallyLabels", () => {
   it("tallies labels by type, matching the field-test totals this fixture encodes", () => {
     const tally = tallyLabels(flattenLabels(LABELS));
     expect(tally).toEqual({ "true-useful": 1, noise: 2, wrong: 2, unclassified: 0 });
+  });
+});
+
+describe("liveFactIds", () => {
+  it("collects the brief's captain facts under the same factId every labelled fact uses", () => {
+    const brief = { captain: { facts: [{ id: "contract.api", file: "src/black/concurrency.py", line: 30 }, { id: "contract.dependency", file: "pyproject.toml", line: 71 }] } };
+    expect(liveFactIds(brief)).toEqual(new Set(["contract.api:src/black/concurrency.py:30", "contract.dependency:pyproject.toml:71"]));
+  });
+
+  it("is empty for a brief with no captain facts, or no brief at all (e.g. a budget-skipped PR)", () => {
+    expect(liveFactIds({ captain: { facts: [] } })).toEqual(new Set());
+    expect(liveFactIds({})).toEqual(new Set());
+    expect(liveFactIds(undefined)).toEqual(new Set());
+  });
+
+  it("never contains a labelled WRONG fact that the detector fix eliminated (no line: the labels file's two pyproject.toml WRONG facts)", () => {
+    // bench/verify/labels.json's black/winloop-dep PR: only the real `winloop` dependency fires
+    // live (0.4.1's PEP 508 marker fix, commit e66ca46); the two WRONG facts never appear.
+    const baseline = { captain: { facts: [{ id: "contract.dependency", file: "pyproject.toml", line: 71 }] } };
+    expect(liveFactIds(baseline).has(factId({ id: "contract.dependency", file: "pyproject.toml" }))).toBe(false);
   });
 });
 
