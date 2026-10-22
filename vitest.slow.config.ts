@@ -1,3 +1,4 @@
+import os from "node:os";
 import { defineConfig } from "vitest/config";
 
 // The heavier real-git-repo and CPU-bound integration tests (git-spawn fixture cost + model
@@ -40,6 +41,20 @@ export const SLOW_TEST_FILES = [
   "tests/explain.test.ts",
 ];
 
+// Default vitest runs up to `cpus - 1` workers at once. Each forked file here spawns its own real
+// `git` child processes (and `tests/model/calibrate.test.ts` is CPU-bound), so at full default
+// concurrency this project oversubscribes the machine's cores and intermittently blows the 30s
+// test/hook timeout under contention (tests/hotspots.test.ts, tests/brief/selfcheck-gate.test.ts,
+// tests/model/calibrate.test.ts — see docs/research/2026-10-22-dev-loop-time-sinks.md, "Flaky
+// timeouts fixed"). Capping workers to half the logical cores keeps each surviving worker's git
+// spawns and CPU-bound work from starving for scheduler time. (`maxWorkers` is the top-level
+// Vitest 4+ option; `poolOptions.forks.maxForks` was removed.)
+const maxWorkers = Math.max(1, Math.floor(os.cpus().length / 2));
+
 export default defineConfig({
-  test: { include: SLOW_TEST_FILES, testTimeout: 30_000 },
+  test: {
+    include: SLOW_TEST_FILES,
+    testTimeout: 30_000,
+    maxWorkers,
+  },
 });

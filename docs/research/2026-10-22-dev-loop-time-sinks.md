@@ -92,17 +92,62 @@ change — nothing that ran in CI stops running in CI. The split only changes wh
   are there, but replacing them means either batching (`git commit -a` still needs a prior `add`
   for new files) or reading `.git/` state directly (risked correctness on detached HEAD / packed
   refs). Left as the next candidate if test suite time is revisited.
-- **The 3 flaky timeout failures**: reproduced identically before and after this change under a
-  fully parallel full-suite run; they look like resource contention (CPU/process-table pressure
-  from dozens of concurrent git spawns across fork-pool workers), which the fixture fix reduces but
-  doesn't eliminate. Not re-run under load for this note; flagged for whoever next sees a full-suite
-  timeout.
 - **Eval cost/time (#2)**: already governed by worker-rules #10 (one full-suite run per task,
   `--runs 3` default, targeted `--case` preferred) — this session's eval mix (5 full-suite vs. 32
   targeted runs) shows that policy already being followed, not a new problem to fix.
 - **The `~/.docker` incident (#4)**: already a one-time environmental failure, already permanently
   forbidden (worker-rules #12 added 2026-10-22). No code change needed; recorded here for the
   ranking's completeness.
+
+## Flaky timeouts fixed
+
+The 3 intermittent `Error: Test/Hook timed out` failures flagged above (`tests/hotspots.test.ts`,
+`tests/brief/selfcheck-gate.test.ts`, `tests/model/calibrate.test.ts`) had two distinct root causes,
+confirmed with a baseline `npm run test:slow` run that reproduced 2 of the 3 (`selfcheck-gate.test.ts`
+timed out at its 30s default; `calibrate.test.ts`'s real-repo test timed out too, despite already
+carrying an explicit `180_000`ms override — 6x the file default):
+
+1. **`tests/hotspots.test.ts` alone** rebuilt its real-git fixture repo (1 `init` + 5 commits, 3 `git`
+   spawns each) in `beforeEach`, once per `it()` — 7 times per run — even though none of its 7 tests
+   mutate the shared repo; every one of them only reads it through `hotspots()`. That's 7x the git
+   spawns this file needed, needlessly adding to the slow tier's total concurrent process count.
+   `tests/signals/blast.test.ts` already shows the fix pattern elsewhere in the suite: build the
+   repo once in `beforeAll`, share it read-only, clean up once in `afterAll`. Applied the same
+   pattern here (7 repo builds -> 1).
+2. **`tests/model/calibrate.test.ts` and `tests/brief/selfcheck-gate.test.ts`** were not doing
+   redundant work — `calibrate`'s replay (`src/model/replay.ts`) already builds the history index and
+   import graph once per replay and shares them across every replayed commit (the "reuse cached
+   indexes" pattern the task asked to look for already exists there) — but it still runs that replay's
+   per-commit signal computation at an internal concurrency of 8 (`CONCURRENCY` in `replay.ts`). Under
+   Vitest's *default* pool, up to `cpus - 1` (15 on this 16-core/12-performance-core machine) test
+   files already run as concurrent forked processes; any of those forks running `calibrate.test.ts`
+   could itself fan out 8 more concurrent git-spawning tasks on top. The resulting peak concurrent
+   process count oversubscribed the machine by a large factor, starving whichever test's git spawns
+   or CPU-bound fit needed scheduler time at that moment — consistent with the baseline run blowing
+   past `calibrate.test.ts`'s already-generous 180s override, and with `loadAvg1m` readings dropping
+   from ~13-17 (during/just before the flaky runs) to ~4-6 (during the clean ones).
+
+   Fix: `vitest.slow.config.ts` now caps the slow tier's own worker concurrency with the top-level
+   `maxWorkers` option (`poolOptions.forks.maxForks` was removed in Vitest 4+; the project is on
+   Vitest 5) to half the logical cores (8), so this project's own worst-case concurrent-process count
+   can no longer oversubscribe the machine by itself, independent of what else is running on it. This
+   doesn't touch `replayHistory`'s production `CONCURRENCY`, which real CLI users rely on.
+
+**Measured** (`node scripts/record-run.mjs test:slow -- vitest run --config vitest.slow.config.ts`,
+same machine, `.dev-metrics/runs.jsonl`):
+
+| Run | When | Duration | Result |
+|---|---|---:|---|
+| Baseline (before fix) | before either change | 243.7s | **2 timeouts** (`selfcheck-gate.test.ts` 30.0s, `calibrate.test.ts` 180.1s) |
+| After `hotspots.test.ts` fix only | before the `maxWorkers` cap | 227.6s | **1 timeout** (`selfcheck-gate.test.ts` 30.0s) |
+| After both fixes, run 1/3 | proof run | 226.4s | 0 timeouts, 537 passed / 1 skipped |
+| After both fixes, run 2/3 | proof run | 239.6s | 0 timeouts, 537 passed / 1 skipped |
+| After both fixes, run 3/3 | proof run | 238.0s | 0 timeouts, 537 passed / 1 skipped |
+| `npm run check` (typecheck + test + test:slow) | proof run | 245.7s total (8.3s test + 236.1s test:slow) | 0 timeouts, 1040+537 passed / 1 skipped |
+
+Capping concurrency cost essentially nothing here (226-240s after vs. 227-244s before): the slow
+tier was never wall-clock-bound by having 15 forks instead of 8, just made flaky by the spikes 15
+forks (each able to fan out further) could produce.
 
 ## The analytics ledger
 
