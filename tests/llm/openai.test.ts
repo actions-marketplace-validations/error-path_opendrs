@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOpenAiProvider } from "../../src/llm/openai.js";
 import { JUDGEMENT_SCHEMA } from "../../src/llm/schema.js";
+import { VERIFY_SCHEMA, VERIFY_SYSTEM_PROMPT } from "../../src/llm/verify.js";
 
 const KEY = "sk-openai-SECRET";
 const input = { title: "t", diff: "[hunk 1]\n+x", files: ["src/a.ts"], hunks: [{ id: 1, file: "src/a.ts", line: 1 }], truncated: false };
@@ -54,5 +55,25 @@ describe("openai-compatible provider", () => {
   it("fails clearly when the reply has no message content", async () => {
     fetchMock.mockResolvedValue(Response.json({ choices: [] }));
     await expect(createOpenAiProvider({ model: "gpt-x", apiKey: KEY }).judge(input)).rejects.toThrow(/no message content/);
+  });
+});
+
+describe("openai-compatible provider verify", () => {
+  const candidate = { id: "hunk:src/a.ts:1", kind: "hunk" as const, file: "src/a.ts", line: 1, text: "edits a fix", excerpt: "+x", status: "unknown" as const };
+  const verifyInput = { candidates: [candidate], partners: {} };
+  const verdicts = JSON.stringify({ verdicts: [{ candidate: 1, action: "keep", droppedClass: null, status: "pre_existing", citedLine: null, reason: "r", confidence: 5 }] });
+
+  it("posts the strict verify schema and returns verdicts with usage", async () => {
+    fetchMock.mockResolvedValue(Response.json({ choices: [{ index: 0, message: { role: "assistant", content: verdicts }, finish_reason: "stop" }], usage: { prompt_tokens: 300, completion_tokens: 40 } }));
+    const out = await createOpenAiProvider({ model: "gpt-x", apiKey: KEY }).verify!(verifyInput);
+    expect(out).toEqual({ verdicts: [{ id: candidate.id, action: "keep", status: "pre_existing", reason: "r", confidence: 5 }], usage: { inputTokens: 300, outputTokens: 40 } });
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.response_format).toEqual({ type: "json_schema", json_schema: { name: "verification", schema: VERIFY_SCHEMA, strict: true } });
+    expect(body.messages[0]).toEqual({ role: "system", content: VERIFY_SYSTEM_PROMPT });
+  });
+
+  it("fails clearly when the reply has no message content", async () => {
+    fetchMock.mockResolvedValue(Response.json({ choices: [] }));
+    await expect(createOpenAiProvider({ model: "gpt-x", apiKey: KEY }).verify!(verifyInput)).rejects.toThrow(/no message content/);
   });
 });
