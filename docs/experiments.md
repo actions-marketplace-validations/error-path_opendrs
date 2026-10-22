@@ -17,7 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
-| Planned (pre-registered 2026-10-22) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | Not yet run: waits on a `dist/` build of the verification-pass branches and on `~/.config/opendrs/bench.env` (`ANTHROPIC_API_KEY`) | Pre-registered, not yet run | [details](#verifier-precision-study-on-the-field-test-corpus) |
+| 2026-10-22 (pre-registered 2026-10-22) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | Recall PASS (1 of 14 traced true-useful facts wrongly dropped, bar ≤ 1). `coupling.missing` PASS (15 of 18 handled: 4 by the detector, 11 by the verifier; bar ≥ 13). `contract.dependency` WRONG fires FAIL as pre-registered (0 of 2 marked drop/downgrade — see caveat). Cost FAIL: $0.0210/PR vs the $0.02 bar ($1.0271 total, 49 PRs). Overall precision-fail per the rule applied exactly as written. **Caveat**: the 2 WRONG fires never fired at all in this run — the 0.4.1 parser fix (commit `e66ca46`) already eliminated the PEP 508 marker bug they came from, so the verifier had nothing to drop; the study's own scoring had no way to tell "eliminated" apart from "verifier missed it", which is why this is recorded as a FAIL exactly as the pre-registered rule reads, not reinterpreted after the fact | Rejected as pre-registered (precision-fail, cost-fail); see the 2026-10-23 amendment below for the root-cause fixes and re-run | [details](#verifier-precision-study-on-the-field-test-corpus) |
 | 2026-10-20 (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | On ApacheJIT, both candidates make saturation worse, not better: intercept re-centring to mid-yellow raises red share 25.6 % → 40.3 % (the train-split median was 0.307, not near red as assumed); scaling `history.*`/`expertise.*` by repo age raises red share to 33.9 % and costs −0.0052 AUC (significant loss, CI −0.0058 to −0.0046) | Rejected; the pre-registration's "median near red" premise does not hold on ApacheJIT | [details](#default-weights-re-centred-intercept-and-repo-age-scaling-on-apachejit) |
 | 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
 | 2026-10-19 | Do `contract.dependency`, `contract.api`, `contract.schema` and `layers.edge` predict ApacheJIT bugs enough to ship as captain facts (spec §10.2)? Do the rejected review signals (`change.concurrency`, `change.safety_removed`, `tests.weakened`) qualify as captain facts on the full test split, even though they did not help the score? | 6 of 7 qualify (lift ≥ 1.2× and ≥ 50 fires): `contract.dependency` 1.467×, `contract.api` 1.718×, `contract.schema` 2.388×, `change.concurrency` 2.036×, `change.safety_removed` 1.788×, `tests.weakened` 1.202×. `layers.edge` does not: 1.117× on 19 fires of a 2,000-commit sample | Merged (facts only; review signals still excluded from the score) | [details](#captain-fact-lift-on-apachejit) |
@@ -33,10 +33,11 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 ## Verifier precision study on the field-test corpus
 
-**Status.** Pre-registered 2026-10-22, not yet run. No API key is configured on this worker; no
-API call has been made for this study. This section is committed before `bench/verify/run.ts` or
-any run artifact, so this sha is the pre-registration point per `docs/experiments.md`'s own
-convention and per worker rule 8 (`~/.cache/opendrs/orchestrator/worker-rules.md`).
+**Status.** Pre-registered 2026-10-22; run completed 2026-10-22 (run id
+`2026-10-22T17-30-07-530Z`). Result: **v1 precision-fail** (recall and `coupling.missing`
+precision pass; `contract.dependency` WRONG-fire precision and cost fail). See "Result (v1)"
+below the decision rule, and the 2026-10-23 amendment further down for the root-cause diagnosis
+and the re-run.
 
 **Question.** Does `llm.verify` (spec `docs/specs/2026-10-20-verification-pass-design.md` §3,
 plan `docs/superpowers/plans/2026-10-22-verification-pass.md`) meet its own shipping bar (spec
@@ -102,10 +103,55 @@ first, precision second — precision is not checked until recall clears.**
 or prompt fix before the pass ships** (spec implication 15) — not optional, not a re-run.
 
 **Where.** `bench/verify/run.ts`, `bench/verify/labels.json`, `bench/verify/README.md`; results
-will be written to [`bench/verify/results.md`](../bench/verify/results.md) (recall, the 18-fire
+are written to [`bench/verify/results.md`](../bench/verify/results.md) (recall, the 18-fire
 `coupling.missing` precision breakdown by detector class vs. verifier, the 2 WRONG fires, cost per
-PR and total, model + `promptHash`, and this decision rule applied as written) when the run
-happens, not before.
+PR and total, model + `promptHash`, and this decision rule applied as written).
+
+**Result (v1, run `2026-10-22T17-30-07-530Z`, model `claude-sonnet-5`, $1.0271 total / 49 scored
+PRs).** Applying the decision rule above exactly as written:
+
+1. **Recall: PASS.** 1 of 14 traced true-useful facts wrongly dropped (bar ≤ 1).
+2. **`coupling.missing` precision: PASS.** 15 of 18 noise fires handled — 4 by the deterministic
+   detector classes (A–C), 11 by the verifier alone (bar ≥ 13 of 18, i.e. ≥ 70 %).
+3. **`contract.dependency` WRONG-fire precision: FAIL.** 0 of 2 marked drop/downgrade (bar: both).
+4. **Cost: FAIL.** $0.0210/PR (bar ≤ $0.02/PR).
+
+**Overall: precision-fail**, per spec §3.7 ("precision is not checked until recall clears" — it
+cleared, so both precision legs and cost were evaluated; the rule fails on the first precision leg
+that misses its bar). Full breakdown in `bench/verify/results.md`; raw per-PR `ReviewBrief` JSON
+in `~/.cache/opendrs/verify-study/2026-10-22T17-30-07-530Z/`.
+
+**Caveat on the WRONG-fire FAIL (recorded here, not papered over — see the amendment below for
+the fix).** Checking the raw JSON for the one PR that carries both labelled WRONG facts
+(`black-winloop-dep.json`, labels.json PR 4996): the live `contract.dependency` facts for that PR
+are exactly one fact — the real `winloop` dependency, correctly kept — and neither of the two
+labelled WRONG facts (`` ` ``, `win32`) appears as a candidate anywhere in the brief, baseline or
+verified. They do not fire in opendrs 0.4.1 at all: `git log` shows commit `e66ca46` ("fix(captain):
+parse PEP 508 markers, go.mod indirect, Cargo target deps and Package.swift"), part of the 0.4.1
+release (`55c98e7`), already fixed the PEP 508 marker desync that produced them in the 0.4.0 field
+test. The verifier therefore had zero candidates to drop or downgrade for this fact id — the
+study's harness has no way yet to distinguish "the detector already eliminated this" from "the
+verifier was asked and missed it", so both currently score as "0 of 2 handled". This is reported
+as the pre-registered FAIL in the table and in the Decision section above, with no exception
+carved out after the fact; the fix for the harness's blind spot is pre-registered as an amendment,
+not applied retroactively to this result.
+
+**Cost diagnosis.** `~/.cache/opendrs/verify-study/2026-10-22T17-30-07-530Z/*.json`'s
+`verification.usage` fields, summed: 277,071 input tokens ($0.5541) + 47,297 output tokens
+($0.4730) = $1.0271 over 503 verified candidates (49 PRs). Output is priced 5× input
+(`claude-sonnet-5`: $2/$10 per MTok) and is 46 % of the bill despite being 15 % of the tokens.
+Per-candidate output breakdown: avg `reason` text is 58 chars (well under the 200-char cap — not
+the driver); every verdict object also carries a `confidence` field (0–10, required by
+`VERIFY_SCHEMA`) that is generated, clamped by `parseVerification`, and then **never read** by
+`applyVerification`/`verifyBrief` when building the stored `Verification` — confirmed by grep: no
+call site outside `src/llm/verify.ts` and its tests touches `VerifyVerdict.confidence`. It is dead
+weight on every one of the 503 candidates. Prompt caching (`claude-api` skill, current Sonnet 5
+pricing/caching rules) was also checked as a lever: `VERIFY_SYSTEM_PROMPT` is ~2,122 chars, under
+the project's own `chars/3.5` estimator ≈ 607 tokens — below Sonnet 5's 1,024-token minimum
+cacheable prefix, so a `cache_control` breakpoint on it would silently create no cache entry
+(`cache_creation_input_tokens: 0`) per the skill's own caching reference. Caching is not a viable
+lever at this prompt's current size and was not implemented for that reason (documented here
+rather than left as an unexplained gap).
 
 ## Default weights: re-centred intercept and repo-age scaling on ApacheJIT
 
