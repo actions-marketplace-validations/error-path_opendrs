@@ -53,10 +53,11 @@
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "prepack": "npm run build",
-    "build:action": "esbuild src/action/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=action/dist/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build:action": "node scripts/record-run.mjs build:action -- esbuild src/action/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=action/dist/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "check": "npm run typecheck && npm test"
+    "test": "node scripts/record-run.mjs test -- vitest run",
+    "test:slow": "node scripts/record-run.mjs test:slow -- vitest run --config vitest.slow.config.ts",
+    "check": "node scripts/record-run.mjs check -- node scripts/run-check.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

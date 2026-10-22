@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../src/domain/config.js";
 import { buildDependencyGraph } from "../src/graph/graph.js";
 import { hotspots } from "../src/hotspots.js";
@@ -35,11 +35,14 @@ function seed(repo: TestRepo, ago: number) {
   repo.commit({ "src/calm.ts": "export const c = 3;\n" }, "feat: tweak again", undefined, at());
 }
 
-beforeEach(() => {
+// No test below mutates `repo`; built once and shared read-only (the fork-pool contention that
+// caused intermittent timeouts under `npm run test:slow` came partly from this file rebuilding
+// the same fixture repo per-test — see docs/research/2026-10-22-dev-loop-time-sinks.md).
+beforeAll(() => {
   repo = makeRepo();
   seed(repo, 10 * 86_400);
 });
-afterEach(() => repo.cleanup());
+afterAll(() => repo.cleanup());
 
 describe("hotspots", () => {
   it("ranks a file with fix commits above one with the same churn and none", async () => {

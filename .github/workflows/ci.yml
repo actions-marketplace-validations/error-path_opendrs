@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:slow
       - run: npm run build
       - run: npm run build:action
       - name: Check that the committed action bundle is up to date
