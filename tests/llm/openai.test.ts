@@ -61,12 +61,12 @@ describe("openai-compatible provider", () => {
 describe("openai-compatible provider verify", () => {
   const candidate = { id: "hunk:src/a.ts:1", kind: "hunk" as const, file: "src/a.ts", line: 1, text: "edits a fix", excerpt: "+x", status: "unknown" as const };
   const verifyInput = { candidates: [candidate], partners: {} };
-  const verdicts = JSON.stringify({ verdicts: [{ candidate: 1, action: "keep", droppedClass: null, status: "pre_existing", citedLine: null, reason: "r", confidence: 5 }] });
+  const verdicts = JSON.stringify({ verdicts: [{ candidate: 1, action: "keep", droppedClass: null, status: "pre_existing", citedLine: null, reason: "r" }] });
 
   it("posts the strict verify schema and returns verdicts with usage", async () => {
     fetchMock.mockResolvedValue(Response.json({ choices: [{ index: 0, message: { role: "assistant", content: verdicts }, finish_reason: "stop" }], usage: { prompt_tokens: 300, completion_tokens: 40 } }));
     const out = await createOpenAiProvider({ model: "gpt-x", apiKey: KEY }).verify!(verifyInput);
-    expect(out).toEqual({ verdicts: [{ id: candidate.id, action: "keep", status: "pre_existing", reason: "r", confidence: 5 }], usage: { inputTokens: 300, outputTokens: 40 } });
+    expect(out).toEqual({ verdicts: [{ id: candidate.id, action: "keep", status: "pre_existing", reason: "r" }], usage: { inputTokens: 300, outputTokens: 40 } });
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body.response_format).toEqual({ type: "json_schema", json_schema: { name: "verification", schema: VERIFY_SCHEMA, strict: true } });
     expect(body.messages[0]).toEqual({ role: "system", content: VERIFY_SYSTEM_PROMPT });
