@@ -153,11 +153,11 @@ Output: respond with ONLY a JSON object, with no prose and no code fences, in ex
 "hunks" has one entry per [hunk N]. List at most 5 risky_snippets, each pointing at a changed file. Use an empty array when nothing stands out.`;
 
 /** Break any tag-like sequence that could open or close an untrusted block early. */
-function neutralise(text: string): string {
+export function neutralise(text: string): string {
   return text.replace(/<(\s*\/?\s*untrusted)/gi, "&lt;$1");
 }
 
-const block = (tag: string, text: string) => `<${tag}>\n${neutralise(text)}\n</${tag}>`;
+export const block = (tag: string, text: string) => `<${tag}>\n${neutralise(text)}\n</${tag}>`;
 
 export interface LlmMessages {
   system: string;

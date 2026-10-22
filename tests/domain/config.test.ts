@@ -478,3 +478,10 @@ describe("captain", () => {
     expect(parseConfig({ captain: { coupling: { minConfidence: 0.75 } } }).captain.coupling.minConfidence).toBe(0.75);
   });
 });
+
+describe("llm.verify", () => {
+  it("defaults to disabled with a 40 000-token prompt cap", () => {
+    expect(defaultConfig().llm.verify).toEqual({ enabled: false, maxTokens: 40_000 });
+    expect(parseConfig({ llm: { verify: { enabled: true, maxTokens: 10 } } }).llm.verify).toEqual({ enabled: true, maxTokens: 10 });
+  });
+});
