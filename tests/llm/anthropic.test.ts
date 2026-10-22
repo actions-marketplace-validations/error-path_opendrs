@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LLM_RISK_CATEGORIES, LLM_SAFE_CATEGORIES, OpendrsError } from "../../src/domain/types.js";
 import { createAnthropicProvider } from "../../src/llm/anthropic.js";
 import { JUDGEMENT_SCHEMA } from "../../src/llm/schema.js";
+import { VERIFY_SCHEMA, VERIFY_SYSTEM_PROMPT } from "../../src/llm/verify.js";
 
 const KEY = "sk-ant-test-SECRET-123";
 const input = { title: "Add cache", diff: "diff --git a/src/a.ts b/src/a.ts\n[hunk 1]\n+x", files: ["src/a.ts"], hunks: [{ id: 1, file: "src/a.ts", line: 1 }], truncated: true };
@@ -19,6 +20,7 @@ function messageResponse(text: string, stop_reason = "end_turn"): Response {
     type: "message",
     role: "assistant",
     stop_reason,
+    usage: { input_tokens: 1234, output_tokens: 56 },
     content: [
       { type: "thinking", thinking: "", signature: "sig" },
       { type: "text", text },
@@ -213,5 +215,37 @@ describe("anthropic provider", () => {
   it("rejects an unparseable reply", async () => {
     fetchMock.mockResolvedValue(messageResponse("Looks safe to me!"));
     await expect(createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).judge(input)).rejects.toBeInstanceOf(OpendrsError);
+  });
+});
+
+describe("anthropic provider verify", () => {
+  const candidate = { id: "contract.dependency:src/a.ts:1", kind: "fact" as const, file: "src/a.ts", line: 1, text: "New runtime dependency `x`.", excerpt: "+x", status: "new" as const };
+  const verifyInput = { title: "Add cache", candidates: [candidate], partners: {} };
+  const verdicts = { verdicts: [{ candidate: 1, action: "keep", droppedClass: null, status: "new", citedLine: null, reason: "real dependency", confidence: 8 }] };
+
+  it("posts the verify schema and system prompt, and returns the parsed verdicts with usage", async () => {
+    fetchMock.mockResolvedValue(messageResponse(JSON.stringify(verdicts)));
+    const out = await createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).verify!(verifyInput);
+    expect(out).toEqual({
+      verdicts: [{ id: candidate.id, action: "keep", status: "new", reason: "real dependency", confidence: 8 }],
+      usage: { inputTokens: 1234, outputTokens: 56 },
+    });
+    const body = sentBody();
+    expect(body.system).toBe(VERIFY_SYSTEM_PROMPT);
+    expect(body.max_tokens).toBe(8_000);
+    expect(body.output_config).toEqual({ effort: "low", format: { type: "json_schema", schema: VERIFY_SCHEMA } });
+    expect((body.messages as Array<{ content: string }>)[0]!.content).toContain("Candidates to verify: 1");
+  });
+
+  it("treats a refusal as an error", async () => {
+    fetchMock.mockResolvedValue(messageResponse("", "refusal"));
+    await expect(createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).verify!(verifyInput)).rejects.toThrow(/refus/);
+  });
+
+  it("fails clearly when the reply was cut off at max_tokens", async () => {
+    fetchMock.mockResolvedValue(messageResponse('{"verdicts": [', "max_tokens"));
+    const err = await createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).verify!(verifyInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OpendrsError);
+    expect((err as Error).message).toMatch(/cut off at max_tokens/);
   });
 });

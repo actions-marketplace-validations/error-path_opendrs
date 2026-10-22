@@ -180,6 +180,12 @@ A quick confirm with no facts is one line and no block: `**Captain: quick confir
 facts (not capped at five) is also in the "For the captain" section of the brief for AI reviewers,
 and in the `captain` Action output described below.
 
+With the [verification pass](verification.html) on, each fact in the comment and in the brief ends
+with its verdict (`[verified · new]`, `[verified · pre-existing]`, `[downgraded by verifier: …]`,
+`[unverified]`), a dropped fact becomes a `dropped by verifier` note in the brief, and the "why"
+and the five facts come from the verified list. The priority does not: it is computed before the
+pass runs and never changed by it.
+
 ## 6. Labels and the Action output
 
 The Action sets one of `captain:careful`, `captain:standard` or `captain:quick` on the PR, the same

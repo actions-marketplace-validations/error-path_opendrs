@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { factHash, parseFactMemory } from "../../src/brief/facts-memory.js";
 import { feedbackCommand } from "../../src/cli/commands/feedback.js";
 import { loadIncidents } from "../../src/model/label.js";
 import { makeRepo, type TestRepo } from "../helpers/repo.js";
@@ -91,5 +92,56 @@ describe("opendrs feedback", () => {
     await expect(feedbackCommand.run(["--pr", "1"], io)).rejects.toThrow("--pr requires --was-incident");
     await expect(feedbackCommand.run(["--pr", "99", "--was-incident"], io)).rejects.toThrow("no commit on the current branch landed PR #99");
     await expect(feedbackCommand.run(["--inducing", "nope"], io)).rejects.toThrow("unknown commit: nope");
+  });
+});
+
+describe("opendrs feedback --fact", () => {
+  const pkg = (deps: string[]) => JSON.stringify({ dependencies: Object.fromEntries(deps.map((d) => [d, "^1.0.0"])) }, null, 2);
+  const FACT = { id: "contract.dependency" as const, file: "package.json", text: "New runtime dependency `jsonwebtoken` (`package.json:4`)." };
+  const FACT_ID = "contract.dependency:package.json:4";
+  const factLines = () =>
+    readFileSync(join(repo.dir, ".opendrs/facts.jsonl"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+  const withDependency = () => {
+    repo.commit({ "package.json": pkg(["foo"]) }, "base");
+    repo.commit({ "package.json": pkg(["foo", "jsonwebtoken"]) }, "add jsonwebtoken");
+  };
+
+  it("records the fact's content hash, verdict and note as a loadable memory entry", async () => {
+    withDependency();
+    const { io, stdout } = testIo(repo.dir);
+    expect(await feedbackCommand.run(["--fact", FACT_ID, "--verdict", "wrong", "--note", "manifest only", "--base", "HEAD~1"], io)).toBe(0);
+    expect(factLines()).toEqual([{ hash: factHash(FACT), id: "contract.dependency", file: "package.json", verdict: "wrong", note: "manifest only", at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }]);
+    expect(parseFactMemory(readFileSync(join(repo.dir, ".opendrs/facts.jsonl"), "utf8"))).toHaveLength(1);
+    expect(stdout()).toContain('Wrote to .opendrs/facts.jsonl: {"hash":"');
+    expect(stdout()).toContain("Commit .opendrs/facts.jsonl");
+  });
+
+  it("skips a duplicate hash and verdict, but records a changed verdict", async () => {
+    withDependency();
+    await feedbackCommand.run(["--fact", FACT_ID, "--verdict", "wrong", "--base", "HEAD~1"], testIo(repo.dir).io);
+    const { io, stdout } = testIo(repo.dir);
+    expect(await feedbackCommand.run(["--fact", FACT_ID, "--verdict", "wrong", "--base", "HEAD~1"], io)).toBe(0);
+    expect(stdout()).toContain("Already recorded");
+    expect(factLines()).toHaveLength(1);
+    expect(await feedbackCommand.run(["--fact", FACT_ID, "--verdict", "useful", "--base", "HEAD~1"], io)).toBe(0);
+    expect(factLines().map((l) => l.verdict)).toEqual(["wrong", "useful"]);
+  });
+
+  it("lists the available ids when the fact is not in this diff", async () => {
+    withDependency();
+    const { io } = testIo(repo.dir);
+    await expect(feedbackCommand.run(["--fact", "coupling.missing:src/a.ts", "--verdict", "wrong", "--base", "HEAD~1"], io)).rejects.toThrow(`no fact coupling.missing:src/a.ts in this diff; available: ${FACT_ID}`);
+  });
+
+  it("validates the verdict and refuses to mix --fact with --inducing or --pr", async () => {
+    withDependency();
+    const { io } = testIo(repo.dir);
+    await expect(feedbackCommand.run(["--fact", FACT_ID, "--base", "HEAD~1"], io)).rejects.toThrow("--fact needs --verdict wrong|useful|intentional|ignored");
+    await expect(feedbackCommand.run(["--fact", FACT_ID, "--verdict", "meh", "--base", "HEAD~1"], io)).rejects.toThrow("--fact needs --verdict wrong|useful|intentional|ignored");
+    await expect(feedbackCommand.run(["--fact", FACT_ID, "--verdict", "wrong", "--inducing", "HEAD"], io)).rejects.toThrow("--fact cannot be combined with --inducing or --pr");
+    await expect(feedbackCommand.run(["--fact", FACT_ID, "--verdict", "wrong", "--pr", "1", "--was-incident"], io)).rejects.toThrow("--fact cannot be combined with --inducing or --pr");
   });
 });

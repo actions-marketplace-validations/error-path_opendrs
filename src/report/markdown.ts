@@ -1,5 +1,5 @@
 import type { Authorship, CaptainPriority, Contribution, Decision, LlmJudgement, ReviewBrief, ScoreResult, Tier } from "../domain/types.js";
-import { renderBriefMarkdown, renderFocusBullets } from "../brief/render.js";
+import { factLine, renderBriefMarkdown, renderFocusBullets } from "../brief/render.js";
 import { cell, code, untrusted } from "./escape.js";
 
 const MARKER = "<!-- opendrs -->";
@@ -25,7 +25,7 @@ function renderCaptain(captain: NonNullable<ReviewBrief["captain"]>): string[] {
   const why = captain.priority !== "quick" && captain.why.length > 0 ? ` · why: ${captain.why.join("; ")}` : "";
   const lines = [`**Captain: ${CAPTAIN_LABEL[captain.priority]}**${reviewer}${why}`];
   if (captain.priority !== "quick" && captain.facts.length > 0) {
-    lines.push("**For the captain**", ...captain.facts.slice(0, MAX_CAPTAIN_FACTS).map((f) => `- ${f.text}`));
+    lines.push("**For the captain**", ...captain.facts.slice(0, MAX_CAPTAIN_FACTS).map((f) => `- ${factLine(f)}`));
     if (captain.facts.length > MAX_CAPTAIN_FACTS) lines.push(`- +${captain.facts.length - MAX_CAPTAIN_FACTS} more in the brief below`);
   }
   return lines;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { quoteUntrusted } from "../../src/brief/quote.js";
-import { renderBriefMarkdown, renderFocusBullets } from "../../src/brief/render.js";
-import type { ReviewBrief } from "../../src/domain/types.js";
+import { factLine, renderBriefMarkdown, renderFocusBullets } from "../../src/brief/render.js";
+import type { ArchitectureFact, ReviewBrief, Verification } from "../../src/domain/types.js";
 import { untrusted } from "../../src/report/escape.js";
 
 function brief(over: Partial<ReviewBrief> = {}): ReviewBrief {
@@ -199,5 +199,36 @@ describe("renderFocusBullets", () => {
 
   it("returns no bullets for an empty brief", () => {
     expect(renderFocusBullets(brief({ reviewFirst: [], checks: [], human: [] }))).toEqual([]);
+  });
+});
+
+describe("verification suffixes", () => {
+  const fact = (verification?: Verification): ArchitectureFact => ({ id: "contract.api", weight: "strong", file: "src/a.ts", line: 3, text: "Exported API changed: `foo`.", ...(verification ? { verification } : {}) });
+  const verified = (status: Verification["status"]): Verification => ({ action: "keep", status, reason: "real", source: "verifier" });
+
+  it("factLine appends exactly one fixed suffix per verdict, and none when the fact was never verified", () => {
+    expect(factLine(fact())).toBe("Exported API changed: `foo`.");
+    expect(factLine(fact(verified("new")))).toBe("Exported API changed: `foo`. [verified · new]");
+    expect(factLine(fact(verified("pre_existing")))).toBe("Exported API changed: `foo`. [verified · pre-existing]");
+    expect(factLine(fact(verified("unknown")))).toBe("Exported API changed: `foo`. [verified]");
+    expect(factLine(fact({ action: "downgrade", status: "new", reason: "only a type alias", citedLine: "src/a.ts:3", source: "verifier" }))).toBe("Exported API changed: `foo`. [downgraded by verifier: only a type alias]");
+    expect(factLine(fact({ action: "downgrade", status: "new", reason: "dismissed earlier as wrong", source: "memory" }))).toBe("Exported API changed: `foo`. [downgraded: dismissed earlier as wrong]");
+    expect(factLine(fact({ action: "keep", status: "new", source: "unverified" }))).toBe("Exported API changed: `foo`. [unverified]");
+  });
+
+  it("renders the same suffix on captain facts, review-first hunks and checks", () => {
+    const b = brief({ captain: { priority: "standard", why: [], facts: [fact(verified("new"))], notes: [] } });
+    b.reviewFirst[0]!.hunks[0]!.verification = { action: "keep", status: "pre_existing", reason: "r", source: "verifier" };
+    b.reviewFirst[0]!.hunks[1]!.verification = { action: "downgrade", status: "new", reason: "signature unchanged", citedLine: "Queue.java:188", source: "verifier" };
+    b.checks[0]!.verification = { action: "keep", status: "new", source: "unverified" };
+    const md = renderBriefMarkdown(b);
+    expect(md).toContain("- Exported API changed: `foo`. [verified · new]\n");
+    expect(md).toContain("«Fix NPE» [verified · pre-existing]\n");
+    expect(md).toContain("`public Message poll(long timeout)` [downgraded by verifier: signature unchanged]\n");
+    expect(md).toContain("bring that problem back? [unverified]\n");
+  });
+
+  it("adds no suffix anywhere when nothing was verified", () => {
+    expect(renderBriefMarkdown(brief({ captain: { priority: "standard", why: [], facts: [fact()], notes: [] } }))).not.toMatch(/\[(verified|downgraded|unverified)/);
   });
 });
