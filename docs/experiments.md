@@ -17,7 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
-| 2026-10-22 (pre-registered 2026-10-22) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | Recall PASS (1 of 14 traced true-useful facts wrongly dropped, bar ≤ 1). `coupling.missing` PASS (15 of 18 handled: 4 by the detector, 11 by the verifier; bar ≥ 13). `contract.dependency` WRONG fires FAIL as pre-registered (0 of 2 marked drop/downgrade — see caveat). Cost FAIL: $0.0210/PR vs the $0.02 bar ($1.0271 total, 49 PRs). Overall precision-fail per the rule applied exactly as written. **Caveat**: the 2 WRONG fires never fired at all in this run — the 0.4.1 parser fix (commit `e66ca46`) already eliminated the PEP 508 marker bug they came from, so the verifier had nothing to drop; the study's own scoring had no way to tell "eliminated" apart from "verifier missed it", which is why this is recorded as a FAIL exactly as the pre-registered rule reads, not reinterpreted after the fact | Rejected as pre-registered (precision-fail, cost-fail); see the 2026-10-23 amendment below for the root-cause fixes and re-run | [details](#verifier-precision-study-on-the-field-test-corpus) |
+| 2026-10-22, amended and re-run 2026-10-23 (pre-registered 2026-10-22, amendment 2026-10-23) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | **v1**: recall PASS (1/14), `coupling.missing` PASS (15/18: 4 detector + 11 verifier), WRONG-fire precision FAIL (0/2 — both facts never fire at all post-0.4.1; the study couldn't yet tell "eliminated" from "missed"), cost FAIL ($0.0210/PR, $1.0271/49 PRs). Overall precision-fail, recorded honestly below with no exception carved out. Root-caused and fixed (dead `VerifyVerdict.confidence` field; WRONG-fire elimination now scored, same bar) — amended and re-run. **v2** (same corpus/model/bars, run `2026-10-22T19-16-53-589Z`): recall PASS (1/14), `coupling.missing` PASS (14/18: 4 detector + 10 verifier), WRONG-fire precision PASS (2/2, both eliminated at the detector), cost PASS ($0.0192/PR, $0.9419/49 PRs). **Overall: ship.** Combined v1+v2 spend $1.9690 of the $5 study cap | Shipped as opendrs 0.5.0 | [details](#verifier-precision-study-on-the-field-test-corpus) |
 | 2026-10-20 (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | On ApacheJIT, both candidates make saturation worse, not better: intercept re-centring to mid-yellow raises red share 25.6 % → 40.3 % (the train-split median was 0.307, not near red as assumed); scaling `history.*`/`expertise.*` by repo age raises red share to 33.9 % and costs −0.0052 AUC (significant loss, CI −0.0058 to −0.0046) | Rejected; the pre-registration's "median near red" premise does not hold on ApacheJIT | [details](#default-weights-re-centred-intercept-and-repo-age-scaling-on-apachejit) |
 | 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
 | 2026-10-19 | Do `contract.dependency`, `contract.api`, `contract.schema` and `layers.edge` predict ApacheJIT bugs enough to ship as captain facts (spec §10.2)? Do the rejected review signals (`change.concurrency`, `change.safety_removed`, `tests.weakened`) qualify as captain facts on the full test split, even though they did not help the score? | 6 of 7 qualify (lift ≥ 1.2× and ≥ 50 fires): `contract.dependency` 1.467×, `contract.api` 1.718×, `contract.schema` 2.388×, `change.concurrency` 2.036×, `change.safety_removed` 1.788×, `tests.weakened` 1.202×. `layers.edge` does not: 1.117× on 19 fires of a 2,000-commit sample | Merged (facts only; review signals still excluded from the score) | [details](#captain-fact-lift-on-apachejit) |
@@ -33,11 +33,11 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 ## Verifier precision study on the field-test corpus
 
-**Status.** Pre-registered 2026-10-22; run completed 2026-10-22 (run id
-`2026-10-22T17-30-07-530Z`). Result: **v1 precision-fail** (recall and `coupling.missing`
-precision pass; `contract.dependency` WRONG-fire precision and cost fail). See "Result (v1)"
-below the decision rule, and the 2026-10-23 amendment further down for the root-cause diagnosis
-and the re-run.
+**Status.** Pre-registered 2026-10-22; v1 run completed 2026-10-22 (run id
+`2026-10-22T17-30-07-530Z`, **precision-fail**). Amended 2026-10-23 (same bars, two root-cause
+fixes; see the amendment below) and re-run the same day (run id `2026-10-22T19-16-53-589Z`,
+**ship** — recall PASS, precision PASS, cost PASS). Shipped as opendrs 0.5.0. See "Result (v1)"
+below the decision rule and "Result (v2)" at the end of the amendment for the full numbers.
 
 **Question.** Does `llm.verify` (spec `docs/specs/2026-10-20-verification-pass-design.md` §3,
 plan `docs/superpowers/plans/2026-10-22-verification-pass.md`) meet its own shipping bar (spec
@@ -225,6 +225,34 @@ Restarted as `node bench/verify/run.ts --max-usd 3.9 --concurrency 6 --resume
 applied on top of both the $1.0271 already spent in v1 and the $0.1661 already spent in this
 same v2 run's first 11 PRs (resumed, not re-scored), keeping total v1+v2 spend under the $5 study
 cap.
+
+**Result (v2, run `2026-10-22T19-16-53-589Z`, model `claude-sonnet-5`, $0.9419 total / 49 scored
+PRs, combined with v1's resumed 11 PRs' $0.1661 already inside that total — not double-counted).**
+Applying the same decision rule, unchanged:
+
+1. **Recall: PASS.** 1 of 14 traced true-useful facts wrongly dropped (bar ≤ 1) — same as v1;
+   the confidence-field removal and the WRONG-fire scoring fix touch neither candidate selection
+   nor the verifier's actual verdicts, so recall was never expected to move, and didn't.
+2. **`coupling.missing` precision: PASS.** 14 of 18 noise fires handled — 4 by the deterministic
+   detector classes (A–C, same as v1), 10 by the verifier alone (bar ≥ 13 of 18). One fewer
+   verifier-handled fire than v1's 11 (both comfortably clear the bar; a single-run LLM call has
+   some run-to-run variance at the margin, not a regression — nothing in either fix touches
+   `coupling.missing` candidates or prompting).
+3. **`contract.dependency` WRONG-fire precision: PASS.** 2 of 2 handled — both eliminated at the
+   detector (confirmed again, independently of v1: neither WRONG fact appears in any baseline
+   brief in this run either), 0 by the verifier (there was nothing live for it to act on, as
+   expected).
+4. **Cost: PASS.** $0.0192/PR (bar ≤ $0.02/PR), down from v1's $0.0210/PR — the dead
+   `confidence` field's removal from every verified candidate's required output.
+
+**Overall: ship.** One verifier failure recorded (`black/cache-dir`: a 60s Anthropic API timeout,
+failed open per `src/brief/verify.ts`'s contract — 1 of 49 PRs, far under `checkStudyValidity`'s
+50% invalidation threshold, so this is an ordinary transient provider hiccup, not a measurement
+problem). Total spend across both runs: $1.0271 (v1) + $0.9419 (v2) = **$1.9690 of the $5 study
+cap**. Full breakdown in `bench/verify/results.md`; raw per-PR JSON in
+`~/.cache/opendrs/verify-study/2026-10-22T19-16-53-589Z/` (new work) and
+`~/.cache/opendrs/verify-study/2026-10-22T18-50-21-890Z/` (the 11 PRs `--resume` picked up).
+Shipped as opendrs 0.5.0.
 
 ## Default weights: re-centred intercept and repo-age scaling on ApacheJIT
 
