@@ -180,6 +180,45 @@ export function reconcileActualSpend(budget: Budget, reservedCost: number, usage
   return actual;
 }
 
+/**
+ * Runs `worker` over `items` with at most `limit` in flight at once (`--concurrency`). Each of
+ * `limit` loops synchronously claims the next index (`i++`) before its first `await`, so no two
+ * loops can ever claim the same item — the same single-threaded-JS guarantee that keeps
+ * `reserveIfAffordable`'s cap check atomic when `worker` calls it after an earlier `await` (e.g.
+ * scorePr's baseline build): the reserve call itself is synchronous and non-reentrant, so it is
+ * never interleaved regardless of `limit`. `shouldStop`, checked before every claim (never mid
+ * item), stops new items from starting once the budget cap aborts the run; items already
+ * in flight still finish.
+ */
+export async function runPool<T>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<void>, shouldStop?: () => boolean): Promise<void> {
+  let next = 0;
+  const lanes = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (;;) {
+      if (shouldStop?.()) return;
+      const index = next++;
+      if (index >= items.length) return;
+      await worker(items[index]!, index);
+    }
+  });
+  await Promise.all(lanes);
+}
+
+/** A saved per-PR JSON file (README.md's "What it writes") is resumable only when it was really
+ * scored — carries a `verification` field — not just a verify-off baseline written when a prior
+ * run stopped before the real call (a budget skip, or `--dry-run`); a baseline-only record is
+ * redone on `--resume`, never skipped. */
+export function isResumableOutcome(parsed: unknown): boolean {
+  return typeof parsed === "object" && parsed !== null && "verification" in parsed;
+}
+
+/** Total $ already spent across a set of resumed (previously scored) outcomes, from each one's
+ * recorded `verification.usage` — absent when the verifier was skipped (e.g. "nothing to
+ * verify"), which cost nothing real. `--resume` subtracts this from the fresh `--max-usd` budget
+ * before any new call, so resumed spend is never double-counted or allowed to bypass the cap. */
+export function sumResumedSpend(outcomes: ReadonlyArray<{ verification?: { usage?: { inputTokens: number; outputTokens: number } } }>, prices: Prices): number {
+  return outcomes.reduce((total, o) => total + (o.verification?.usage ? actualCallCostUsd(o.verification.usage, prices) : 0), 0);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Fail-fast: the study must never mistake a provider outage for a measurement (see README.md's
 // "Prerequisites" and the ledger entry for the run that returned HTTP 400 on all 48 PRs for $0).

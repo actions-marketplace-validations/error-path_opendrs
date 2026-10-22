@@ -207,11 +207,24 @@ make a number pass.
 
 **Run shape, corpus, model, cap: unchanged.** Same `bench/verify/run.ts`, same
 `bench/verify/labels.json` corpus (49 PRs, six repos), same model (`claude-sonnet-5`), same
-`scoreDiff`/`llm.verify.enabled: true` shape. `npm run build` first (src/ changed), then
-`node bench/verify/run.ts --max-usd 3.9` (v1 already spent $1.0271 of the $5 study cap; $3.9
-keeps the combined v1+v2 spend under the cap with headroom). Results appended to
-`bench/verify/results.md`/this file after the run, exactly as the decision rule reads — a v2 cost
-FAIL stays a FAIL.
+`scoreDiff`/`llm.verify.enabled: true` shape, same per-PR scoring (`scorePr`) and the same
+decision rule above. Results appended to `bench/verify/results.md`/this file after the run,
+exactly as the decision rule reads — a v2 cost FAIL stays a FAIL.
+
+**Execution-only addendum (same day, mid-run).** The first v2 attempt was stopped partway (11 of
+49 PRs scored, $0.1661) to add `--concurrency <N>` (bounded worker pool, default 1; the budget
+reservation inside `scorePr` stays synchronous and non-reentrant, so it is atomic under
+concurrency regardless of `N` — proved in `tests/bench/verify-lib.test.ts`'s `runPool` suite, not
+just asserted) and `--resume <runDir>` (skips a PR already scored under `runDir`, and folds its
+recorded `verification.usage` cost into the fresh `--max-usd` budget before any new call —
+`lib.ts`'s `sumResumedSpend`/`isResumableOutcome`). **This changes nothing about what is measured
+or how it is scored** — same `scorePr`, same candidates, same verifier call per PR, same decision
+rule; it only changes how many PRs run at once and lets a stopped run pick up where it left off.
+Restarted as `node bench/verify/run.ts --max-usd 3.9 --concurrency 6 --resume
+~/.cache/opendrs/verify-study/2026-10-22T18-50-21-890Z` — the same $3.9 cap as before, now
+applied on top of both the $1.0271 already spent in v1 and the $0.1661 already spent in this
+same v2 run's first 11 PRs (resumed, not re-scored), keeping total v1+v2 spend under the $5 study
+cap.
 
 ## Default weights: re-centred intercept and repo-age scaling on ApacheJIT
 

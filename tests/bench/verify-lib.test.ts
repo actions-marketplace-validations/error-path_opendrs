@@ -9,10 +9,13 @@ import {
   factId,
   flattenLabels,
   groupByFactId,
+  isResumableOutcome,
   liveFactIds,
   PRICES,
   reconcileActualSpend,
   reserveIfAffordable,
+  runPool,
+  sumResumedSpend,
   tallyLabels,
   type Budget,
   type LabelsFile,
@@ -163,6 +166,90 @@ describe("cost-cap arithmetic", () => {
     expect(actual).toBeCloseTo((5_000 * 2 + 500 * 10) / 1e6, 10);
     // Real usage (~$0.015) was cheaper than the estimate (~$0.04), so more is left than right after reserving.
     expect(budget.left).toBeGreaterThan(leftAfterReserve);
+  });
+});
+
+describe("runPool (bounded concurrency for --concurrency)", () => {
+  it("runs every item exactly once", async () => {
+    const seen: number[] = [];
+    await runPool([1, 2, 3, 4, 5], 2, async (n) => {
+      seen.push(n);
+    });
+    expect(seen.slice().sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("never runs more than `limit` workers at once", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const items = Array.from({ length: 8 }, (_, i) => i);
+    await runPool(items, 3, async () => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active--;
+    });
+    expect(maxActive).toBeLessThanOrEqual(3);
+    expect(maxActive).toBeGreaterThan(1); // actually ran concurrently, not serially
+  });
+
+  it("stops claiming new items once shouldStop() flips, but lets in-flight ones finish", async () => {
+    const started: number[] = [];
+    let stop = false;
+    const items = [1, 2, 3, 4, 5, 6];
+    await runPool(
+      items,
+      2,
+      async (n) => {
+        started.push(n);
+        if (n === 2) stop = true; // flips mid-run, before every item has even started
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      },
+      () => stop,
+    );
+    // Both initial workers (items 1 and 2) are already in flight when `stop` flips and must
+    // finish; nothing claimed after the flag flips, so well under all 6 items start.
+    expect(started.length).toBeLessThan(items.length);
+    expect(started).toContain(1);
+    expect(started).toContain(2);
+  });
+
+  it("the budget reservation stays atomic under concurrency: never overdraws, every affordable item charged exactly once", async () => {
+    // Mirrors scorePr's real shape: an await (baseline work) BEFORE the synchronous reserve, then
+    // another await (the real call) after. If the reserve were anything but a synchronous,
+    // non-interleaved step, two concurrent workers could both pass the affordability check
+    // against the same stale `budget.left` and together overdraw it.
+    const budget: Budget = { left: 0.05, prices: SONNET_5 };
+    const chars = 17_500; // ~$0.03/call (per the arithmetic test above): only 1 fits in a $0.05 budget
+    const results: Array<{ ok: boolean }> = [];
+    await runPool(
+      Array.from({ length: 10 }, (_, i) => i),
+      5,
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 5)); // simulate the baseline-build await
+        const reserved = reserveIfAffordable(budget, chars); // the atomic step: synchronous, no await around it
+        results.push({ ok: reserved.ok });
+        if (reserved.ok) await new Promise((resolve) => setTimeout(resolve, Math.random() * 5)); // simulate the real call
+      },
+    );
+    expect(budget.left).toBeGreaterThanOrEqual(0); // never overdrawn
+    expect(results.filter((r) => r.ok)).toHaveLength(1); // chars ~= $0.03/call against a $0.05 cap: only 1 fits
+  });
+});
+
+describe("isResumableOutcome / sumResumedSpend (--resume)", () => {
+  it("a verified outcome (has a verification field) is resumable", () => {
+    expect(isResumableOutcome({ verification: { outcome: "verified", usage: { inputTokens: 1, outputTokens: 1 } } })).toBe(true);
+  });
+
+  it("a baseline-only record (no verification field — the PR was never actually scored) is not resumable", () => {
+    expect(isResumableOutcome({ captain: { facts: [] } })).toBe(false);
+    expect(isResumableOutcome(null)).toBe(false);
+    expect(isResumableOutcome("not an object")).toBe(false);
+  });
+
+  it("sums real $ already spent across resumed outcomes, treating a usage-less (skipped) verifier as $0", () => {
+    const outcomes = [{ verification: { usage: { inputTokens: 1_000_000, outputTokens: 0 } } }, { verification: { usage: { inputTokens: 0, outputTokens: 1_000_000 } } }, { verification: { outcome: "skipped" as const } }];
+    expect(sumResumedSpend(outcomes, SONNET_5)).toBeCloseTo(12, 10); // $2 + $10 + $0
   });
 });
 

@@ -24,6 +24,7 @@ import { scoreDiff } from "../../dist/engine.js";
 import { createLlmProvider } from "../../dist/llm/provider.js";
 import { VERSION } from "../../dist/version.js";
 import {
+  actualCallCostUsd,
   backoffDelayMs,
   checkStudyValidity,
   classifyProviderError,
@@ -32,14 +33,19 @@ import {
   factId,
   flattenLabels,
   groupByFactId,
+  isResumableOutcome,
   liveFactIds,
   PRICES,
   reconcileActualSpend,
   reserveIfAffordable,
+  runPool,
+  sumResumedSpend,
   tallyLabels,
   type Budget,
   type FlatLabelledFact,
+  type LabelledRepo,
   type LabelsFile,
+  type Prices,
 } from "./lib.ts";
 
 const execFileAsync = promisify(execFile);
@@ -107,6 +113,12 @@ interface Options {
   dryRun: boolean;
   keepClones: boolean;
   out: string;
+  /** Max PRs scored at once (`reserveIfAffordable`'s cap check stays atomic regardless — see
+   * lib.ts's runPool doc comment). Default 1 (today's fully serial behaviour). */
+  concurrency: number;
+  /** A prior run's output directory: PRs already scored there (lib.ts's isResumableOutcome) are
+   * loaded instead of re-scored, and their recorded spend counts against --max-usd. */
+  resume?: string;
 }
 
 function parseOptions(args: string[]): Options {
@@ -119,11 +131,15 @@ function parseOptions(args: string[]): Options {
       "dry-run": { type: "boolean", default: false },
       "keep-clones": { type: "boolean", default: false },
       out: { type: "string", default: fileURLToPath(new URL("results.md", import.meta.url)) },
+      concurrency: { type: "string", default: "1" },
+      resume: { type: "string" },
     },
   });
   if (!PRICES[values.model]) usageError(`--model must be one of ${Object.keys(PRICES).join(", ")} (needed for the spend cap)`);
   const maxUsd = Number(values["max-usd"]);
   if (!(maxUsd > 0)) usageError(`--max-usd must be a positive number, got "${values["max-usd"]}"`);
+  const concurrency = Number(values.concurrency);
+  if (!Number.isInteger(concurrency) || concurrency < 1) usageError(`--concurrency must be a positive integer, got "${values.concurrency}"`);
   return {
     model: values.model,
     maxUsd,
@@ -131,6 +147,8 @@ function parseOptions(args: string[]): Options {
     dryRun: values["dry-run"],
     keepClones: values["keep-clones"],
     out: values.out,
+    concurrency,
+    resume: values.resume,
   };
 }
 
@@ -144,7 +162,7 @@ interface LabelledRepoLike {
   slug: string;
   head: string;
   cloneMode?: string;
-  config?: Record<string, unknown>;
+  config?: unknown;
 }
 
 /** Clones `repo` under REPOS_DIR/<slug> at its pinned head, reusing an existing clone. Blobless
@@ -176,9 +194,9 @@ async function ensureClone(repo: LabelledRepoLike): Promise<string> {
 /** Applies a repo's labels.json `config` overrides (currently only fastlane's history.* tuning)
  * onto a fresh defaultConfig(). Keys are dotted ("history.maxCommits"); unknown/non-numeric keys
  * (e.g. the human-readable "note" field) are skipped. */
-function applyConfigOverrides(config: OpendrsConfig, overrides: Record<string, unknown> | undefined): void {
-  if (!overrides) return;
-  for (const [key, value] of Object.entries(overrides)) {
+function applyConfigOverrides(config: OpendrsConfig, overrides: unknown): void {
+  if (!overrides || typeof overrides !== "object") return;
+  for (const [key, value] of Object.entries(overrides as Record<string, unknown>)) {
     if (typeof value !== "number") continue; // skips "note"
     if (key === "history.maxCommits") config.history.maxCommits = value;
     else if (key === "history.lookbackDays") config.history.lookbackDays = value;
@@ -273,6 +291,44 @@ interface PrOutcome {
   actualCost?: number;
 }
 
+/**
+ * `--resume`: loads every PR under `resumeDir` that a prior run already scored (lib.ts's
+ * isResumableOutcome — a baseline-only file, from a budget skip or --dry-run, is not resumed and
+ * gets redone). Also loads that PR's `.baseline.json` when present, so the WRONG-fire
+ * elimination check (judgeGroup's `firedAtDetector`) still works across a resume — see the
+ * "always write baseline.json" change in main() this depends on. `actualCost` is recomputed from
+ * the recorded `verification.usage` so a resumed PR still counts toward cost-per-PR.
+ */
+async function loadResumedOutcomes(resumeDir: string, repos: LabelledRepo[], prices: Prices): Promise<Map<string, PrOutcome>> {
+  const resumed = new Map<string, PrOutcome>();
+  for (const repo of repos) {
+    for (const pr of repo.prs) {
+      const verifiedPath = join(resumeDir, `${repo.slug}-${pr.slug}.json`);
+      if (!existsSync(verifiedPath)) continue;
+      let verified: ReviewBrief;
+      try {
+        verified = JSON.parse(await readFile(verifiedPath, "utf8"));
+      } catch {
+        continue; // corrupt/partial write (e.g. interrupted mid-write): redo this PR
+      }
+      if (!isResumableOutcome(verified)) continue;
+      let baseline: ReviewBrief | undefined;
+      const baselinePath = join(resumeDir, `${repo.slug}-${pr.slug}.baseline.json`);
+      if (existsSync(baselinePath)) {
+        try {
+          baseline = JSON.parse(await readFile(baselinePath, "utf8"));
+        } catch {
+          baseline = undefined;
+        }
+      }
+      const usage = verified.verification?.usage;
+      const actualCost = usage ? actualCallCostUsd(usage, prices) : 0;
+      resumed.set(`${repo.slug}:${pr.slug}`, { repoSlug: repo.slug, prSlug: pr.slug, baseline, verified, actualCost });
+    }
+  }
+  return resumed;
+}
+
 async function scorePr(repoDir: string, repo: LabelledRepoLike, pr: { base: string; head: string; slug: string }, model: string, dryRun: boolean, apiKeyEnv: Record<string, string> | undefined, budget: Budget | undefined): Promise<PrOutcome> {
   const baselineConfig = defaultConfig();
   applyConfigOverrides(baselineConfig, repo.config);
@@ -358,7 +414,23 @@ async function main(): Promise<number> {
   const clonedDirs: string[] = [];
   let aborted = false;
 
-  outer: for (const repo of repos) {
+  // --resume: load PRs a prior run already scored; their spend counts against --max-usd before
+  // any new call (lib.ts's sumResumedSpend), and they are not re-cloned or re-scored below.
+  const resumed = o.resume ? await loadResumedOutcomes(o.resume, repos, PRICES[o.model]!) : new Map<string, PrOutcome>();
+  if (resumed.size > 0) {
+    const resumedSpend = sumResumedSpend([...resumed.values()].map((r) => r.verified!), PRICES[o.model]!);
+    console.error(`--resume ${o.resume}: ${resumed.size} PR(s) already scored, $${resumedSpend.toFixed(4)} already spent (now counted against --max-usd ${o.maxUsd}).`);
+    if (budget) budget.left -= resumedSpend;
+    outcomes.push(...resumed.values());
+  }
+
+  // Only clone a repo that still has at least one PR needing real work; concurrency runs the
+  // remaining (repo, PR) pairs through a bounded pool (lib.ts's runPool) instead of one PR at a
+  // time — the reserve step inside scorePr stays atomic regardless (see runPool's doc comment).
+  const tasks: Array<{ repo: LabelledRepo; repoDir: string; pr: { base: string; head: string; slug: string } }> = [];
+  for (const repo of repos) {
+    const pending = repo.prs.filter((pr) => !resumed.has(`${repo.slug}:${pr.slug}`));
+    if (pending.length === 0) continue;
     let repoDir: string;
     try {
       repoDir = await ensureClone(repo);
@@ -367,29 +439,38 @@ async function main(): Promise<number> {
       console.error(`${repo.slug}: skipped, ${scrub(errorMessage(e), apiKey)}`);
       continue;
     }
-    for (const pr of repo.prs) {
-      if (aborted) break outer;
+    for (const pr of pending) tasks.push({ repo, repoDir, pr: { base: pr.base, head: pr.head, slug: pr.slug } });
+  }
+
+  await runPool(
+    tasks,
+    o.concurrency,
+    async (task) => {
       let outcome: PrOutcome;
       try {
-        outcome = await scorePr(repoDir, repo, { base: pr.base, head: pr.head, slug: pr.slug }, o.model, o.dryRun, apiKeyEnv, budget);
+        outcome = await scorePr(task.repoDir, task.repo, task.pr, o.model, o.dryRun, apiKeyEnv, budget);
       } catch (e) {
-        outcome = { repoSlug: repo.slug, prSlug: pr.slug, skipped: scrub(errorMessage(e), apiKey) };
+        outcome = { repoSlug: task.repo.slug, prSlug: task.pr.slug, skipped: scrub(errorMessage(e), apiKey) };
       }
       if (outcome.skipped === "budget") {
-        console.error(`ABORTING: ${repo.slug}/${pr.slug} would need ~$${outcome.estimatedCost?.toFixed(4)}, only $${budget?.left.toFixed(4)} left of --max-usd ${o.maxUsd}. Stopping before any further calls.`);
+        console.error(`ABORTING: ${task.repo.slug}/${task.pr.slug} would need ~$${outcome.estimatedCost?.toFixed(4)}, only $${budget?.left.toFixed(4)} left of --max-usd ${o.maxUsd}. No new PR starts after this.`);
         aborted = true;
         outcomes.push(outcome);
-        break outer;
+        return;
       }
       if (!o.dryRun) console.error(`spend so far: $${(o.maxUsd - (budget?.left ?? o.maxUsd)).toFixed(4)} of $${o.maxUsd}`);
       outcomes.push(outcome);
-      if (outcome.verified) {
-        await writeFile(join(studyDir, `${repo.slug}-${pr.slug}.json`), JSON.stringify(outcome.verified, null, 2));
-      } else if (outcome.baseline) {
-        await writeFile(join(studyDir, `${repo.slug}-${pr.slug}.baseline.json`), JSON.stringify(outcome.baseline, null, 2));
+      // Baseline is written whenever built (even alongside a verified brief), not only when the
+      // PR stops short of a real call — --resume needs it to recover `firedAtDetector` later.
+      if (outcome.baseline) {
+        await writeFile(join(studyDir, `${task.repo.slug}-${task.pr.slug}.baseline.json`), JSON.stringify(outcome.baseline, null, 2));
       }
-    }
-  }
+      if (outcome.verified) {
+        await writeFile(join(studyDir, `${task.repo.slug}-${task.pr.slug}.json`), JSON.stringify(outcome.verified, null, 2));
+      }
+    },
+    () => aborted,
+  );
 
   // --- recall / precision / cost, from the labelled facts matched against live verdicts ---
   const outcomeByPr = new Map(outcomes.map((o2) => [`${o2.repoSlug}:${o2.prSlug}`, o2]));
