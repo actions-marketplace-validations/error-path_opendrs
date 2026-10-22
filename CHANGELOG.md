@@ -50,6 +50,12 @@ for the module-boundaries design.
 
 ### Changed
 
+- `coupling.missing` no longer fires for a file this PR deletes, and downgrades to `info` when
+  either every hunk of the firing file removes lines with no identifier surviving in the partner's
+  base text, or the firing file is a test whose source partner is untouched (spec
+  §3.8 of
+  [docs/specs/2026-10-20-verification-pass-design.md](docs/specs/2026-10-20-verification-pass-design.html)).
+  See [docs/captain.md](docs/captain.html#4-the-facts).
 - A repo that already sets `captain.moduleDepth` explicitly in `.opendrs.yml` keeps its exact
   current behaviour: setting it disables auto-detection repo-wide and module boundaries stay a
   flat split on that many path segments from the repo root, unchanged.

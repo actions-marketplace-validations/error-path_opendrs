@@ -1,9 +1,13 @@
 import type { CommitInfo } from "../domain/types.js";
 import type { Detector } from "./index.js";
+import { changedLines } from "../git/diff.js";
 import { matchAny } from "../git/glob.js";
 import { code } from "../report/escape.js";
 import { languageFamily } from "../signals/language.js";
 import { asOfOrNow, plural } from "../signals/util.js";
+
+/** Spec §3.8: an identifier worth checking for survival in the partner's base text. */
+const IDENTIFIER = /[A-Za-z_][\w.@/-]{2,}/g;
 
 /** Spec §6.1: a commit touching more than this many files is a mass refactor, excluded from support. */
 const MAX_FILES_PER_COMMIT = 30;
@@ -86,11 +90,38 @@ export const detectCoupling: Detector = async (ctx) => {
   const facts = [];
   for (const pair of pairs) {
     if ((await ctx.readHead(pair.partner)) === undefined) continue;
+    const firing = ctx.diff.files.find((f) => f.path === pair.file);
+    // Class A (spec §3.8): a file going away has no partner left to update; the pairing is stale.
+    if (firing?.status === "deleted") continue;
+
+    let weight: "strong" | "info" = "strong";
+    let suffix = "";
+    if (matchAny(ctx.config.paths.tests, pair.file) && !matchAny(ctx.config.paths.tests, pair.partner)) {
+      // Class C: a changed test without its source partner is a test-only change, not a forgotten co-change.
+      weight = "info";
+      suffix = " Downgraded: a changed test without its source partner is a test-only change.";
+    } else if (firing && firing.hunks.length > 0 && firing.hunks.every((h) => [...changedLines(h)].some((l) => l.kind === "-"))) {
+      // Class B: every hunk modifies (not a pure addition); downgrade unless a removed identifier survives in the partner.
+      const identifiers = new Set<string>();
+      for (const h of firing.hunks) {
+        for (const l of changedLines(h)) {
+          if (l.kind !== "-") continue;
+          for (const m of l.text.matchAll(IDENTIFIER)) identifiers.add(m[0]);
+        }
+      }
+      const partnerText = (await ctx.readBase(pair.partner)) ?? "";
+      const survives = [...identifiers].some((id) => partnerText.includes(id));
+      if (!survives) {
+        weight = "info";
+        suffix = ` Downgraded: the lines changed in ${code(pair.file)} mention nothing ${code(pair.partner)} contains.`;
+      }
+    }
+
     facts.push({
       id: "coupling.missing" as const,
-      weight: "strong" as const,
+      weight,
       file: pair.file,
-      text: `${code(pair.partner)} changed with ${code(pair.file)} in ${pair.support} of ${pair.total} commits (last ${plural(days, "day")}); this PR changes only ${code(pair.file)}.`,
+      text: `${code(pair.partner)} changed with ${code(pair.file)} in ${pair.support} of ${pair.total} commits (last ${plural(days, "day")}); this PR changes only ${code(pair.file)}.${suffix}`,
     });
   }
   return { facts, notes: [] };
