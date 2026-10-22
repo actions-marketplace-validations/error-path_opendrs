@@ -73,11 +73,15 @@ describe("detectCoupling", () => {
 
   it("fires with the exact text from spec §6.1", async () => {
     repo = makeRepo();
-    repo.commit({ "a.ts": "0\n" }, "create a", undefined, T);
-    repo.commit({ "b.ts": "0\n" }, "create b", undefined, T + 1);
-    for (let i = 0; i < 5; i++) repo.commit({ "a.ts": `${i + 1}\n`, "b.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 2 + i);
+    // "value<n>" (a real identifier, not a bare digit) so the removed identifier on the head
+    // change ("value5") is still something `b.ts`'s base text can be checked against (class B,
+    // spec §3.8) — it matches here, since b.ts was last synced at the same value, so the fact
+    // stays strong with no suffix.
+    repo.commit({ "a.ts": "value0\n" }, "create a", undefined, T);
+    repo.commit({ "b.ts": "value0\n" }, "create b", undefined, T + 1);
+    for (let i = 0; i < 5; i++) repo.commit({ "a.ts": `value${i + 1}\n`, "b.ts": `value${i + 1}\n` }, `co-change ${i}`, undefined, T + 2 + i);
     const base = repo.git("rev-parse", "HEAD");
-    const head = repo.commit({ "a.ts": "9\n" }, "change a alone", undefined, T + 10);
+    const head = repo.commit({ "a.ts": "value9\n" }, "change a alone", undefined, T + 10);
     const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
     const result = await detectCoupling(ctx, {});
     expect(result.notes).toEqual([]);
@@ -129,5 +133,91 @@ describe("detectCoupling", () => {
     const ctx = await contextFor(repo, base, head, { config: defaultConfig(), asOf: T + 1 });
     const result = await detectCoupling(ctx, {});
     expect(result.facts).toEqual([]);
+  });
+
+  // Spec §3.8: three deterministic noise classes read from the field test's 18 coupling.missing fires.
+
+  it("does not fire for a file this PR deletes (class A: retired file)", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.ts": "0\n", "b.ts": "0\n" }, "init", undefined, T);
+    for (let i = 0; i < 5; i++) repo.commit({ "a.ts": `${i + 1}\n`, "b.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 1 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ "a.ts": null }, "delete a", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([]);
+  });
+
+  it("downgrades to info when no identifier on the removed lines occurs in the partner (class B)", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.json": '{\n  "oxlint": "^1.0"\n}\n' }, "create a", undefined, T);
+    repo.commit({ "b.json": '{"name": "b"}\n' }, "create b", undefined, T + 1);
+    for (let i = 0; i < 5; i++)
+      repo.commit({ "a.json": `{\n  "oxlint": "^1.0",\n  "n": ${i}\n}\n`, "b.json": `{"name": "b", "n": ${i}}\n` }, `co-change ${i}`, undefined, T + 2 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ "a.json": '{\n  "oxlint": "^1.1",\n  "n": 4\n}\n' }, "bump oxlint", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([
+      {
+        id: "coupling.missing",
+        weight: "info",
+        file: "a.json",
+        text:
+          "`b.json` changed with `a.json` in 5 of 6 commits (last 365 days); this PR changes only `a.json`." +
+          " Downgraded: the lines changed in `a.json` mention nothing `b.json` contains.",
+      },
+    ]);
+  });
+
+  it("keeps strong when a removed identifier does occur in the partner", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.json": '{\n  "oxlint": "^1.0"\n}\n' }, "create a", undefined, T);
+    repo.commit({ "b.json": '{"oxlint": "^2.0"}\n' }, "create b", undefined, T + 1);
+    for (let i = 0; i < 5; i++)
+      repo.commit({ "a.json": `{\n  "oxlint": "^1.0",\n  "n": ${i}\n}\n`, "b.json": `{"oxlint": "^2.0", "n": ${i}}\n` }, `co-change ${i}`, undefined, T + 2 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ "a.json": '{\n  "oxlint": "^1.1",\n  "n": 4\n}\n' }, "bump oxlint", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([
+      { id: "coupling.missing", weight: "strong", file: "a.json", text: "`b.json` changed with `a.json` in 5 of 6 commits (last 365 days); this PR changes only `a.json`." },
+    ]);
+  });
+
+  it("keeps strong for a pure addition even when the partner lacks the added identifier", async () => {
+    repo = makeRepo();
+    repo.commit({ "a.ts": "line1\n" }, "create a", undefined, T);
+    repo.commit({ "b.ts": "0\n" }, "create b", undefined, T + 1);
+    for (let i = 0; i < 5; i++) repo.commit({ "a.ts": `line1\n${i}\n`, "b.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 2 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ "a.ts": "line1\n4\nconst newThing = 1;\n" }, "pure addition", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([
+      { id: "coupling.missing", weight: "strong", file: "a.ts", text: "`b.ts` changed with `a.ts` in 5 of 6 commits (last 365 days); this PR changes only `a.ts`." },
+    ]);
+  });
+
+  it("downgrades a test file whose partner is source (class C: test fired on its source)", async () => {
+    repo = makeRepo();
+    repo.commit({ "tests/a.test.ts": "0\n" }, "create test", undefined, T);
+    repo.commit({ "src/a.ts": "0\n" }, "create source", undefined, T + 1);
+    for (let i = 0; i < 5; i++)
+      repo.commit({ "tests/a.test.ts": `${i + 1}\n`, "src/a.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 2 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ "tests/a.test.ts": "9\n" }, "change test alone", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([
+      {
+        id: "coupling.missing",
+        weight: "info",
+        file: "tests/a.test.ts",
+        text:
+          "`src/a.ts` changed with `tests/a.test.ts` in 5 of 6 commits (last 365 days); this PR changes only `tests/a.test.ts`." +
+          " Downgraded: a changed test without its source partner is a test-only change.",
+      },
+    ]);
   });
 });
