@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| Planned (pre-registered 2026-10-22) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | Not yet run: waits on a `dist/` build of the verification-pass branches and on `~/.config/opendrs/bench.env` (`ANTHROPIC_API_KEY`) | Pre-registered, not yet run | [details](#verifier-precision-study-on-the-field-test-corpus) |
 | 2026-10-20 (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | On ApacheJIT, both candidates make saturation worse, not better: intercept re-centring to mid-yellow raises red share 25.6 % → 40.3 % (the train-split median was 0.307, not near red as assumed); scaling `history.*`/`expertise.*` by repo age raises red share to 33.9 % and costs −0.0052 AUC (significant loss, CI −0.0058 to −0.0046) | Rejected; the pre-registration's "median near red" premise does not hold on ApacheJIT | [details](#default-weights-re-centred-intercept-and-repo-age-scaling-on-apachejit) |
 | 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
 | 2026-10-19 | Do `contract.dependency`, `contract.api`, `contract.schema` and `layers.edge` predict ApacheJIT bugs enough to ship as captain facts (spec §10.2)? Do the rejected review signals (`change.concurrency`, `change.safety_removed`, `tests.weakened`) qualify as captain facts on the full test split, even though they did not help the score? | 6 of 7 qualify (lift ≥ 1.2× and ≥ 50 fires): `contract.dependency` 1.467×, `contract.api` 1.718×, `contract.schema` 2.388×, `change.concurrency` 2.036×, `change.safety_removed` 1.788×, `tests.weakened` 1.202×. `layers.edge` does not: 1.117× on 19 fires of a 2,000-commit sample | Merged (facts only; review signals still excluded from the score) | [details](#captain-fact-lift-on-apachejit) |
@@ -29,6 +30,82 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Verifier precision study on the field-test corpus
+
+**Status.** Pre-registered 2026-10-22, not yet run. No API key is configured on this worker; no
+API call has been made for this study. This section is committed before `bench/verify/run.ts` or
+any run artifact, so this sha is the pre-registration point per `docs/experiments.md`'s own
+convention and per worker rule 8 (`~/.cache/opendrs/orchestrator/worker-rules.md`).
+
+**Question.** Does `llm.verify` (spec `docs/specs/2026-10-20-verification-pass-design.md` §3,
+plan `docs/superpowers/plans/2026-10-22-verification-pass.md`) meet its own shipping bar (spec
+§3.7) on the field test's real corpus
+(`docs/research/2026-10-19-field-test.md`; session notes under
+`~/.cache/opendrs/field-test/notes/`): does it recall the 15 true+useful captain facts the field
+test found across six repositories, does it correctly drop or downgrade the 18 noisy
+`coupling.missing` fires and both `contract.dependency` WRONG fires, and at what cost per PR?
+
+**Setup.**
+- **Corpus.** The ~49 PRs across the field test's six repositories (psf/black, cli/cli,
+  actix/actix-web, vitejs/vite, fastlane/fastlane, vapor/vapor), at the pinned heads and per-PR
+  base/head commits recorded in `bench/verify/labels.json`, which also carries every captain fact
+  those six session notes judged (`{id, file, line?}` plus `true-useful | noise | wrong`, a quoted
+  `note`, and an `ambiguous` flag where the note's own file reference was not exact).
+- **Labels traced vs. the field test's own summary table.** 14 true-useful, 21 noise (18
+  `coupling.missing` + 2 `contract.api` + 1 `layers.edge`), 2 `contract.dependency` WRONG — all
+  reconcile exactly against `docs/research/2026-10-19-field-test.md`'s fact-type table **except**
+  one `contract.env` true-useful fire the summary table counts (2) that is not traceable in any of
+  the six notes or fastlane's raw JSON dump (only 1 is, `env-30112`). `bench/verify/labels.json`'s
+  `meta.discrepancy` records this; the target below uses the traced total (14) and calls this out
+  explicitly rather than silently padding the recall denominator with a fact nobody can point to.
+- **Setup quirks the harness reproduces** (`bench/verify/labels.json`'s `meta.setupQuirks`):
+  fastlane needs `history.maxCommits: 1500`, `history.lookbackDays: 90` and a full (non-shallow,
+  non-blobless) clone — its default-config run crashed outright in the field test (120 s git
+  timeout). The other five repos ran default config on `--filter=blob:none` (blobless) clones.
+  cli/cli has 3 of its 8 rows as commit-range stand-ins (`base = sha~1`, `head = sha`, found via
+  `git log --shortstat`, not real GitHub PRs), because only 9 of 276 sampled trunk commits carry a
+  PR number.
+- **Model.** Sonnet 5 (`claude-sonnet-5`), the model decided in
+  `docs/specs/2026-10-20-verification-pass-design.md` §4.1 item 4. Effort/model id priced via the
+  `claude-api` skill at run time, never from memory.
+- **Run shape.** One `scoreDiff` (or `opendrs brief --json`) per labelled PR, `llm.verify.enabled:
+  true`, single run per PR (no repeats, no voting) — `bench/verify/run.ts`.
+- **Cap.** `--max-usd 5.00` hard cap, enforced by estimating each PR's prompt cost from its
+  candidate count/diff size before the call and aborting the whole run before any call that could
+  cross the cap; actual spend tracked from `verification.usage` after each call, running total
+  printed to stderr. Well under the spec's own ≈ $0.25–$0.50 estimate for this corpus size
+  (§3.6(a)), so the cap is headroom, not a expected binding constraint.
+- **Prerequisite.** `bench/verify/run.ts` imports `dist/`, built from the verification-pass core
+  branches (Tasks 1–4 of the implementation plan). This worker (`bench/verify-precision`) does not
+  build or merge that code; it is blocked on that integration landing, and separately on
+  `~/.config/opendrs/bench.env` holding `ANTHROPIC_API_KEY` (never printed, logged, written or
+  committed by the script).
+
+**Decision rule** (spec §3.7, copied verbatim, with the §3.8 amendment noted inline): **recall
+first, precision second — precision is not checked until recall clears.**
+1. **Recall.** At most 1 of the 15 true+useful facts (14 traced; see the discrepancy note above)
+   wrongly `drop`ped; any failure here stops the study and requires a logged detector or prompt fix
+   (spec implication 15) before anything else.
+2. **Precision.** `coupling.missing` 0 % → ≥ 70 % correctly `drop`/`downgrade`d (≥ 13 of 18); both
+   `contract.dependency` WRONG fires marked `drop`/`downgrade`. **§3.8 amendment:** three of the
+   four `coupling.missing` noise classes (A retired file, B partner lacks the subject, C test fired
+   on its source) are fixed deterministically in the detector itself
+   (`src/architecture/coupling.ts`, a separate task/branch), not by the verifier; those detector
+   fixes count toward the 13-of-18 target exactly as the spec says, and the verifier's own
+   contribution (class D and anything the detector fix misses) is reported **separately** in
+   `results.md` so the two are never conflated into one "the verifier caught X" number.
+3. **Cost.** ≤ $0.02/PR at the chosen model (spec estimates $0.005–$0.01, headroom intact under the
+   $5 cap for this corpus size).
+
+**Every recall miss, and every fact the study shows was wrongly dropped, produces a logged detector
+or prompt fix before the pass ships** (spec implication 15) — not optional, not a re-run.
+
+**Where.** `bench/verify/run.ts`, `bench/verify/labels.json`, `bench/verify/README.md`; results
+will be written to [`bench/verify/results.md`](../bench/verify/results.md) (recall, the 18-fire
+`coupling.missing` precision breakdown by detector class vs. verifier, the 2 WRONG fires, cost per
+PR and total, model + `promptHash`, and this decision rule applied as written) when the run
+happens, not before.
 
 ## Default weights: re-centred intercept and repo-age scaling on ApacheJIT
 
