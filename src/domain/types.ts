@@ -173,9 +173,65 @@ export interface LlmJudgeInput {
   truncated: boolean;
 }
 
+export type VerifyAction = "keep" | "drop" | "downgrade";
+export type VerifyStatus = "new" | "pre_existing" | "unknown";
+export type DroppedClass = "docs" | "tests" | "fixtures" | "generated" | "formatting";
+
+/** One verifier verdict (verification spec §3.2). `id` is ours, never read from the model. */
+export interface VerifyVerdict {
+  id: string;
+  action: VerifyAction;
+  droppedClass?: DroppedClass;
+  status: VerifyStatus;
+  /** "file:line", file must be in the diff. */
+  citedLine?: string;
+  /** <= 200 chars. */
+  reason: string;
+}
+
+/** What the verifier was asked about: one captain fact, reviewFirst hunk or check (verification spec §3.1). */
+export interface VerifyCandidate {
+  /** factId / hunkId / checkId (src/brief/selfcheck.ts). */
+  id: string;
+  kind: "fact" | "hunk" | "check";
+  file: string;
+  line?: number;
+  /** The fact text / hunk reasons / check question. */
+  text: string;
+  /** The hunk's unified text (<= 2000 chars) or "" when none. */
+  excerpt: string;
+  /** Deterministic first (verification spec §3.3). */
+  status: VerifyStatus;
+}
+
+export interface LlmVerifyInput {
+  title?: string;
+  candidates: VerifyCandidate[];
+  /** Base-side excerpt of a coupling partner, keyed by candidate id (for class D, verification spec §3.8). */
+  partners: Record<string, string>;
+}
+
+export interface LlmVerifyOutput {
+  verdicts: VerifyVerdict[];
+  usage: { inputTokens: number; outputTokens: number };
+}
+
 export interface LlmProvider {
   name: string;
   judge(input: LlmJudgeInput): Promise<LlmJudgement>;
+  /** Phase 2 verification; both built-in providers implement it, a test double may omit it. */
+  verify?(input: LlmVerifyInput): Promise<LlmVerifyOutput>;
+}
+
+/** Attached to a fact, hunk or check after verification. */
+export interface Verification {
+  action: VerifyAction;
+  status: VerifyStatus;
+  reason?: string;
+  citedLine?: string;
+  droppedClass?: DroppedClass;
+  /** Who decided: the model, the dismissal memory, or nobody (fail-open / missing verdict). */
+  source: "verifier" | "memory" | "unverified";
 }
 
 export interface ScoringContext {
@@ -294,6 +350,7 @@ export interface ArchitectureFact {
   line?: number;
   /** Rendered sentence; untrusted parts already escaped. */
   text: string;
+  verification?: Verification;
 }
 
 /** The captain brief (spec §5): priority, reviewer and the facts that back them. */
@@ -323,9 +380,9 @@ export interface ReviewBrief {
   reviewFirst: Array<{
     file: string;
     reasons: BriefReason[];
-    hunks: Array<{ id: number; oldStart: number; newStart: number; newLines: number; score: number; reasons: BriefReason[] }>;
+    hunks: Array<{ id: number; oldStart: number; newStart: number; newLines: number; score: number; reasons: BriefReason[]; verification?: Verification }>;
   }>;
-  checks: Array<{ file: string; line?: number; question: string; quotes: string[]; evidence: string[] }>;
+  checks: Array<{ file: string; line?: number; question: string; quotes: string[]; evidence: string[]; verification?: Verification }>;
   skim: Array<{ file: string; category: "docs" | "comment-only" | "tests" }> | { counts: Record<string, number> };
   human: Array<{ rule: PolicyRule; reason: string }>;
   notRanked: { hunks: number; files: number };
@@ -333,6 +390,20 @@ export interface ReviewBrief {
   notes: string[];
   /** Absent when captain.enabled is false. */
   captain?: CaptainBrief;
+  /** Present when llm.verify.enabled is true (verification spec §3). */
+  verification?: {
+    /** "verified": the call succeeded; "failed": fail-open; "skipped": risk-depth or token cap (reason in `note`). */
+    outcome: "verified" | "failed" | "skipped";
+    note?: string;
+    model: string;
+    /** First 12 hex of sha256(VERIFY_SYSTEM_PROMPT + JSON.stringify(VERIFY_SCHEMA)). */
+    promptHash: string;
+    usage?: { inputTokens: number; outputTokens: number };
+    /** Every candidate id with its final verdict, dropped ones included (the audit trail the study reads). */
+    verdicts: Record<string, Verification>;
+    /** Dropped items, in the order they were dropped: rendered as notes. */
+    dropped: Array<{ id: string; droppedClass: DroppedClass; reason: string }>;
+  };
 }
 
 export interface ScoreResult {

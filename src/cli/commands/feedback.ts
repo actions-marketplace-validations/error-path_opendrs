@@ -1,12 +1,18 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
+import { FACTS_FILE, factHash, parseFactMemory, type FactMemoryEntry, type FactVerdict } from "../../brief/facts-memory.js";
+import { factId } from "../../brief/selfcheck.js";
+import { loadConfig } from "../../domain/config.js";
 import type { Incident } from "../../domain/types.js";
 import { OpendrsError } from "../../domain/types.js";
+import { scoreDiff } from "../../engine.js";
 import { git, gitMaybe } from "../../git/exec.js";
 import { INCIDENTS_FILE, loadIncidents } from "../../model/label.js";
-import { repoRoot } from "../repo.js";
-import type { Command } from "../types.js";
+import { defaultBase, repoRoot } from "../repo.js";
+import type { CliIo, Command } from "../types.js";
+
+const FACT_VERDICTS: readonly FactVerdict[] = ["wrong", "useful", "intentional", "ignored"];
 
 /** Full sha of `ref`, or undefined when it does not name a commit. */
 async function resolveMaybe(repoDir: string, ref: string): Promise<string | undefined> {
@@ -38,15 +44,49 @@ async function prCommits(repoDir: string, pr: string): Promise<string[]> {
   throw new OpendrsError(`no commit on the current branch landed PR #${pr} (looked for a subject ending in "(#${pr})" or "Merge pull request #${pr} ")`, "usage");
 }
 
+/**
+ * Verification spec §3.6 (c): record a verdict on one captain fact of the current diff, keyed by the
+ * fact's content hash so the verifier's dismissal memory recognises it across pushes.
+ */
+async function recordFact(repoDir: string, values: { fact: string; verdict?: string; note?: string; base?: string; head?: string }, io: CliIo): Promise<number> {
+  const verdict = values.verdict as FactVerdict | undefined;
+  if (verdict === undefined || !FACT_VERDICTS.includes(verdict)) throw new OpendrsError(`--fact needs --verdict ${FACT_VERDICTS.join("|")}`, "usage");
+
+  const config = await loadConfig(repoDir);
+  const result = await scoreDiff({ repoDir, base: values.base ?? (await defaultBase(repoDir)), head: values.head ?? "HEAD", config, brief: {}, llm: null });
+  const facts = result.brief?.captain?.facts ?? [];
+  const fact = facts.find((f) => factId(f) === values.fact);
+  if (!fact) throw new OpendrsError(`no fact ${values.fact} in this diff; available: ${facts.map(factId).join(", ") || "none"}`, "usage");
+
+  const entry: FactMemoryEntry = { hash: factHash(fact), id: fact.id, file: fact.file, verdict, ...(values.note ? { note: values.note } : {}), at: new Date().toISOString() };
+  const file = join(repoDir, FACTS_FILE);
+  const current = await readFile(file, "utf8").catch(() => "");
+  if (parseFactMemory(current).some((e) => e.hash === entry.hash && e.verdict === verdict)) {
+    io.out(`Already recorded in ${FACTS_FILE}: ${values.fact} (${verdict})`);
+    return 0;
+  }
+  await mkdir(dirname(file), { recursive: true });
+  const separator = current && !current.endsWith("\n") ? "\n" : "";
+  await appendFile(file, `${separator}${JSON.stringify(entry)}\n`);
+  io.out(`Wrote to ${FACTS_FILE}: ${JSON.stringify(entry)}`);
+  io.out(`Commit ${FACTS_FILE} (the verifier reads it from the base branch; it is a blocked path, so that PR goes to a human reviewer).`);
+  return 0;
+}
+
 export const feedbackCommand: Command = {
   name: "feedback",
-  summary: "Record an incident-inducing change in .opendrs/incidents.jsonl",
+  summary: "Record an incident-inducing change in .opendrs/incidents.jsonl, or a verdict on a captain fact in .opendrs/facts.jsonl",
   help: `Usage: opendrs feedback --inducing <sha|ref> [--fix <sha|ref>] [--paths a,b] [--note <text>]
        opendrs feedback --pr <number> --was-incident [--fix <sha|ref>] [--paths a,b] [--note <text>]
+       opendrs feedback --fact <id> --verdict wrong|useful|intentional|ignored [--note <text>] [--base <ref>] [--head <ref>]
 
 Append one line per inducing commit to .opendrs/incidents.jsonl. calibrate and
 backtest label those commits positive, and the history.incident signal flags later
 PRs that touch the recorded paths. Commit the file afterwards.
+
+With --fact, append one line to .opendrs/facts.jsonl instead: the verifier (llm.verify)
+downgrades a fact recorded wrong, intentional or ignored, and never drops one recorded
+useful. The id is the fact's self-check id, e.g. coupling.missing:src/session.ts.
 
 Options:
   --inducing <ref>   The commit that caused the incident
@@ -55,7 +95,11 @@ Options:
   --was-incident     Required with --pr: confirms the PR caused an incident
   --fix <ref>        The commit that fixed it
   --paths <a,b>      Files or folders involved, comma-separated
-  --note <text>      Free text, e.g. "SEV-12: checkout 500s"`,
+  --note <text>      Free text, e.g. "SEV-12: checkout 500s"
+  --fact <id>        A captain fact of the diff <base>...<head> (default: base branch...HEAD)
+  --verdict <v>      Required with --fact: wrong, useful, intentional or ignored
+  --base <ref>       With --fact: base ref (default: origin/HEAD's target, else main, else master)
+  --head <ref>       With --fact: head ref (default: HEAD)`,
 
   async run(args, io) {
     const { values } = parseArgs({
@@ -67,8 +111,16 @@ Options:
         fix: { type: "string" },
         paths: { type: "string" },
         note: { type: "string" },
+        fact: { type: "string" },
+        verdict: { type: "string" },
+        base: { type: "string" },
+        head: { type: "string" },
       },
     });
+    if (values.fact !== undefined) {
+      if (values.inducing !== undefined || values.pr !== undefined) throw new OpendrsError("--fact cannot be combined with --inducing or --pr", "usage");
+      return recordFact(await repoRoot(io.cwd), { ...values, fact: values.fact }, io);
+    }
     if ((values.inducing === undefined) === (values.pr === undefined)) {
       throw new OpendrsError("feedback needs exactly one of --inducing <ref> or --pr <number>", "usage");
     }

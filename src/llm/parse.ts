@@ -36,7 +36,7 @@ const outputSchema = z.object({
 });
 
 /** Every top-level balanced {...} in text, skipping braces inside JSON strings; an unclosed one counts too. */
-function topLevelObjects(text: string): string[] {
+export function topLevelObjects(text: string): string[] {
   const found: string[] = [];
   let start = -1;
   let depth = 0;
