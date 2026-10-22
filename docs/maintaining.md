@@ -65,6 +65,38 @@ Actions tab and paste them into `extra_urls`, separated by spaces. The IndexNow 
 `docs/7761d20ca5295159e2dd2f14ffccbe2b.txt` and `KEY` in `.github/workflows/pages.yml`. To rotate
 it, replace both. To preview locally: `cd docs && bundle install && bundle exec jekyll serve`.
 
+## Dev loop metrics
+
+`.dev-metrics/runs.jsonl` (gitignored, append-only) is a local record of how long `check`, `test`,
+`test:slow`, `build:action` and `claude plugin eval` runs take, so "is the dev loop getting
+slower" has a measured answer instead of a guess. Background: see
+[Where the dev loop's time goes]({{ '/research/2026-10-22-dev-loop-time-sinks.html' | relative_url }}).
+
+**How it's written:**
+
+- `npm run check`, `npm test`, `npm run test:slow` and `npm run build:action` are each wrapped by
+  `scripts/record-run.mjs <kind> -- <command>`, which times the command, then appends one JSON
+  line (`ts`, `kind`, `command`, `gitSha`, `gitBranch`, `durationMs`, `exitCode`, `loadAvg1m`,
+  `source: "live"`) and exits with the wrapped command's own exit code.
+- After a `claude plugin eval` run, append its result with
+  `node scripts/record-eval-run.mjs evals/results/<timestamp>/aggregate-result.json` — it reads
+  `durationSeconds`, `costUsd` and each case's `passRate` out of that file and appends a `kind:
+  "eval"` entry the same way. There's no automatic hook for this (eval is run by hand or by a
+  worker, not by an npm script), so it's a manual or scripted post-step.
+- A bench script (e.g. `bench/apachejit/run.ts`) isn't wrapped automatically; run it through
+  `node scripts/record-run.mjs bench -- <bench command>` to get a `kind: "bench"` entry.
+- The historical numbers in the research note above were seeded into the ledger with
+  `"source": "backfill"` instead of `"live"`, so a report can tell measured runs from
+  reconstructed ones.
+
+**How to read it:** `node scripts/metrics-report.mjs` prints totals and averages by kind, the top
+10 slowest individual runs, and an older-half-vs-newer-half trend per kind (so a regression shows
+up as "up" before it's a surprise in CI).
+
+**Extending it:** add a new `kind` by picking a short string and using it consistently; both
+scripts are dependency-free (Node builtins only) by design, so keep additions that way rather than
+reaching for a package.
+
 ## Handling a security report
 
 1. Acknowledge it within 7 days in the private advisory thread.

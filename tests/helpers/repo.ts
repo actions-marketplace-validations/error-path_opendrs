@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -14,18 +14,30 @@ export interface TestRepo {
 const DEFAULT_AUTHOR = { name: "Alice", email: "alice@example.com" };
 let clock = 1_700_000_000;
 
+// The five `git config` child-process spawns this helper used to make per repo (user.name,
+// user.email, commit.gpgsign, gc.auto, maintenance.auto) measurably add up: this fixture backs
+// most of the test suite's wall time (see docs/research/2026-10-22-dev-loop-time-sinks.md).
+// Writing them straight into `.git/config` with fs (one spawn, `init`, instead of six) gets the
+// same one-spawn win but, unlike setting them via env vars, also covers git processes a test runs
+// directly against repo.dir (e.g. execFileSync) rather than through this helper's `run`.
+const REPO_GIT_CONFIG = `[user]
+\tname = ${DEFAULT_AUTHOR.name}
+\temail = ${DEFAULT_AUTHOR.email}
+[commit]
+\tgpgsign = false
+[gc]
+\tauto = 0
+[maintenance]
+\tauto = false
+`;
+
 /** Create a real temporary git repository for tests. */
 export function makeRepo(): TestRepo {
   const dir = mkdtempSync(join(tmpdir(), "opendrs-test-"));
   const run = (args: string[], env: Record<string, string> = {}) =>
     execFileSync("git", args, { cwd: dir, encoding: "utf8", env: { ...process.env, ...env } });
   run(["init", "-q", "-b", "main"]);
-  run(["config", "user.name", DEFAULT_AUTHOR.name]);
-  run(["config", "user.email", DEFAULT_AUTHOR.email]);
-  run(["config", "commit.gpgsign", "false"]);
-  // Big test commits can trigger a detached `git gc --auto`, which races cleanup (ENOTEMPTY in CI).
-  run(["config", "gc.auto", "0"]);
-  run(["config", "maintenance.auto", "false"]);
+  appendFileSync(join(dir, ".git", "config"), REPO_GIT_CONFIG);
   return {
     dir,
     commit(files, message, author = DEFAULT_AUTHOR, time) {
