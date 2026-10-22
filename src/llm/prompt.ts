@@ -16,7 +16,7 @@ function fileHeader(f: ChangedFile): string {
   return `${head}--- ${from}\n+++ ${to}\n`;
 }
 
-function hunkText(h: Hunk): string {
+export function hunkText(h: Hunk): string {
   return `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@\n${h.lines.map((l) => `${l}\n`).join("")}`;
 }
 

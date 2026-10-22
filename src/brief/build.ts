@@ -1,6 +1,6 @@
 import { detectArchitecture } from "../architecture/index.js";
 import { captainPriority } from "../architecture/priority.js";
-import type { ArchitectureFact, CaptainBrief, Incident, PolicyRule, ReviewBrief, ScoreResult, ScoringContext } from "../domain/types.js";
+import type { ArchitectureFact, CaptainBrief, Incident, LlmProvider, PolicyRule, ReviewBrief, ScoreResult, ScoringContext } from "../domain/types.js";
 import { gitMaybe } from "../git/exec.js";
 import { matchAny } from "../git/glob.js";
 import { INCIDENTS_FILE, parseIncidents } from "../model/label.js";
@@ -11,6 +11,7 @@ import { needsHuman } from "./human.js";
 import { checkQuestions } from "./questions.js";
 import { candidateHunks, rankHunks } from "./rank.js";
 import { skimList, skimmablePaths } from "./skim.js";
+import { verifyBrief } from "./verify.js";
 
 const DEFAULT_MAX_TOKENS = 2_500;
 const HARD_CEILING = 6_000;
@@ -27,6 +28,8 @@ export interface BuildBriefOptions {
   firstHead?: string;
   /** That first run's number, for an old marker's "since run k" phrasing. */
   firstRun?: number;
+  /** Runs the verification pass over the assembled brief (verification spec §3); absent when llm.verify is off. */
+  verifier?: LlmProvider;
 }
 
 const MAX_WHY_CHARS = 100;
@@ -146,26 +149,25 @@ export async function buildBrief(result: ScoreResult, ctx: ScoringContext, optio
   const captain = ctx.config.captain.enabled ? await buildCaptain(result, ctx, options) : undefined;
 
   const maxTokens = Math.min(options.maxTokens ?? DEFAULT_MAX_TOKENS, HARD_CEILING);
-  return fitBudget(
-    {
-      version: 1,
-      verdict: verdictOf(result),
-      reviewFirstScope,
-      reviewFirst: shown.map((f) => ({
-        file: f.file,
-        reasons: f.reasons,
-        hunks: f.hunks.map((h) => ({ id: h.id, oldStart: h.oldStart, newStart: h.newStart, newLines: h.newLines, score: h.score, reasons: h.reasons })),
-      })),
-      checks: checkQuestions(shown, ctx, incidents),
-      skim: skimList(ctx, new Set(shown.map((f) => f.file))),
-      human: needsHuman(result.policy),
-      notRanked: { hunks: totalHunks - shownHunks, files: pool.length - shown.length },
-      budget: { maxTokens, estimatedTokens: 0, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
-      notes,
-      captain,
-    },
-    maxTokens,
-  );
+  const brief: ReviewBrief = {
+    version: 1,
+    verdict: verdictOf(result),
+    reviewFirstScope,
+    reviewFirst: shown.map((f) => ({
+      file: f.file,
+      reasons: f.reasons,
+      hunks: f.hunks.map((h) => ({ id: h.id, oldStart: h.oldStart, newStart: h.newStart, newLines: h.newLines, score: h.score, reasons: h.reasons })),
+    })),
+    checks: checkQuestions(shown, ctx, incidents),
+    skim: skimList(ctx, new Set(shown.map((f) => f.file))),
+    human: needsHuman(result.policy),
+    notRanked: { hunks: totalHunks - shownHunks, files: pool.length - shown.length },
+    budget: { maxTokens, estimatedTokens: 0, truncated: false, omitted: { files: 0, hunks: 0, checks: 0, notes: 0 } },
+    notes,
+    captain,
+  };
+  // Verification spec §3.4: after buildCaptain (the priority is final) and before fitBudget (a drop frees room).
+  return fitBudget(options.verifier ? await verifyBrief(brief, ctx, options.verifier) : brief, maxTokens);
 }
 
 /** Spec §5.1: the first hard rule when one fired, else the top non-zero contribution's summary, else the decisive policy line. */

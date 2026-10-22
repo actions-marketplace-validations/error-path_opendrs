@@ -127,9 +127,10 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
     historyComplete: !shallow,
   });
 
+  let llm: LlmProvider | undefined;
   try {
     // A misconfigured judge (e.g. missing key) becomes an unknown signal, which routes to a human.
-    const llm = opts.llm === null ? undefined : (opts.llm ?? createLlmProvider(config));
+    llm = opts.llm === null ? undefined : (opts.llm ?? createLlmProvider(config));
     if (llm) {
       const { text, hunks, truncated } = buildDiffText(diff, config.llm.maxDiffChars);
       const judgement = await llm.judge({
@@ -198,6 +199,8 @@ export async function scoreDiff(opts: ScoreOptions): Promise<ScoreResult> {
         llm: opts.brief.llm,
         firstHead: opts.brief.firstHead,
         firstRun: opts.brief.firstRun,
+        // The same provider as the judge; --no-llm (opts.llm === null) disables both.
+        verifier: config.llm.verify.enabled ? llm : undefined,
       });
     } catch (e) {
       // The brief is an add-on to the score: the Action keeps the decision and posts without it.
