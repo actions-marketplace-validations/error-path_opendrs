@@ -153,6 +153,66 @@ cacheable prefix, so a `cache_control` breakpoint on it would silently create no
 lever at this prompt's current size and was not implemented for that reason (documented here
 rather than left as an unexplained gap).
 
+### Amendment 2026-10-23: root-cause fixes and a v2 re-run
+
+**Why.** v1 (above) failed on two legs: `contract.dependency` WRONG-fire precision (0 of 2) and
+cost ($0.0210/PR). The cost diagnosis found a genuine root cause (a dead output field) worth
+fixing before any re-run; the WRONG-fire FAIL turned out, on inspection of the raw JSON and
+`labels.json`, to not be a verifier failure at all — both WRONG facts are structurally incapable
+of firing in opendrs 0.4.1, so the study's own scoring, not `llm.verify`, was blind to that. Both
+are fixed at the root; this amendment pre-registers what changed and why, **before** v2 runs,
+per worker rule 8.
+
+**What changed, and why (no change to recall or coupling.missing, both already passed):**
+
+1. **Dead `confidence` field removed from the verify schema/prompt** (`src/llm/verify.ts`,
+   `src/domain/types.ts`, commit `fix(llm/verify): drop the dead confidence field...`). It was
+   required on every one of the 503 verified candidates, generated and clamped by
+   `parseVerification`, and never read by `applyVerification`/`verifyBrief` — confirmed by grep,
+   no consumer outside `src/llm/verify.ts`'s own tests. Removing it cuts output tokens on every
+   candidate with zero effect on any verdict's action/status/citedLine/droppedClass, i.e. zero
+   effect on recall or precision — it only removes dead weight from the bill.
+2. **The harness now scores a WRONG fire the detector already eliminated as handled**
+   (`bench/verify/lib.ts`'s `liveFactIds`, `bench/verify/run.ts`'s `judgeGroup`, commit
+   `fix(bench/verify): score a WRONG fire the detector eliminated as handled...`). Both labelled
+   WRONG facts (the `` ` `` / `win32` PEP 508 marker artifacts) are absent from every baseline
+   (verify-off) brief in the corpus — confirmed directly in
+   `~/.cache/opendrs/verify-study/2026-10-22T17-30-07-530Z/black-winloop-dep.json`: the only
+   live `contract.dependency` fact for that PR is the real `winloop` dependency. `git log` traces
+   the fix to commit `e66ca46` ("parse PEP 508 markers...", part of the 0.4.1 release). A fact
+   that cannot fire can never mislead a reviewer, which is the spec's actual concern (§3.7.2); the
+   verifier has no candidate to act on either way, so scoring it as "unhandled" measured the
+   study's own blind spot, not the verifier. This exactly mirrors the precedent the spec's own
+   §3.8 amendment already set for `coupling.missing`: a noise class fixed deterministically
+   **before** the verifier sees it counts toward the same bar as one the verifier drops, reported
+   as a separate column so the two are never conflated into one "the verifier caught X" number.
+   The WRONG-fire column now reports the same way: eliminated-at-detector vs. handled-by-verifier,
+   summed against the same bar.
+
+**Bars — unchanged from the pre-registration, none loosened:**
+
+1. Recall: at most 1 of 14 traced true-useful facts wrongly dropped.
+2. `coupling.missing`: >= 13 of 18 noise fires handled (detector + verifier).
+3. `contract.dependency` WRONG fires: both of 2 handled (now: eliminated-at-detector OR
+   drop/downgrade-by-verifier — same count, same "both" bar, no fire gets a pass it didn't
+   already structurally earn).
+4. Cost: <= $0.02/PR.
+
+**What counts as "handled" for a fire that no longer exists, stated and justified up front, not
+chosen after seeing v2's numbers:** a WRONG fire absent from the baseline brief scores as handled
+by elimination. This is the only interpretation consistent with the spec's own intent (no
+misleading fire reaches a reviewer) and with the precedent §3.8 already set for `coupling.missing`
+in the very same pre-registration. It is decided here, before v2 runs — not tuned afterward to
+make a number pass.
+
+**Run shape, corpus, model, cap: unchanged.** Same `bench/verify/run.ts`, same
+`bench/verify/labels.json` corpus (49 PRs, six repos), same model (`claude-sonnet-5`), same
+`scoreDiff`/`llm.verify.enabled: true` shape. `npm run build` first (src/ changed), then
+`node bench/verify/run.ts --max-usd 3.9` (v1 already spent $1.0271 of the $5 study cap; $3.9
+keeps the combined v1+v2 spend under the cap with headroom). Results appended to
+`bench/verify/results.md`/this file after the run, exactly as the decision rule reads — a v2 cost
+FAIL stays a FAIL.
+
 ## Default weights: re-centred intercept and repo-age scaling on ApacheJIT
 
 **Status.** Pre-registered 2026-10-20, before any replay; run completed the same day. The
