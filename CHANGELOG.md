@@ -2,7 +2,20 @@
 
 All notable changes to opendrs. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.5.0 - 2026-10-23
+
+The verification pass (`llm.verify`) ships, measured against the field test's real corpus (49 PRs,
+six repositories — [docs/experiments.md](docs/experiments.html#verifier-precision-study-on-the-field-test-corpus)).
+The first run (v1) recalled the true-useful facts and correctly handled the noisy
+`coupling.missing` fires, but missed both `contract.dependency` WRONG fires and ran over the cost
+bar: $0.0210/PR against a $0.02 bar, with a dead `confidence` field required on every verified
+candidate's output and no way for the study to tell "this fact no longer fires at all" apart from
+"the verifier missed it" (both WRONG fires were already gone — the 0.4.1 parser fix had eliminated
+them before the verifier ever saw a candidate). Fixed at the root — the dead field removed, the
+elimination case now scored correctly — the re-run (v2) passes on all three legs: recall 1/14
+wrongly dropped, `coupling.missing` 14/18 handled, both WRONG fires accounted for, and
+**$0.0192/PR**, under the cap. Full numbers, including the honest v1 FAIL, in
+[docs/experiments.md](docs/experiments.html#verifier-precision-study-on-the-field-test-corpus).
 
 ### Added
 
