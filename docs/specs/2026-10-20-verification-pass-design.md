@@ -335,6 +335,61 @@ release until Phase 2 ships and its studies (§3.7) give measured improvements w
 CHANGELOG entries for both phases stay under `## Unreleased`. This replaces §4.1 item 3's
 v0.5.0-now / v0.6.0 / v0.7.0 train; nothing else in §4.1 or §4.2 changes.
 
+### 3.8 Noise classes: the 18 `coupling.missing` field-test fires (O2, read 2026-10-22)
+
+Every one of the 18 fires (`docs/research/2026-10-19-field-test.md`; session notes in
+`~/.cache/opendrs/field-test/notes/`) was re-read against its diff. They fall into four classes.
+Three are decidable from the diff and the partner file alone, so they are fixed **in the detector**
+(implication 15: a wrong verdict is fixed at its cause, not papered over by another pass). Only the
+fourth needs the verifier.
+
+| Class | Rule (deterministic unless noted) | Field-test fires | Detector action |
+|---|---|---|---|
+| **A. Retired file** | The firing file is *deleted* in this PR. A file that is going away has no partner left to update; the historical pairing is stale by construction. | black d078e8e: 5 facts (`post_release.yml`, `publish_binaries.yml` and their `diff_shades*.yml`/`fuzz.yml` partners, during a wholesale pipeline rewrite) | **not emitted** |
+| **B. Partner lacks the subject** | Every hunk in the firing file removes lines (a modification, not a pure addition), and *no* identifier on those removed lines (`[A-Za-z_][\w.@/-]{2,}`) occurs anywhere in the partner at base. A pure addition is exempt: the partner may need the same addition, which is exactly the case the fact exists for. | vite 77d837351: 10 facts (renovate bumped `oxlint` in one template; the partner templates carry no `oxlint` at all); likely actix 3bb00075 (`experimental-io-uring` removed from `ci.yml`; `ci-post-merge.yml` never had the entry) | **downgraded** to `info`, text ends `Downgraded: the lines changed in `<file>` mention nothing `<partner>` contains.` |
+| **C. Test fired on its source** | The firing file matches `paths.tests` and the partner does not. A test that changed without its source is a test-only addition, not a forgotten co-change. | black 27c6fd0: 1 fact (`tests/test_black.py` without `src/black/__init__.py`, a focused regression test for a perf fix elsewhere) | **downgraded** to `info`, text ends `Downgraded: a changed test without its source partner is a test-only change.` |
+| **D. Added subject has no counterpart** (semantic) | The PR *adds* something to the firing file (a CLI option, a schema key) whose kind of thing the partner does not model. Needs reading both files. | black 1ed66a8: 1 fact (`black.schema.json` gained `--cache-dir`, a path option; `Mode` in `mode.py` has no field for it) | left to `llm.verify` (§3.2), which sees the fact, the hunk and the partner excerpt |
+
+Classes A–C cover 16–17 of 18 fires for free; the verifier's own target (§3.7 item 2) is therefore
+measured on the whole pipeline, detector classes included, and reported separately for the facts
+that reach the LLM. A detector downgrade changes `weight`, so it *can* lower captain priority (a
+yellow PR with only an `info` coupling fact is "standard", not "careful") — that is a detector fix
+and is meant to; the verifier's own `downgrade` never does (§3.4).
+
+### 3.9 Build decisions (2026-10-22)
+
+- **No sha-keyed verifier cache.** §3.4 inherited a `(head sha, candidate hash)` cache from the
+  first draft; it is not built. The batched call costs about a cent, the Action is ephemeral, and
+  the dismissal memory (content-keyed, below) is what stops repeats across pushes. Reconsider only if
+  measured spend says otherwise.
+- **Ids.** Candidates reuse Phase 1's ids (`src/brief/selfcheck.ts`: `factId`, `hunkId`, `checkId`),
+  so a self-check entry, a verifier verdict and a `feedback --fact` dismissal all name the same thing.
+- **Pre-existing, deterministically.** Captain facts are `new`, except `coupling.missing` which is
+  `unknown` (no new/pre-existing axis). A `reviewFirst` hunk or a check is `pre_existing` when every
+  non-blank added line of its hunk already occurs verbatim in the file at base, else `new`. The
+  model fills `status` only where that leaves `unknown`.
+- **Downgrade for hunks and checks.** A fact drops one weight tier (`strong` → `info`) and re-sorts.
+  A hunk moves to the end of its file's list and stops counting toward the file's score (so the file
+  re-sorts too); a check moves to the end of the checks list. All three keep their text and gain a
+  visible `[downgraded by verifier: <reason>]` suffix.
+- **Dismissal memory** is `.opendrs/facts.jsonl`, read from the **base** commit like
+  `.opendrs/incidents.jsonl` (a PR cannot dismiss its own facts), written by
+  `opendrs feedback --fact <factId> --verdict wrong|useful|intentional|ignored [--note]`. The key is
+  `sha256(id + "\0" + file + "\0" + normalizedText)` where `normalizedText` replaces every digit run
+  with `#` and collapses whitespace (so "14 of 17 commits" and "15 of 18 commits" match). `wrong`,
+  `intentional` and `ignored` downgrade the fact without an LLM call (`[downgraded: dismissed earlier
+  as <verdict>]`); `useful` pins it — a verifier `drop` or `downgrade` on a pinned fact is turned into
+  `keep`.
+- **Fail open.** Any verifier error (provider, parse, schema, token cap) leaves every candidate
+  `[unverified]` and adds one note, `verifier failed: <reason>; everything below is unverified`.
+  Nothing is dropped or downgraded on an error.
+- **Rescoring metadata.** The brief records `verification.model` and `verification.promptHash`
+  (first 12 hex of sha256 over the system prompt and the output schema) plus token usage; the
+  precision study records them beside its numbers, the way `results-llm.md` does for the judge.
+- **Per-PR token cap.** `llm.verify.maxTokens` (default 40 000) bounds the estimated prompt size
+  (`src/brief/budget.ts`'s chars ÷ 3.5); a larger prompt skips the call and fails open with the note
+  `verifier skipped: prompt of N tokens exceeds llm.verify.maxTokens (40000)`.
+
 ## 5. Risks
 
 - **Phase 1's agent-replay cost is a genuine unknown** until the 5-PR pilot runs; §2.5 prices a

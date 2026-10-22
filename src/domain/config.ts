@@ -310,6 +310,14 @@ export const configSchema = z.object({
       /** Auto-approve only when the judge calls every hunk it saw safe, with at least minConfidence. */
       requireSafe: z.boolean().default(false),
       minConfidence: z.number().int().min(0).max(10).default(8),
+      /** Phase 2: a second, batched LLM call that verifies the brief's facts, hunks and checks (verification spec §3). */
+      verify: z
+        .object({
+          enabled: z.boolean().default(false),
+          /** Estimated prompt tokens (chars / 3.5) above which the call is skipped and the brief fails open. */
+          maxTokens: z.number().int().positive().default(40_000),
+        })
+        .prefault({}),
     })
     .prefault({}),
   history: z

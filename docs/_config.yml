@@ -55,6 +55,8 @@ nav:
       url: /llm-judge.html
     - title: LLM reviewers
       url: /llm-reviewers.html
+    - title: Verification pass
+      url: /verification.html
     - title: Calibration
       url: /calibration.html
     - title: Results

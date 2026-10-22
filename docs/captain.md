@@ -146,6 +146,15 @@ one of them:
 > `session.ts` changed with `auth.ts` in 14 of 17 commits (last 365 days); this PR changes only
 > `auth.ts`.
 
+Three deterministic noise classes, found by reading the field test's 18 fires (spec §3.8), are
+filtered or downgraded in the detector itself rather than left for a reviewer to dismiss: a
+**retired file** (the firing file is deleted in this PR) never fires at all, since a file going
+away has no partner left to update; a **partner lacking the subject** (every hunk of the firing
+file removes lines, and no identifier from those removed lines occurs in the partner's base text)
+downgrades to `info`; and a **test fired on its source** (the firing file matches `paths.tests`,
+its partner does not) also downgrades to `info`, since a test changing alone is a test-only change,
+not a forgotten co-change.
+
 ### `drift.scope` — what the PR grew into after opendrs first scored it
 
 Runs in the Action only. Compares the files and churn opendrs saw on its first run against the
@@ -170,6 +179,12 @@ A quick confirm with no facts is one line and no block: `**Captain: quick confir
 "why" after the priority is the first two facts, shortened to their first clause. The full list of
 facts (not capped at five) is also in the "For the captain" section of the brief for AI reviewers,
 and in the `captain` Action output described below.
+
+With the [verification pass](verification.html) on, each fact in the comment and in the brief ends
+with its verdict (`[verified · new]`, `[verified · pre-existing]`, `[downgraded by verifier: …]`,
+`[unverified]`), a dropped fact becomes a `dropped by verifier` note in the brief, and the "why"
+and the five facts come from the verified list. The priority does not: it is computed before the
+pass runs and never changed by it.
 
 ## 6. Labels and the Action output
 

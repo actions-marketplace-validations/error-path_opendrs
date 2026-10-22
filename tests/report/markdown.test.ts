@@ -352,6 +352,12 @@ describe("renderMarkdown captain line and block", () => {
     expect(md).toContain("**For the captain**\n- fact 0\n- fact 1\n- fact 2\n- fact 3\n- fact 4\n- +1 more in the brief below\n");
   });
 
+  it("renders each fact through factLine, so a verifier suffix reaches the PR comment", () => {
+    const facts = [{ id: "layers.edge" as const, weight: "strong" as const, file: "src/f.ts", text: "fact 0", verification: { action: "keep" as const, status: "pre_existing" as const, reason: "r", source: "verifier" as const } }];
+    const md = renderMarkdown(result({ brief: { ...brief(), captain: { priority: "careful", why: ["fact 0"], facts, notes: [] } } }));
+    expect(md).toContain("**For the captain**\n- fact 0 [verified · pre-existing]\n");
+  });
+
   it("shows the line with no block when standard has no facts, and omits @login and why when absent", () => {
     const md = renderMarkdown(result({ brief: { ...brief(), captain: { priority: "standard", why: [], facts: [], notes: [] } } }));
     expect(md).toContain("**Captain: standard review**\n");

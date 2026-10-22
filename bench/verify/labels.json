@@ -1,0 +1,264 @@
+{
+  "$schema": "informal — see bench/verify/README.md",
+  "meta": {
+    "sources": [
+      "docs/research/2026-10-19-field-test.md",
+      "~/.cache/opendrs/field-test/notes/black.md",
+      "~/.cache/opendrs/field-test/notes/cli-cli.md",
+      "~/.cache/opendrs/field-test/notes/actix-web.md",
+      "~/.cache/opendrs/field-test/notes/vite.md",
+      "~/.cache/opendrs/field-test/notes/fastlane.md",
+      "~/.cache/opendrs/field-test/notes/vapor.md",
+      "~/.cache/opendrs/field-test/notes/raw/*.json (fastlane only; the other five repos have no raw JSON dump, only prose notes)"
+    ],
+    "opendrsVersionUnderTest": "0.4.0",
+    "factIdFormat": "src/brief/selfcheck.ts factId(fact) = `${fact.id}:${fact.file}${fact.line===undefined?'':':'+fact.line}`. This file stores `id` (the detector id, e.g. \"coupling.missing\") and `file`/`line` separately; bench/verify/run.ts must compose factId itself the same way selfcheck.ts does, to match a labelled fact against scoreDiff's live output.",
+    "expectedTotals": {
+      "source": "docs/research/2026-10-19-field-test.md, \"Captain-fact quality, by fact type\" table",
+      "trueUseful": 15,
+      "noise": 21,
+      "noiseBreakdown": { "coupling.missing": 18, "contract.api": 2, "layers.edge": 1 },
+      "wrong": 2
+    },
+    "tracedTotals": {
+      "note": "Counts of labelled fact instances actually recovered from the six session notes (+ fastlane's raw JSON) below.",
+      "trueUseful": 14,
+      "noise": 21,
+      "wrong": 2,
+      "unclassified": 1
+    },
+    "discrepancy": "contract.env: the research note's fact-type table says \"Fired 2, True+useful 2\", but only ONE contract.env fire is traceable in the six notes and in fastlane's raw JSON dump (notes/raw/env-30112.brief.json has exactly one contract.env fact). No second contract.env fire is named or quoted anywhere in the available material — grepped all six .md notes and all fastlane raw/*.brief.json files for 'contract.env' / env-var language and found nothing beyond env-30112. This is the ONLY unresolved gap: every other fact-type row (contract.api 10/8/2/0, contract.dependency 7/5/0/2, layers.edge 1/0/1/0, coupling.missing 18/0/18/0) reconciles exactly against what the six notes describe, including the black 1ed66a8 PR's known 'unreconciled' 4th fact (see that PR's facts below, label 'unclassified'). Flagged for the lead rather than guessed at; do not fabricate a second contract.env fact to force the total to 15 true-useful.",
+    "setupQuirks": {
+      "fastlane": "Ran with history.maxCommits: 1500 and history.lookbackDays: 90 set locally, and a FULL (non-shallow, non-blobless) clone. Default config (history.maxCommits: 20000) crashed outright on every PR before tuning: opendrs's git() wrapper has a fixed 120s per-invocation timeout with no --max-commits/--since override on brief/score, and a raw `git log -n20000 --name-status -M` took 7m47s wall-clock (1.78s user + 2.92s system CPU) on the contended field-test host. A bench run against fastlane MUST set these two config keys (or run.ts hard-codes them for the fastlane repo entry) and must NOT use a blobless/--filter=blob:none clone — the note explicitly says this makes fastlane's raw SCORE numbers (not its fact/detector findings) non-comparable to the other five repos.",
+      "cli-cli": "cli/cli's history rarely carries a GitHub PR number on trunk (only 9 of 276 sampled commits do). 3 of its 8 rows are commit-range stand-ins picked via `git log --shortstat` rather than real PRs (091c24d70, 62a6e9e05, and the third is PR-backed per the note's own table — re-check: the note's table shows all 8 rows with PR# except 091c24d70 and 62a6e9e05 marked 'n/a*'; the note's header text says '3 of its 8 rows are commit-range stand-ins' but only 2 are visibly marked n/a in the per-PR table — this is itself an unreconciled count inside the source note, flagged here rather than silently resolved). base=sha~1, head=sha for every row regardless.",
+      "otherFive": "black, actix-web, vite and vapor ran default opendrs config on `--filter=blob:none` (blobless) clones. cli-cli was also blobless but needed one retry on its first `score` call (a benign git auto-packing message was misread as a fatal error by the 120s-timeout git wrapper)."
+    },
+    "knownCaveats": [
+      "ArchitectureFact (src/domain/types.ts) carries only {id, weight, file, line?, text} — no partner file, no per-fact index. Several coupling.missing facts that fire on the SAME file (e.g. vite 77d837351's 10 facts, all on the renovate-bumped template's package.json) therefore share one identical factId. This labels file lists each field-test-counted instance separately (with a `partner` field where the note names one) for traceability, but bench/verify/run.ts and the lead's recall/precision scoring MUST decide how to count a collapsed factId against several distinct labelled instances — recommend treating a collapsed id as satisfied if ANY of its labelled instances' expected action is produced, and flagging the collapse itself as a product gap, not working around it silently.",
+      "black's own PR 1ed66a8 is credited with 4 facts in its per-PR table but the note's per-fact judgment section only individually discusses 3 (two contract.api, one coupling.missing) — the note says explicitly it does not know what the 4th fact was (docs/research/2026-10-19-field-test.md, 'What could not be reconciled'). Recorded below with label \"unclassified\" so the per-PR fact count (4) still reconciles; excluded from recall/precision targets.",
+      "Several `file` values below are best-reading inferences, not values quoted verbatim in the note (the notes describe facts in prose, not raw JSON, except for fastlane which has notes/raw/*.json). Each such entry has `ambiguous: true` and a `note` explaining the inference.",
+      "Line numbers are included only where the note states them verbatim (actix-web gives explicit file:line for 2 facts; fastlane's raw JSON gives exact file:line for both of its facts). Everywhere else `line` is omitted, not guessed."
+    ]
+  },
+  "repos": [
+    {
+      "repo": "psf/black",
+      "slug": "black",
+      "language": "Python",
+      "head": "56a7ee682ada03e086f62d66ac01b752fbda21db",
+      "cloneMode": "blobless (--filter=blob:none)",
+      "config": "default (.opendrs defaults; no .opendrs.yml in repo)",
+      "prs": [
+        { "pr": 5552, "slug": "docs-tiny", "base": "56a7ee682ada03e086f62d66ac01b752fbda21db~1", "head": "56a7ee682ada03e086f62d66ac01b752fbda21db", "facts": [] },
+        { "pr": 5477, "slug": "crash-fix", "base": "a3cb9e1~1", "head": "a3cb9e1", "facts": [] },
+        { "pr": 5504, "slug": "pep695-fix", "base": "c45f21d~1", "head": "c45f21d", "facts": [] },
+        {
+          "pr": 5433, "slug": "cache-dir", "base": "1ed66a8~1", "head": "1ed66a8",
+          "note": "Per-PR table credits this PR with 4 facts; only 3 are individually judged in the note (2 contract.api, 1 coupling.missing); the 4th is unaccounted ('What could not be reconciled').",
+          "facts": [
+            { "id": "contract.api", "file": "src/black/cache.py", "label": "true-useful", "ambiguous": true, "note": "Both get_cache_dir and get_cache_file gained a new cache_dir parameter with updated call sites; TRUE+USEFUL per the note. File inferred as src/black/cache.py from the PR's own subject (--cache-dir option) and from the confirmed sibling file src/black/concurrency.py used for the other 8b9d3e3 fact below; the note never quotes this fact's file path verbatim." },
+            { "id": "contract.api", "file": "src/blib2to3/pygram.py", "label": "true-useful", "ambiguous": true, "note": "pygram.initialize's signature changed to accept cache_dir; a cross-module call from src/black into src/blib2to3's global token cache. TRUE+USEFUL. File inferred (pygram.py is blib2to3's grammar/token module); not quoted verbatim in the note." },
+            { "id": "coupling.missing", "file": "mode.py", "partner": "black.schema.json", "label": "noise", "note": "mode.py and black.schema.json co-change 19/20 times historically; --cache-dir is a path option with no Mode field, so skipping mode.py is correct for this PR. Detector cannot distinguish 'this option type doesn't need a Mode field' from 'forgot to update Mode'. Candidate for spec §3.8 class D (added subject has no counterpart) — needs the LLM verifier, not a deterministic detector fix." },
+            { "id": "unclassified", "file": null, "label": "unclassified", "ambiguous": true, "note": "4th fact the per-PR table counts but the note's per-fact judgment section never names or discusses. Excluded from recall/precision targets; kept only so this PR's fact count (4) reconciles with the per-PR table." }
+          ]
+        },
+        {
+          "pr": 5296, "slug": "release-refactor", "base": "d078e8e~1", "head": "d078e8e",
+          "note": "Wholesale replacement of the release pipeline: post_release.yml and publish_binaries.yml deleted outright, decoupling their historical co-change partners. Spec §3.8 class A (retired file) — the firing files are deleted in this PR, so classes A fixes this at the detector, not the verifier.",
+          "facts": [
+            { "id": "coupling.missing", "file": ".github/workflows/post_release.yml", "partner": ".github/workflows/diff_shades.yml", "label": "noise", "ambiguous": true, "note": "One of 5 coupling.missing facts on this PR's deleted workflow files; exact partner-to-file pairing for each of the 5 is not individually enumerated in the note beyond 'post_release.yml and publish_binaries.yml ... their historical co-change partners (diff_shades*.yml, fuzz.yml)'. Class A (retired file)." },
+            { "id": "coupling.missing", "file": ".github/workflows/post_release.yml", "partner": ".github/workflows/diff_shades_slow.yml", "label": "noise", "ambiguous": true, "note": "Second of 5; see sibling entries' note. Class A." },
+            { "id": "coupling.missing", "file": ".github/workflows/post_release.yml", "partner": ".github/workflows/fuzz.yml", "label": "noise", "ambiguous": true, "note": "Third of 5; see sibling entries' note. Class A." },
+            { "id": "coupling.missing", "file": ".github/workflows/publish_binaries.yml", "partner": ".github/workflows/diff_shades.yml", "label": "noise", "ambiguous": true, "note": "Fourth of 5; see sibling entries' note. Class A." },
+            { "id": "coupling.missing", "file": ".github/workflows/publish_binaries.yml", "partner": ".github/workflows/fuzz.yml", "label": "noise", "ambiguous": true, "note": "Fifth of 5; see sibling entries' note. Class A." }
+          ]
+        },
+        {
+          "pr": 4996, "slug": "winloop-dep", "base": "8b9d3e3~1", "head": "8b9d3e3",
+          "note": "Headline miss (not a labelled fact): the PR's real new optional dependency `winloop>=0.5.0; sys_platform == 'win32'` is never reported, crowded out by the two WRONG facts below (PEP 508 marker parser desyncs on nested quotes).",
+          "facts": [
+            { "id": "contract.api", "file": "src/black/concurrency.py", "line": 30, "label": "true-useful", "note": "Real rename+signature change: maybe_install_uvloop() -> None becomes maybe_use_uvloop() -> asyncio.AbstractEventLoop; both call sites (black/__init__.py, blackd/__init__.py) updated correctly. Line 30 and file confirmed from the note's Top Issue #3 example of the truncated 'why' line for this exact fact." },
+            { "id": "contract.dependency", "file": "pyproject.toml", "label": "wrong", "note": "Reported as 'New development dependency `,`'. The comma is not a dependency name — a parser bug (quotedStrings regex alternates quote delimiters without regard to which one opened the TOML string, desyncing on the nested single-quoted PEP 508 marker inside a double-quoted array entry)." },
+            { "id": "contract.dependency", "file": "pyproject.toml", "label": "wrong", "note": "Reported as 'New development dependency `win32`'. win32 is a PEP 508 environment-marker value (sys_platform == 'win32'), not a package name; same parser bug as the `,` fact above. Both facts come from the same desynced parse of one array." }
+          ]
+        },
+        {
+          "pr": 4805, "slug": "t-string-support", "base": "f705197~1", "head": "f705197",
+          "facts": [
+            { "id": "contract.api", "file": "src/black/linegen.py", "label": "true-useful", "ambiguous": true, "note": "Real rename fstring_to_string -> fstring_tstring_to_string with a widened docstring; 9 importing files correctly listed, same-file call site updated. File inferred (linegen.py handles Black's line/string generation); not quoted verbatim." }
+          ]
+        },
+        {
+          "pr": 5475, "slug": "perf-fix", "base": "27c6fd0~1", "head": "27c6fd0",
+          "facts": [
+            { "id": "coupling.missing", "file": "tests/test_black.py", "partner": "src/black/__init__.py", "label": "noise", "note": "tests/test_black.py changed without src/black/__init__.py; this PR is a focused perf fix inside linegen.py with a regression test, so not touching __init__.py is expected. Spec §3.8 class C (test fired on its source) — the firing file matches paths.tests and the partner does not." }
+          ]
+        }
+      ]
+    },
+    {
+      "repo": "cli/cli",
+      "slug": "cli-cli",
+      "language": "Go",
+      "head": "5b0cc54248a3d069b96147188d13cd2f1e976176",
+      "cloneMode": "blobless (--filter=blob:none)",
+      "config": "default",
+      "note": "All 8 runs produced ZERO captain facts (confirmed structural Go import-graph bug: a duplicate go.mod path under .github/codeql/tests/... resolves against the wrong module for ~1039 Go files, zeroing contract.api/layers.edge/blast.* repo-wide). Nothing to label here; every judgment in the note is a MISS, not a graded fact. commitRangeStandins are base=sha~1, head=sha, picked via `git log --shortstat` per task instructions because trunk rarely carries a PR number in the subject.",
+      "prs": [
+        { "pr": 14751, "slug": "codeql-bump", "base": "5b0cc5424~1", "head": "5b0cc5424", "facts": [] },
+        { "pr": 14620, "slug": "avoid-spawn-git", "base": "a45729e87~1", "head": "a45729e87", "facts": [], "note": "Confirmed MISS (not a fire): exported IsOfficial signature change with a live caller; contract.api did not fire (graph bug)." },
+        { "pr": 14631, "slug": "bump-go-script", "base": "b637d4c55~1", "head": "b637d4c55", "facts": [] },
+        { "pr": 14438, "slug": "agents-md-auth", "base": "4595165df~1", "head": "4595165df", "facts": [] },
+        { "pr": 14430, "slug": "retire-multi-account", "base": "ba51bb477~1", "head": "ba51bb477", "facts": [], "note": "Confirmed MISS (not a fire): exported MultiAccount renamed and its only call site deleted; contract.api did not fire (graph bug)." },
+        { "pr": 14578, "slug": "extension-bubbletea", "base": "2c7ec97fd~1", "head": "2c7ec97fd", "facts": [], "note": "Confirmed MISS (not a fire): go.mod promotes charmbracelet/x/ansi indirect->direct and drops 3 libraries; contract.dependency did not fire (indirect/direct not distinguished)." },
+        { "pr": null, "slug": "telemetry-counts", "isCommitRangeStandin": true, "base": "091c24d70~1", "head": "091c24d70", "facts": [] },
+        { "pr": null, "slug": "raw-response-surface", "isCommitRangeStandin": true, "base": "62a6e9e05~1", "head": "62a6e9e05", "facts": [] }
+      ]
+    },
+    {
+      "repo": "actix/actix-web",
+      "slug": "actix-web",
+      "language": "Rust",
+      "head": "2db7119a990511e90e234d8ba118234b51bce68a",
+      "cloneMode": "blobless (--filter=blob:none)",
+      "config": "default",
+      "prs": [
+        { "pr": 4313, "slug": "docs-sponsor-banner", "base": "dbd91da7~1", "head": "dbd91da7", "facts": [] },
+        { "pr": 4319, "slug": "brotli-bump", "base": "efa9c213~1", "head": "efa9c213", "facts": [], "note": "No fact by design (version bump on existing name); judged a 'MISS by design' for not distinguishing a major (8->9) bump from a patch bump — not a graded fact instance." },
+        { "pr": 4335, "slug": "windows-etag-fix", "base": "8487ab79~1", "head": "8487ab79", "facts": [], "note": "Confirmed MISS (not a fire): new winapi-util dependency under [target.'cfg(windows)'.dependencies] is unparsed by contract.dependency." },
+        {
+          "pr": 4312, "slug": "testrequest-leak-fix", "base": "5c7b0554~1", "head": "5c7b0554",
+          "facts": [
+            { "id": "contract.api", "file": "actix-web/src/app_service.rs", "label": "true-useful", "note": "\"Adds 1 exported declaration to actix-web/src/app_service.rs (new_without_pool)\" — real new internal surface (4 dependent files), brief's Check-specifically line asks the right question. Minor terminology nit the note flags: the function is pub(crate), not crate-external public API; the brief calls it 'exported' without qualifying. Line not given verbatim in the note." }
+          ]
+        },
+        { "pr": 4213, "slug": "h2-optional-feature", "base": "7a3ef12d~1", "head": "7a3ef12d", "facts": [], "note": "Confirmed MISS (not a fire): decouples http2 Cargo feature from TLS features (public feature-flag contract break); no [features]-table signal exists." },
+        {
+          "pr": 4198, "slug": "remove-io-uring", "base": "3bb00075~1", "head": "3bb00075",
+          "facts": [
+            { "id": "contract.api", "file": "actix-files/src/named.rs", "line": 258, "label": "true-useful", "note": "\"Removes or changes exported open_async (actix-files/src/named.rs:258), imported by 4 files.\" Matches the CHANGES.md entry exactly." },
+            { "id": "coupling.missing", "file": ".github/workflows/ci.yml", "partner": ".github/workflows/ci-post-merge.yml", "label": "noise", "note": "ci-post-merge.yml changed with ci.yml in 54 of 64 commits (365-day lookback); this PR changes only ci.yml. Well-evidenced (84% co-change) but judged noise for this specific PR (the io-uring feature-matrix entry removal is intentionally decoupled from the post-merge workflow)." }
+          ]
+        },
+        {
+          "pr": 4192, "slug": "centralize-test-service", "base": "b079ae1e~1", "head": "b079ae1e",
+          "facts": [
+            { "id": "contract.api", "file": "actix-http/src/test/mod.rs", "label": "noise", "note": "\"Adds 2 exported declarations to actix-http/src/test/mod.rs\" — technically true but low-value: these are #[cfg(test)]-reachable test helpers, not real public API. Re-ran at captain.moduleDepth: 3 and got an identical brief (this PR doesn't exercise the moduleDepth gap)." }
+          ]
+        },
+        {
+          "pr": 4039, "slug": "filesdirs-multi-root", "base": "1aa74f42~1", "head": "1aa74f42",
+          "facts": [
+            { "id": "contract.api", "file": "actix-files/src/files.rs", "line": 107, "label": "true-useful", "note": "\"Removes or changes exported new (actix-files/src/files.rs:107), imported by 1 file.\" Correctly catches a genuine generic-bound change (pub fn new<T: Into<PathBuf>>(...) -> pub fn new<T: Into<FilesDirs>>(...)), verified directly against the diff." }
+          ]
+        }
+      ]
+    },
+    {
+      "repo": "vitejs/vite",
+      "slug": "vite",
+      "language": "TypeScript",
+      "head": "467f7ac3b8c7cca0b33290e7fd86f3fc79ce92cb",
+      "cloneMode": "blobless (--filter=blob:none)",
+      "config": "default",
+      "prs": [
+        { "pr": 23718, "slug": "docs-only", "base": "a6d310e42~1", "head": "a6d310e42", "facts": [] },
+        {
+          "pr": 23826, "slug": "renovate-oxlint-bump", "base": "77d837351~1", "head": "77d837351",
+          "note": "10 near-identical coupling.missing facts, all firing because the renovate bump touched template-react-ts/package.json's oxlint devDependency and 10 sibling create-vite templates historically co-change with it but don't carry oxlint at all. Spec §3.8 class B (partner lacks the subject). The note gives only one example pairing by name (template-svelte); the other 9 sibling templates are not individually named, so each entry below beyond the first is ambiguous on its exact partner. IMPORTANT: all 10 share the same firing file, hence the same factId under src/brief/selfcheck.ts's scheme (id+file, no partner/index) — see meta.knownCaveats.",
+          "facts": [
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "packages/create-vite/template-svelte/package.json", "label": "noise", "ambiguous": true, "note": "Only pairing named explicitly in the note; file path depth is a best reading, not quoted verbatim. 1 of 10." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #2", "label": "noise", "ambiguous": true, "note": "2 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #3", "label": "noise", "ambiguous": true, "note": "3 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #4", "label": "noise", "ambiguous": true, "note": "4 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #5", "label": "noise", "ambiguous": true, "note": "5 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #6", "label": "noise", "ambiguous": true, "note": "6 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #7", "label": "noise", "ambiguous": true, "note": "7 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #8", "label": "noise", "ambiguous": true, "note": "8 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #9", "label": "noise", "ambiguous": true, "note": "9 of 10; partner not individually named in the note." },
+            { "id": "coupling.missing", "file": "packages/create-vite/template-react-ts/package.json", "partner": "unknown sibling template #10", "label": "noise", "ambiguous": true, "note": "10 of 10; partner not individually named in the note." }
+          ]
+        },
+        {
+          "pr": 23744, "slug": "std-env-swap", "base": "ce4293f15~1", "head": "ce4293f15",
+          "note": "MISS (not a labelled fact, for context only): the PR also REMOVES @vercel/detect-agent from both manifests; opendrs has no 'removed dependency' fact, so only the additions below are reported.",
+          "facts": [
+            { "id": "contract.dependency", "file": "packages/create-vite/package.json", "label": "true-useful", "ambiguous": true, "note": "\"New development dependency std-env\" — true per the manifest. File is a best reading (\"create-vite ... manifest\" per the note); not quoted verbatim." },
+            { "id": "contract.dependency", "file": "packages/vite/package.json", "label": "true-useful", "ambiguous": true, "note": "\"New development dependency std-env\" (second manifest, \"vite ... manifest\"). Note separately flags this is filed as devDependency but statically imported from shipped runtime code (packages/vite/src/node/server/index.ts) — a mis-filed-severity MISS, not part of this fact's own TRUE+USEFUL grading." }
+          ]
+        },
+        {
+          "pr": 23643, "slug": "static-alias-bugfix", "base": "b28db28e9~1", "head": "b28db28e9",
+          "facts": [
+            { "id": "contract.api", "file": "packages/vite/src/node/static.ts", "label": "true-useful", "ambiguous": true, "note": "\"Adds 1 exported declaration to static.ts (applyStaticAlias)\" — genuinely true, a pure 14-line inline loop became a new exported top-level function; the fix (pathname.startsWith(find) -> pathname === find || pathname.startsWith(`${find}/`)) matches the PR title. 6 dependents correctly listed. Full path under packages/vite/src/node/ is a best reading; the note gives only the bare filename static.ts." }
+          ]
+        },
+        { "pr": 23674, "slug": "node-client-coupling-refactor", "base": "182f5b2a6~1", "head": "182f5b2a6", "facts": [], "note": "0 facts; confirmed real MISS for layers.edge (node<->client coupling via a generated JS code string, not a literal import) tested directly at both moduleDepth 2 and 4, identical null result both times." },
+        {
+          "pr": 23463, "slug": "accept-exports-hmr-api", "base": "bc0f21c56~1", "head": "bc0f21c56",
+          "note": "MISS (not a labelled fact, for context): the PR's real public-contract change — HotCallback.exports field addition in packages/vite/src/shared/hmr.ts — never became a fact; only a hunk-level note.",
+          "facts": [
+            { "id": "contract.dependency", "file": "playground/test-utils.ts", "label": "true-useful", "ambiguous": true, "note": "\"New development dependency tinyglobby\" — true, playground-only fixture dependency, correctly info-weight in spirit per the note. File inferred from context (the manifest backing the playground fixtures); not quoted verbatim — could instead be a playground package.json rather than test-utils.ts itself." },
+            { "id": "contract.api", "file": "playground/test-utils.ts", "label": "noise", "note": "\"Adds 2 exported declarations to playground/test-utils.ts\" — true but a test helper, not the PR's actual public surface (that's the HotCallback.exports field addition, which never became a fact at all — see MISS note above)." }
+          ]
+        },
+        {
+          "pr": 23746, "slug": "oxlint-migration", "base": "5b7393588~1", "head": "5b7393588",
+          "facts": [
+            { "id": "contract.dependency", "file": "package.json", "label": "true-useful", "ambiguous": true, "note": "\"New development dependency oxlint\" — true, correctly the only captain facts surfaced for this 21-file refactor. File is the repo-root or packages/vite manifest; not quoted verbatim." },
+            { "id": "contract.dependency", "file": "package.json", "label": "true-useful", "ambiguous": true, "note": "\"New development dependency oxlint-tsgolint\" — true, paired with the oxlint fact above, same ambiguity on exact manifest path." }
+          ]
+        },
+        { "pr": 23788, "slug": "playground-test-only", "base": "df7503cc4~1", "head": "df7503cc4", "facts": [] }
+      ]
+    },
+    {
+      "repo": "fastlane/fastlane",
+      "slug": "fastlane",
+      "language": "Ruby",
+      "head": "e3ef1469e786892bc8c9d2773ae342d858c8567e",
+      "cloneMode": "full (non-shallow, non-blobless) — REQUIRED, default config crashes (see meta.setupQuirks.fastlane)",
+      "config": { "history.maxCommits": 1500, "history.lookbackDays": 90, "note": "REQUIRED local override; default history.maxCommits: 20000 crashed outright on every PR (120s git timeout) before this was set." },
+      "prs": [
+        { "pr": 30414, "slug": "docs-30414", "base": "7e4d5800d9", "head": "541ee0387e", "facts": [] },
+        { "pr": 30062, "slug": "gemspec-30062", "base": "e979ad40db", "head": "4a6c792778", "facts": [], "note": "Confirmed MISS (not a fire): spec.add_dependency('multi_json', ...) added to fastlane.gemspec; no .gemspec parser exists in contract.dependency's ManifestKind union." },
+        { "pr": 30380, "slug": "sigh-30380", "base": "ce16a0bdb4", "head": "7d33787549", "facts": [], "note": "A real symlink-escape security fix (sigh/lib/assets/resign.sh) with 63 lines of new RSpec coverage scored green/quick/auto-approve — 0 facts, no miss-worthy signal was expected to fire here either (not a graded fact, a priority/paths.critical finding)." },
+        { "pr": 30375, "slug": "crosstool-30375", "base": "6f1ae180cf", "head": "ce16a0bdb4", "facts": [] },
+        {
+          "pr": 30025, "slug": "newaction-30025", "base": "c30e449d26", "head": "3f73c2197a",
+          "facts": [
+            { "id": "layers.edge", "file": "fastlane/spec/update_app_age_rating_spec.rb", "line": 4, "label": "noise", "note": "\"fastlane/spec now imports fastlane/lib for the first time (fastlane/spec/update_app_age_rating_spec.rb:4)\" — textually true (confirmed via raw JSON notes/raw/newaction-30025.brief.json) but about the most benign edge a layers detector can report: a spec file require_relative-ing the file it tests. Root cause: fastlane/spec is never classified as a test path (paths.tests default globs don't match RSpec's *_spec.rb/spec/ convention), so layers.edge's own test-file exclusion never engages for it. Sole reason this PR's captain priority was 'careful review'." }
+          ]
+        },
+        { "pr": 30411, "slug": "refactor-30411", "base": "d833cfa9e6", "head": "108b74c222", "facts": [], "note": "Confirmed MISS (not a fire): deletes 4 dead public classes (FastlaneCore::TransporterInputError, TransporterTransferError, Produce::AvailableDefaultLanguages, Supply::ApkListing); contract.api cannot fire for Ruby at all (ruby: () => false stub)." },
+        {
+          "pr": 30112, "slug": "env-30112", "base": "3a4fc36716", "head": "406bd9f108",
+          "facts": [
+            { "id": "contract.env", "file": "fastlane_core/spec/project_spec.rb", "line": 657, "label": "true-useful", "note": "\"Reads a new environment variable FASTLANE_DISALLOW_XCODEBUILD_SETTINGS_LOOKUP (fastlane_core/spec/project_spec.rb:657)\" — confirmed via raw JSON (notes/raw/env-30112.brief.json): FastlaneCore::Env.truthy?(\"FASTLANE_DISALLOW_XCODEBUILD_SETTINGS_LOOKUP\") is new in fastlane_core/lib/fastlane_core/project.rb and absent at base. TRUE+USEFUL. Minor nit the note flags: cites the spec file's line (where the string also appears in a test), not the production line in project.rb that actually reads it." }
+          ]
+        },
+        { "pr": 27547, "slug": "crosstool2-27547", "base": "fed162d0ee", "head": "f90a990d96", "facts": [], "note": "Confirmed MISS (not a fire): Spaceship::ConnectAPI::Profile.create public method signature changed with a live caller; contract.api cannot fire for Ruby at all (same stub)." }
+      ]
+    },
+    {
+      "repo": "vapor/vapor",
+      "slug": "vapor",
+      "language": "Swift",
+      "head": "3966c26927d27a7b950229375820fd084e1897f6",
+      "cloneMode": "blobless (--filter=blob:none)",
+      "config": "default",
+      "note": "All 9 briefs (one more than the nominal 8; the note does not explain the extra PR) produced ZERO captain facts. Swift has no import extractor and no isPublicDeclaration rule in opendrs 0.4.0, so contract.api/layers.edge/blast.* are structurally unreachable; contract.dependency misses Package.swift entirely; contract.env has no Swift pattern. Nothing to label as a graded fact — every judgment in the note is a MISS or a wrong tests.missing/tests.deleted signal (not a captain fact, out of this labels file's scope per the task: it covers captain facts the verifier pools, not tests.missing/tests.deleted which are score/gate signals).",
+      "prs": [
+        { "pr": 3605, "slug": "readme-sponsor", "base": "88754c79b", "head": "cb172cac4", "facts": [] },
+        { "pr": 3604, "slug": "contributing-md", "base": "cb172cac4", "head": "317eef152", "facts": [] },
+        { "pr": 3603, "slug": "pin-tracing", "base": "efbf8e203", "head": "896d8d07c", "facts": [] },
+        { "pr": 3547, "slug": "tls-empty-cert-chain", "base": "9c36ba3a6", "head": "44b5704e3", "facts": [] },
+        { "pr": 3570, "slug": "http3-support", "base": "317eef152", "head": "860b71298", "facts": [], "note": "Confirmed MISS (not a fire): adds 2 new runtime deps (swift-nio-http3, swift-nio-quic) via Package.swift, unparsed; also a new public HTTP3 configuration surface, unreachable without a Swift public-decl rule + import graph." },
+        { "pr": 3593, "slug": "remove-dotenv", "base": "930bb9b4d", "head": "2067b1e47", "facts": [], "note": "Confirmed MISS (not a fire): removes public API (Process, 2 subscripts, secret(), get()), a Package.swift dependency, and an Environment.get env-var read — all three fact types blind for Swift." },
+        { "pr": 3552, "slug": "request-overhaul", "base": "219223d75", "head": "55f9f01d9", "facts": [], "note": "Confirmed MISS (not a fire): public final class Request -> public struct Request, a source- and ABI-breaking change; contract.api cannot fire for Swift." },
+        { "pr": 3592, "slug": "test-cancellation-tweak", "base": "3fe848c28", "head": "930bb9b4d", "facts": [] },
+        { "pr": 3464, "slug": "middleware-macros", "base": "0a6c81b13", "head": "88754c79b", "facts": [], "note": "Confirmed MISS (not a fire): adds 5 new public macro declarations; contract.api cannot fire for Swift." }
+      ]
+    }
+  ]
+}

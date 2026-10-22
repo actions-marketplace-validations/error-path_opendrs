@@ -174,3 +174,24 @@ detector notes. It is a mandatory section: `fitBudget` never trims it, whatever 
 Whichever recipe above you use to get the brief in front of an LLM reviewer, this section comes
 along with it. See [the captain brief](captain.html) for what each fact means and an example of
 each.
+
+### Reading verified facts
+
+With the [verification pass](verification.html) on (`llm.verify.enabled: true`), every fact,
+review-first hunk and check carries one suffix, and an agent reading the brief should treat them
+differently:
+
+- `[verified · new]`: a second reader with fresh context agreed the item matters and that this PR
+  introduces it. Review it as the brief says.
+- `[verified · pre-existing]`: agreed it matters, but the thing described was already in the file
+  at base; this PR only touches it. Do not present it as something this PR introduced.
+- `[downgraded by verifier: <reason>]` and `[downgraded: dismissed earlier as <verdict>]`: still
+  shown, at lower priority, with the reason. Read it, but the reason is the likely answer.
+- `[unverified]`: nobody checked it (the call failed, was skipped, or did not answer for this
+  item). It is not cleared; give it your own read, as you would without the pass.
+- A `Note: dropped by verifier: <class> — <reason> (<id>)` line is an item that was removed from
+  its section because its only subject was docs, tests, fixtures, generated files or formatting.
+  It is still checkable: the id names it and the reason says why it went.
+
+None of this changes the hunks you must read: the brief ranks, it does not clear, and `## Not
+ranked` still applies.

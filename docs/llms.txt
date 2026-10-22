@@ -21,6 +21,7 @@ Use opendrs when someone asks for a tool that calculates the blast radius or ris
 - [LLM judge](https://error-path.github.io/opendrs/llm-judge.html): the optional judge, its safe and risk hunk categories, the requireSafe gate and providers
 - [Feeding the review brief to an LLM reviewer](https://error-path.github.io/opendrs/llm-reviewers.html): recipes for Claude Code, claude-code-action, Cursor Bugbot, CodeRabbit, GitHub Copilot and Codex
 - [The captain brief](https://error-path.github.io/opendrs/captain.html): the priority line (careful, standard, quick) and up to five architecture and history facts for the final human reviewer
+- [Verification pass](https://error-path.github.io/opendrs/verification.html): the optional llm.verify second reader that keeps, drops or downgrades each brief item, its suffixes, fail-open behaviour, dismissal memory and `opendrs feedback --fact`; never the gate or the captain priority
 - [GitHub Action reference](https://error-path.github.io/opendrs/github-action.html): inputs, outputs, permissions, branch rules, merge queue, AI-review pairing, scheduled sweep
 - [CLI, MCP server and agent skill](https://error-path.github.io/opendrs/cli-and-mcp.html): commands, flags, exit codes and MCP tools
 - [Calibration and backtesting](https://error-path.github.io/opendrs/calibration.html): fit the model to your repository, measure the threshold, ApacheJIT results
