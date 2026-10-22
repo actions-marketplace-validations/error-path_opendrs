@@ -168,6 +168,54 @@ export function reconcileActualSpend(budget: Budget, reservedCost: number, usage
 }
 
 // ---------------------------------------------------------------------------------------------
+// Fail-fast: the study must never mistake a provider outage for a measurement (see README.md's
+// "Prerequisites" and the ledger entry for the run that returned HTTP 400 on all 48 PRs for $0).
+// ---------------------------------------------------------------------------------------------
+
+export type ErrorClass = "fatal" | "transient";
+
+/**
+ * Classifies a provider error message (as thrown by src/llm/http.ts's `postJson`, e.g.
+ * `"Anthropic API request failed: HTTP 400: This API key is not scoped to a workspace..."`).
+ * 429 (rate limit), 5xx and timeouts/network failures are transient — worth a retry with
+ * backoff. Any other 4xx (400/401/403/404/...) is an account-level problem (bad key, wrong scope,
+ * no permission) that will not resolve itself on retry: fatal, abort before spending anything
+ * else on it.
+ */
+export function classifyProviderError(message: string): ErrorClass {
+  if (/HTTP 429/.test(message) || /HTTP 5\d\d/.test(message)) return "transient";
+  if (/HTTP 4\d\d/.test(message)) return "fatal";
+  return "transient"; // timeout or network-level failure ("request timed out", "request failed: fetch failed")
+}
+
+/** Exponential backoff for retrying a transient provider error: 1s, 2s, 4s, ..., capped at 10s. */
+export function backoffDelayMs(attempt: number, baseMs = 1_000, maxMs = 10_000): number {
+  return Math.min(maxMs, baseMs * 2 ** attempt);
+}
+
+export interface ValidityResult {
+  invalid: boolean;
+  failedCount: number;
+  scoredCount: number;
+  failedShare: number;
+}
+
+/**
+ * A run where the verifier's own fail-open contract ("any error fails open: nothing is dropped or
+ * downgraded, every candidate renders [unverified]", src/brief/verify.ts) triggered for most
+ * scored PRs reflects an outage, not a measurement — every unverified candidate keeps its action,
+ * so precision reads as near-zero regardless of the verifier's real behaviour. This is exactly
+ * what happened in the previous run (48 of 48 PRs, HTTP 400, $0 spent): the preflight check
+ * (run.ts) should catch that case before it ever reaches here, but this is the independent
+ * safety net — if most scored PRs show `verification.outcome === "failed"`, the run is INVALID
+ * and no decision rule is applied, no matter what evaluateDecisionRule would have said.
+ */
+export function checkStudyValidity(failedCount: number, scoredCount: number): ValidityResult {
+  const failedShare = scoredCount === 0 ? 1 : failedCount / scoredCount;
+  return { invalid: scoredCount === 0 || failedShare > 0.5, failedCount, scoredCount, failedShare };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Decision rule (spec §3.7, with the §3.8 amendment)
 // ---------------------------------------------------------------------------------------------
 

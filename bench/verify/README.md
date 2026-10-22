@@ -85,11 +85,32 @@ excluded from the project-wide `npx tsc --noEmit` by the root `tsconfig.json`'s
 `bench/**/run.ts` glob (the same exclusion `bench/apachejit/run.ts` already relies on) — it only
 type-checks once a build exists.
 
+## Preflight check (fail fast on account-level errors)
+
+Before cloning anything or building any of the (up to) 48 briefs, a real (non-`--dry-run`) run
+makes one cheap `provider.verify()` call to confirm the key actually works. This exists because a
+previous run's key returned Anthropic's `HTTP 400: This API key is not scoped to a workspace...`
+on every one of 48 PRs: `verifyBrief` (src/brief/verify.ts) correctly fails open on any error per
+candidate — nothing is dropped, every candidate renders `[unverified]` — so the run completed,
+spent $0, and reported a precision **FAIL** that was actually an outage with no real signal.
+
+The preflight call classifies its own error, if any (`lib.ts`'s `classifyProviderError`): 429/5xx/
+timeouts are transient and retried with backoff (up to 3 retries) within the budget; any other 4xx
+(400/401/403/404/...) is an account-level problem that will not resolve on retry and aborts the
+run immediately (exit code 4), before a single clone or brief is built.
+
+As a second, independent safety net, after the run `lib.ts`'s `checkStudyValidity` checks whether
+the verifier's fail-open path (`verification.outcome === "failed"`) triggered for most scored
+PRs — e.g. if the key stopped working mid-run. If so, `results.md`'s "Decision" section reports
+**INVALID**, not a precision FAIL, and no decision rule is applied (exit code 5).
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | Every labelled PR was scored (or, in `--dry-run`, baselined); `results.md` was written |
+| 0 | Every labelled PR was scored (or, in `--dry-run`, baselined); `results.md` was written; the decision rule was applied (or this was a dry run) |
 | 1 | At least one PR failed for a reason other than the budget cap (clone failure, a provider error, a `dist/` build that predates `llm.verify`) — see `results.md`'s "Skipped / aborted PRs" |
 | 2 | Bad flag, unknown `--model`, or a missing/invalid `~/.config/opendrs/bench.env` |
 | 3 | The run aborted partway through because the next PR's estimated cost would have crossed `--max-usd`; `results.md` reports partial numbers only |
+| 4 | The preflight check failed with an account-level error (or ran out of retries on a transient one); aborted before cloning anything or building any briefs — nothing was scored, `results.md` was not written |
+| 5 | The run completed but the verifier failed open for most scored PRs (an outage, not a measurement); `results.md` reports **INVALID**, no decision rule was applied |

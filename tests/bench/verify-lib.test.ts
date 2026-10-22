@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   actualCallCostUsd,
+  backoffDelayMs,
+  checkStudyValidity,
+  classifyProviderError,
   estimateCallCostUsd,
   evaluateDecisionRule,
   factId,
@@ -193,5 +196,67 @@ describe("evaluateDecisionRule (spec §3.7)", () => {
 
   it("precision is checked at exactly the 13/18 boundary", () => {
     expect(evaluateDecisionRule({ ...base, couplingNoiseHandled: 13, couplingNoiseTotal: 18 }).precisionPass).toBe(true);
+  });
+});
+
+describe("classifyProviderError", () => {
+  it("classifies the real failure from the previous run (HTTP 400, not scoped to a workspace) as fatal", () => {
+    expect(classifyProviderError("Anthropic API request failed: HTTP 400: This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header.")).toBe("fatal");
+  });
+
+  it("classifies other account-level 4xx errors (401, 403, 404) as fatal", () => {
+    expect(classifyProviderError("Anthropic API request failed: HTTP 401: invalid x-api-key")).toBe("fatal");
+    expect(classifyProviderError("Anthropic API request failed: HTTP 403: permission denied")).toBe("fatal");
+    expect(classifyProviderError("Anthropic API request failed: HTTP 404: not found")).toBe("fatal");
+  });
+
+  it("classifies 429 (rate limit) as transient", () => {
+    expect(classifyProviderError("Anthropic API request failed: HTTP 429: rate limited")).toBe("transient");
+  });
+
+  it("classifies 5xx as transient", () => {
+    expect(classifyProviderError("Anthropic API request failed: HTTP 503: overloaded")).toBe("transient");
+  });
+
+  it("classifies timeouts and network failures as transient", () => {
+    expect(classifyProviderError("Anthropic API request timed out after 60 s")).toBe("transient");
+    expect(classifyProviderError("Anthropic API request failed: fetch failed")).toBe("transient");
+  });
+});
+
+describe("backoffDelayMs", () => {
+  it("doubles each attempt starting at the base delay", () => {
+    expect(backoffDelayMs(0)).toBe(1000);
+    expect(backoffDelayMs(1)).toBe(2000);
+    expect(backoffDelayMs(2)).toBe(4000);
+  });
+
+  it("caps at the max delay", () => {
+    expect(backoffDelayMs(10)).toBe(10_000);
+  });
+});
+
+describe("checkStudyValidity", () => {
+  it("is valid when the verifier succeeded (or merely skipped) for every PR", () => {
+    const result = checkStudyValidity(0, 48);
+    expect(result).toEqual({ invalid: false, failedCount: 0, scoredCount: 48, failedShare: 0 });
+  });
+
+  it("is valid when fewer than half of scored PRs had a verifier failure", () => {
+    expect(checkStudyValidity(23, 48).invalid).toBe(false);
+  });
+
+  it("is invalid once the verifier failed open for a majority of scored PRs — this is the exact bug from the previous run (48/48 failed)", () => {
+    const result = checkStudyValidity(48, 48);
+    expect(result).toEqual({ invalid: true, failedCount: 48, scoredCount: 48, failedShare: 1 });
+  });
+
+  it("is invalid right at a bare majority (strictly more than half)", () => {
+    expect(checkStudyValidity(25, 48).invalid).toBe(true);
+    expect(checkStudyValidity(24, 48).invalid).toBe(false); // exactly half: not yet "most"
+  });
+
+  it("is invalid when nothing was ever scored (treated as no signal, not a clean pass)", () => {
+    expect(checkStudyValidity(0, 0)).toEqual({ invalid: true, failedCount: 0, scoredCount: 0, failedShare: 1 });
   });
 });

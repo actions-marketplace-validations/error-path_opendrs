@@ -24,6 +24,9 @@ import { scoreDiff } from "../../dist/engine.js";
 import { createLlmProvider } from "../../dist/llm/provider.js";
 import { VERSION } from "../../dist/version.js";
 import {
+  backoffDelayMs,
+  checkStudyValidity,
+  classifyProviderError,
   estimateCallCostUsd,
   evaluateDecisionRule,
   factId,
@@ -181,21 +184,75 @@ function applyConfigOverrides(config: OpendrsConfig, overrides: Record<string, u
   }
 }
 
-/** Builds the config this PR scores with: real defaults plus the repo's setup quirks plus the
- * verifier turned on. */
-function buildConfig(repo: LabelledRepoLike, model: string): OpendrsConfig {
+/** The config every scored PR (and the preflight check) shares: real defaults plus the verifier
+ * turned on. Guarded so a dist build that predates Phase 2 (Tasks 1-4 of the verification-pass
+ * plan) fails with a clear message instead of a silent no-op. */
+function buildVerifyConfig(model: string): OpendrsConfig {
   const config = defaultConfig();
-  applyConfigOverrides(config, repo.config);
   config.llm.enabled = true;
   config.llm.provider = "anthropic";
   config.llm.model = model;
-  // llm.verify.* (Task 2 of the verification-pass plan): guarded so a dist build that predates
-  // Phase 2 fails with a clear message instead of a silent no-op.
   if (!("verify" in config.llm)) {
     throw new Error("config.llm.verify is missing: this dist/ build predates the verification-pass core branches (Tasks 1-4). Build from a branch that includes them first.");
   }
   (config.llm as unknown as { verify: { enabled: boolean } }).verify.enabled = true;
   return config;
+}
+
+/** Builds the config one PR scores with: buildVerifyConfig() plus the repo's setup quirks. */
+function buildConfig(repo: LabelledRepoLike, model: string): OpendrsConfig {
+  const config = buildVerifyConfig(model);
+  applyConfigOverrides(config, repo.config);
+  return config;
+}
+
+/** Thrown by preflightCheck to abort the whole run before any clone or brief is built; carries
+ * its own clear message (already scrubbed of the API key by the caller). */
+class PreflightError extends Error {}
+
+/**
+ * A single cheap `provider.verify()` call, made before cloning anything or building any of the
+ * (up to) 48 briefs, so an account-level problem (bad key, wrong workspace scope, no permission)
+ * is caught in one request instead of silently fail-opening 48 times for $0 of real signal (see
+ * the previous run's HTTP 400 on every PR, logged in the orchestrator ledger). A transient error
+ * (429/5xx/timeout) is retried with backoff a few times first; a fatal one (any other 4xx) aborts
+ * immediately. The call's real cost is reserved from and reconciled against `budget`.
+ */
+async function preflightCheck(model: string, apiKeyEnv: NodeJS.ProcessEnv, budget: Budget): Promise<void> {
+  const config = buildVerifyConfig(model);
+  const provider = createLlmProvider(config, apiKeyEnv);
+  if (!provider.verify) throw new PreflightError(`provider "${provider.name}" does not implement verify()`);
+  const probe = {
+    title: "opendrs bench/verify preflight check",
+    candidates: [{ id: "preflight", kind: "check" as const, file: "preflight", text: "Does this deserve a reviewer's attention?", excerpt: "", status: "new" as const }],
+    partners: {},
+  };
+  const promptChars = VERIFY_SYSTEM_PROMPT_CHARS_ESTIMATE + JSON.stringify(probe).length;
+  const reserved = reserveIfAffordable(budget, promptChars);
+  if (!reserved.ok) {
+    throw new PreflightError(`the preflight check alone would cost ~$${reserved.estimatedCost.toFixed(4)}, more than the entire --max-usd budget ($${budget.left.toFixed(4)} left)`);
+  }
+
+  const MAX_TRANSIENT_ATTEMPTS = 4; // 1 initial try + 3 retries
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { usage } = await provider.verify(probe);
+      reconcileActualSpend(budget, reserved.estimatedCost, usage);
+      return;
+    } catch (e) {
+      const message = errorMessage(e);
+      const fatal = classifyProviderError(message) === "fatal";
+      if (fatal || attempt >= MAX_TRANSIENT_ATTEMPTS - 1) {
+        budget.left += reserved.estimatedCost; // refund: no usage was ever charged
+        throw new PreflightError(
+          fatal
+            ? `Preflight check failed with an account-level error (not transient) — aborting before building any briefs:\n${message}`
+            : `Preflight check failed after ${attempt + 1} attempts (transient errors: 429/5xx/timeout):\n${message}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, backoffDelayMs(attempt)));
+    }
+  }
 }
 
 /** A rough proxy for the verifier prompt's size before the real VERIFY_SYSTEM_PROMPT/VERIFY_SCHEMA
@@ -273,6 +330,20 @@ async function main(): Promise<number> {
   const apiKeyEnv = apiKey ? { ...process.env, ANTHROPIC_API_KEY: apiKey } : undefined;
   const budget: Budget | undefined = o.dryRun ? undefined : { left: o.maxUsd, prices: PRICES[o.model]! };
 
+  // Fail fast: one cheap real call before cloning anything or building any of the (up to) 48
+  // briefs, so an account-level error (bad key, wrong workspace scope, no permission) aborts
+  // here instead of fail-opening silently through the whole corpus for $0 of real signal.
+  if (budget) {
+    console.error("Preflight check: one verify() call to confirm the key works before building any briefs...");
+    try {
+      await preflightCheck(o.model, apiKeyEnv as unknown as NodeJS.ProcessEnv, budget);
+    } catch (e) {
+      console.error(scrub(errorMessage(e), apiKey));
+      return 4;
+    }
+    console.error(`Preflight check passed. $${budget.left.toFixed(4)} left of --max-usd ${o.maxUsd}.`);
+  }
+
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const studyDir = join(STUDY_DIR_ROOT, runId);
   await mkdir(studyDir, { recursive: true });
@@ -343,7 +414,14 @@ async function main(): Promise<number> {
   const totalCost = scoredPrs.reduce((n, o2) => n + (o2.actualCost ?? 0), 0);
   const costPerPrUsd = scoredPrs.length > 0 ? totalCost / scoredPrs.length : 0;
 
-  const decision = o.dryRun
+  // Safety net independent of the preflight check (above): if the verifier's own fail-open
+  // contract (src/brief/verify.ts: "any error fails open") triggered for most scored PRs, this
+  // run is an outage, not a measurement — never let that read as a precision FAIL.
+  const verifiedOutcomes = outcomes.filter((o2) => o2.verified !== undefined);
+  const verifyFailedCount = verifiedOutcomes.filter((o2) => o2.verified?.verification?.outcome === "failed").length;
+  const validity = o.dryRun ? undefined : checkStudyValidity(verifyFailedCount, verifiedOutcomes.length);
+
+  const decision = o.dryRun || validity?.invalid
     ? undefined
     : evaluateDecisionRule({ trueUsefulWronglyDropped, trueUsefulTotal, couplingNoiseHandled, couplingNoiseTotal, wrongFiresHandled, wrongFiresTotal, costPerPrUsd });
 
@@ -366,8 +444,15 @@ async function main(): Promise<number> {
     `$${totalCost.toFixed(4)} total over ${scoredPrs.length} scored PRs; $${costPerPrUsd.toFixed(4)}/PR (bar: <= $0.02/PR). Model ${o.model}.`,
     "",
     "## Decision (spec §3.7, applied as written)",
-    decision ? `recall: ${decision.recallPass ? "PASS" : "FAIL"} · precision: ${decision.precisionChecked ? (decision.precisionPass ? "PASS" : "FAIL") : "not checked (recall failed first)"} · cost: ${decision.costPass ? "PASS" : "FAIL"} · overall: ${decision.overall}` : "DRY RUN — no decision (no API calls were made; this only checks label matching against the baseline, verify-off brief).",
+    decision
+      ? `recall: ${decision.recallPass ? "PASS" : "FAIL"} · precision: ${decision.precisionChecked ? (decision.precisionPass ? "PASS" : "FAIL") : "not checked (recall failed first)"} · cost: ${decision.costPass ? "PASS" : "FAIL"} · overall: ${decision.overall}`
+      : validity?.invalid
+        ? `INVALID — the verifier failed open (\`verification.outcome: "failed"\`) for ${validity.failedCount} of ${validity.scoredCount} scored PRs (${(validity.failedShare * 100).toFixed(0)}%, more than half). This reflects a provider outage or persistent account-level error, not a measurement of the verifier's real precision/recall — no decision rule was applied. See "Verifier failures" below for the reasons; fix the cause and re-run.`
+        : "DRY RUN — no decision (no API calls were made; this only checks label matching against the baseline, verify-off brief).",
     "",
+    ...(verifyFailedCount > 0
+      ? ["## Verifier failures", ...verifiedOutcomes.filter((o2) => o2.verified?.verification?.outcome === "failed").map((o2) => `- ${o2.repoSlug}/${o2.prSlug}: ${o2.verified?.verification?.note ?? "(no note recorded)"}`), ""]
+      : []),
     "## Skipped / aborted PRs",
     ...outcomes.filter((o2) => o2.skipped).map((o2) => `- ${o2.repoSlug}/${o2.prSlug}: ${o2.skipped}`),
     aborted ? "\n**Run aborted by the budget cap before every labelled PR was scored.** Numbers above are partial." : "",
@@ -382,6 +467,7 @@ async function main(): Promise<number> {
 
   if (aborted) return 3;
   if (outcomes.some((o2) => o2.skipped && o2.skipped !== "budget")) return 1;
+  if (validity?.invalid) return 5;
   return 0;
 }
 
