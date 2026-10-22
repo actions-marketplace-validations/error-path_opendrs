@@ -90,6 +90,9 @@ llm:
   # apiKeyEnv: MY_KEY_VAR
   includeDescription: false   # the PR body is untrusted; title only by default
   maxDiffChars: 60000
+  verify:                     # the verification pass, see verification.html
+    enabled: false            # one batched call that keeps, drops or downgrades each brief item
+    maxTokens: 40000          # estimated prompt tokens above which the call is skipped (fails open)
 
 history:
   lookbackDays: 365

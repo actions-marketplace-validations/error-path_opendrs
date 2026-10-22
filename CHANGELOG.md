@@ -6,6 +6,19 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ### Added
 
+- Verification pass (`llm.verify`, Phase 2 of the verification-pass spec,
+  [docs/verification.md](docs/verification.html)): with `llm.verify.enabled: true`, one batched
+  call to the judge's provider reads every captain fact, review-first hunk and check of the brief
+  with fresh context and keeps, drops or downgrades each one. A drop needs a named class (docs,
+  tests, fixtures, generated, formatting) and a cited line, else it is a downgrade; an uncited
+  downgrade is a keep. Surviving items carry `[verified · new]`, `[verified · pre-existing]`,
+  `[verified]`, `[downgraded by verifier: …]` or `[unverified]`; a dropped item becomes a
+  `dropped by verifier` note. Any error fails open with everything `[unverified]`. Never changes
+  the score, tier, policy or captain priority.
+- `opendrs feedback --fact <id> --verdict wrong|useful|intentional|ignored [--note]` records a
+  verdict on a captain fact in `.opendrs/facts.jsonl`, keyed by content hash. Read from the base
+  commit, `wrong`/`intentional`/`ignored` downgrade that fact on every later run without a model
+  call, and `useful` pins it against any verifier drop or downgrade.
 - Pre-PR self-check (Phase 1 of the verification-pass spec,
   [docs/specs/2026-10-20-verification-pass-design.md](docs/specs/2026-10-20-verification-pass-design.html)):
   `opendrs brief --self-check-template` and the MCP tool `self_check_items` list the ids a pre-PR
