@@ -221,13 +221,13 @@ describe("anthropic provider", () => {
 describe("anthropic provider verify", () => {
   const candidate = { id: "contract.dependency:src/a.ts:1", kind: "fact" as const, file: "src/a.ts", line: 1, text: "New runtime dependency `x`.", excerpt: "+x", status: "new" as const };
   const verifyInput = { title: "Add cache", candidates: [candidate], partners: {} };
-  const verdicts = { verdicts: [{ candidate: 1, action: "keep", droppedClass: null, status: "new", citedLine: null, reason: "real dependency", confidence: 8 }] };
+  const verdicts = { verdicts: [{ candidate: 1, action: "keep", droppedClass: null, status: "new", citedLine: null, reason: "real dependency" }] };
 
   it("posts the verify schema and system prompt, and returns the parsed verdicts with usage", async () => {
     fetchMock.mockResolvedValue(messageResponse(JSON.stringify(verdicts)));
     const out = await createAnthropicProvider({ model: "claude-sonnet-5", apiKey: KEY }).verify!(verifyInput);
     expect(out).toEqual({
-      verdicts: [{ id: candidate.id, action: "keep", status: "new", reason: "real dependency", confidence: 8 }],
+      verdicts: [{ id: candidate.id, action: "keep", status: "new", reason: "real dependency" }],
       usage: { inputTokens: 1234, outputTokens: 56 },
     });
     const body = sentBody();

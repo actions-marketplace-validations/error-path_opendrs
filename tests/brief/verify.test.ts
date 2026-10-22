@@ -41,7 +41,7 @@ const fakeVerifier = (verify?: LlmProvider["verify"]): LlmProvider => ({
   },
   ...(verify ? { verify } : {}),
 });
-const verdict = (id: string, action: VerifyVerdict["action"], extra: Partial<VerifyVerdict> = {}): VerifyVerdict => ({ id, action, status: "new", reason: "r", confidence: 8, ...extra });
+const verdict = (id: string, action: VerifyVerdict["action"], extra: Partial<VerifyVerdict> = {}): VerifyVerdict => ({ id, action, status: "new", reason: "r", ...extra });
 const answering = (verdicts: VerifyVerdict[], seen: LlmVerifyInput[] = []) =>
   fakeVerifier(async (input) => {
     seen.push(input);

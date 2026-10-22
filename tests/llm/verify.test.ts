@@ -21,7 +21,6 @@ const verdict = (candidate: number, action: string, extra: Record<string, unknow
   status: "new",
   citedLine: null,
   reason: "r",
-  confidence: 7,
   ...extra,
 });
 const reply = (...verdicts: unknown[]) => JSON.stringify({ verdicts });
@@ -31,8 +30,8 @@ describe("parseVerification", () => {
   it("parses verdicts, taking the id from our candidate, never from the model", () => {
     const out = parse(reply(verdict(1, "keep"), verdict(2, "drop", { droppedClass: "tests", citedLine: "src/b.ts:2", status: "pre_existing" })));
     expect(out).toEqual([
-      { id: "contract.dependency:src/a.ts:3", action: "keep", status: "new", reason: "r", confidence: 7 },
-      { id: "hunk:src/b.ts:2", action: "drop", droppedClass: "tests", status: "pre_existing", citedLine: "src/b.ts:2", reason: "r", confidence: 7 },
+      { id: "contract.dependency:src/a.ts:3", action: "keep", status: "new", reason: "r" },
+      { id: "hunk:src/b.ts:2", action: "drop", droppedClass: "tests", status: "pre_existing", citedLine: "src/b.ts:2", reason: "r" },
     ]);
   });
 
@@ -100,10 +99,9 @@ describe("parseVerification", () => {
     expect(out.map((v) => v.status)).toEqual(["new", "pre_existing"]);
   });
 
-  it("clips the reason to 200 characters and clamps confidence to 0-10", () => {
-    const out = parse(reply(verdict(1, "keep", { reason: "x".repeat(300), confidence: 42 }), verdict(2, "keep", { confidence: -3.4 })));
+  it("clips the reason to 200 characters", () => {
+    const out = parse(reply(verdict(1, "keep", { reason: "x".repeat(300) })));
     expect(out[0]!.reason).toHaveLength(200);
-    expect(out.map((v) => v.confidence)).toEqual([10, 0]);
   });
 
   it("leaves a candidate the model did not answer absent, in candidate order", () => {

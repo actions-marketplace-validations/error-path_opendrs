@@ -187,8 +187,6 @@ export interface VerifyVerdict {
   citedLine?: string;
   /** <= 200 chars. */
   reason: string;
-  /** 0-10, clamped. */
-  confidence: number;
 }
 
 /** What the verifier was asked about: one captain fact, reviewFirst hunk or check (verification spec §3.1). */
