@@ -1667,3 +1667,73 @@ and clean up `~/.docker.eval-bak` by hand.
 6); `evals/verified-brief-reading/{prompt.md, mocks/opendrs/review_brief.md,
 graders/{dropped-acknowledged,pre-existing-not-introduced,unverified-still-checked,
 downgraded-addressed}.md}` added; this file.
+
+### Cycle 5 addendum — mid-task orchestrator directive: no more Bash-granted evals
+
+Partway through this cycle, the orchestrator sent a stop order: Docker Desktop had recreated
+`~/.docker` mid-run (Step 4 above) and the orchestrator was reconciling it with the user directly,
+so no further eval needing `--allow-tools Bash` was to run (no full-suite re-run, no
+`review-before-pr`/`self-check-before-pr`), and `~/.docker`/`~/.docker.eval-bak` were not to be
+touched again from this worktree. `verified-brief-reading`'s `prompt.md` listed `Bash` in
+`allowed_tools`; per the directive, `Bash` was removed, leaving `[Read, Grep, Glob, Skill]` so the
+agent relies on the MCP mock `review_brief` tool directly, same as `senior-reviewer-captain` and
+`why-is-pr-red`.
+
+**Re-measuring without Bash exposed two more grader gaps** (verified via `--keep-temp` transcripts,
+hand-read, no model/skill fault):
+
+- `--runs 5` (2026-10-22T13:30, $0.31): dropped to 0.70, 20% (1/5). Without Bash the agent can't
+  shell out at all, so every run leads with "I couldn't read the code" and then answers entirely
+  from the brief's metadata — a cleaner, more uniform shape than the Bash-sandbox-blocked
+  transcripts in Step 2, and it exposed that both `unverified-still-checked` and
+  `downgraded-addressed` were tuned against the Bash-mode transcripts' specific phrasing.
+- `unverified-still-checked` regressed hardest (0/3–1/3 on follow-up `--keep-temp` runs): good
+  answers now consistently explain the suffix glossary once, in the abstract, right next to the
+  `[unverified]` tag itself ("so read the code yourself"), then apply it to `charge.ts` by name
+  only later, in a different paragraph. The grader's windowed anchor on `charge.ts` never saw that
+  later paragraph's checking language, because the file name and the checking phrase were no
+  longer close together. **Fix:** re-anchored the window on the word `unverified` instead of on
+  `charge.ts` — the tag is unique to this one fact in the mock, so proximity to it is both narrower
+  (nothing else can satisfy it by accident) and a better match for how the skill's own new
+  "Reading verified facts" wording gets explained. Re-verified against all four historical failing
+  transcripts (two from Step 2, two from this addendum) plus the existing synthetic good/echo/
+  negative-control suite (`node` + the harness's own `RegExp` construction) — all still behave as
+  designed.
+- `downgraded-addressed` failed on "probably fine" / "low priority" (not "lower priority") framing
+  the engagement list didn't cover. **Fix:** added `probably fine`, `low(?:er)? priority`, `check
+  … yourself`, `leave it (out of scope)`, `out of scope`, `no (further )?action`, `that checks
+  out`, `sounds (right|fine)` to the engagement alternation (not `bounded` alone, since the mock's
+  own suffix reason text already says "bounded" — adding it would have let a bare echo pass this
+  grader too).
+
+Two wording rounds under the no-Bash configuration (anchor change + engagement broadening),
+on top of the one round already spent in the Bash-mode measurement above — 3 of the task's allowed
+wording rounds used in total across both configurations, within the cap.
+
+**Final no-Bash measurement, `--runs 5`** (2026-10-22T13:41, $0.32): **4/5, 80%, score 0.95** — at
+the ≥ 4/5 bar. The one remaining miss (run 3) is `downgraded-addressed` again, on a run that never
+mentioned the backoff/jitter fact's reasoning in matchable terms; not reworked further since the
+bar is already met and this reconfiguration already used its 3-round budget.
+
+**No full-suite re-run this cycle, per the orchestrator's directive.** Only `skills/opendrs/
+SKILL.md`, `commands/opendrs-review.md`, and `evals/verified-brief-reading/`'s own prompt/graders
+changed this cycle — no other case's prompt, mocks or graders were touched, so Cycle 4's full-suite
+baseline (55/55 at `--runs 5`, recorded above) is not expected to be affected by anything in this
+cycle, but that expectation was not re-verified end-to-end because doing so needs `--allow-tools
+Bash`, which is off-limits until the orchestrator and the user finish reconciling `~/.docker`.
+
+**`~/.docker` / `~/.docker.eval-bak`:** not moved, restored, created or deleted anywhere in this
+addendum — all four runs here used no `--allow-tools Bash` and touched Docker config in no way.
+
+### Verification (addendum)
+
+- `npx tsc --noEmit` — clean (only `evals/verified-brief-reading/` touched; no `src/`,
+  `skills/`, or `commands/` change in this addendum).
+- Eval spend this addendum: $0.31 + $0.19 + $0.18 + $0.32 = **$1.00**. Combined Cycle 5 total
+  (main section + this addendum): $3.57 + $1.00 = **$4.57**.
+
+### Files changed this addendum
+
+`evals/verified-brief-reading/prompt.md` (`Bash` removed from `allowed_tools`), `evals/
+verified-brief-reading/graders/{unverified-still-checked,downgraded-addressed}.md` (wording);
+this file.
