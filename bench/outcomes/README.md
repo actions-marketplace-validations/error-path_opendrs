@@ -8,10 +8,13 @@ compared with the same PR's other changed files, so the number reported is a **l
 rate. Spec: [`docs/specs/2026-10-23-outcome-labels-design.md`](../../docs/specs/2026-10-23-outcome-labels-design.md);
 pre-registration and results: [`docs/experiments.md`](../../docs/experiments.md#outcome-labels-on-active-public-repos).
 
-It is also the standing regression eval the research memo's O5 asked for: `corpus.json` and
-`labels.json` are committed and independent of opendrs's output, so after any detector, weight
+It is also the standing regression eval the research memo's O5 asked for: `corpus.jsonl` and
+`labels.jsonl` are committed and independent of opendrs's output, so after any detector, weight
 or prompt change the briefs are rebuilt and the same numbers come out, with a drift section
-against `baseline.json`.
+against `baseline.json`. The **primary** view is the first five facts of each PR in brief order
+(what the PR comment shows); the per-fire view over every fact is secondary, because one PR can
+fire thousands of facts of one type (cli/cli#12289: 2,628 `contract.api`). The report names any
+PR carrying more than 20 % of a fact type's per-fire count.
 
 ## Prerequisites
 
@@ -56,9 +59,9 @@ resumes; delete a file to redo that one thing.
 | Step | Reads | Writes |
 |---|---|---|
 | `fetch` | GitHub | `gh/<request>.json` (one file per API request), `gh/<slug>/selection.json` (the pinned head and the 60 selected PR numbers — pinned by the cache: the first fetch decides) |
-| `build` | `selection.json`, clones | `clones/<slug>`, `briefs/<slug>/<n>.json` (priority, facts, score, changed files with added-line numbers, wall time), `build/<slug>.json`, and the committed `corpus.json` |
-| `label` | `build/<slug>.json`, `briefs/`, clones | `blame/<slug>/<fixSha>.json` (one `blameFix` per fix commit), and the committed `labels.json` |
-| `eval` | `corpus.json`, `labels.json`, `briefs/` | the committed `results.md`, `results.json` (per-fact records included), optionally `baseline.json`. `results.md` also carries a post-hoc "first five facts per PR" view, since one PR can fire thousands of facts of one type and the comment shows five |
+| `build` | `selection.json`, clones | `clones/<slug>`, `briefs/<slug>/<n>.json` (priority, facts, score, changed files with added-line numbers, wall time), `build/<slug>.json`, and the committed `corpus.jsonl` (one record per line: meta, repos, PRs, exclusions) |
+| `label` | `build/<slug>.json`, `briefs/`, clones | `blame/<slug>/<fixSha>.json` (one `blameFix` per fix commit), and the committed `labels.jsonl` (one record per PR) |
+| `eval` | `corpus.jsonl`, `labels.jsonl`, `briefs/` | the committed `results.md` and, with `--write-baseline`, `baseline.json`; `results.json` (every per-fact record, 1.3 MB) is regenerated each time and gitignored |
 
 `timings.json` under the cache root holds each step's last duration; `results.md` prints them.
 

@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   addedLines,
   changesRequested,
+  concentration,
   conclude,
+  corpusToJsonl,
   countedComments,
   drift,
   fixCandidates,
   hitsOnPr,
   isRevertOfPr,
   labelFact,
+  labelsToJsonl,
+  parseCorpusJsonl,
+  parseLabelsJsonl,
   partnerOf,
   prRange,
   priorityTable,
@@ -20,8 +25,10 @@ import {
   summarise,
   type BlameHit,
   type CommentLoc,
+  type CorpusFile,
   type FactRecord,
   type FactTypeSummary,
+  type LabelsFile,
   type PrFile,
 } from "../../bench/outcomes/lib.js";
 
@@ -265,11 +272,15 @@ describe("renderResults", () => {
       builtAt: "2026-10-23T00:00:00Z",
       corpus: { repos: 1, prs: 1, excluded: 0 },
       facts,
+      factsShown: facts,
+      concentration: ["contract.api: r#1 carries 9 of 10 fires (90 %)"],
       priority: priorityTable([{ priority: "careful", fixedOrReverted: true }]),
       drift: ["a: fires 1 → 2 (+100 %)"],
       timings: { build: 1234 },
     });
     expect(md).toContain("`contract.api`");
+    expect(md.indexOf("## Primary")).toBeLessThan(md.indexOf("## Secondary"));
+    expect(md).toContain("r#1 carries 9 of 10 fires");
     expect(md).toContain("careful");
     expect(md).toContain("a: fires 1 → 2 (+100 %)");
     expect(md).toContain("insufficient");
@@ -282,5 +293,37 @@ describe("shownFacts", () => {
     const other = rec("t1", false, false, 0, 0, { number: 2 });
     const shown = shownFacts([...rs, other], 5);
     expect(shown.map((r) => `${r.number}:${r.file}`)).toEqual(["1:f1", "1:f2", "1:f3", "1:f4", "1:f5", "2:f"]);
+  });
+});
+
+describe("JSONL corpus and labels", () => {
+  const corpus: CorpusFile = {
+    builtAt: "2026-10-23T00:00:00Z",
+    windowDays: 90,
+    lookbackDays: 1095,
+    perRepo: 200,
+    repos: [{ slug: "r", repo: "o/r", language: "js", defaultBranch: "main", head: "h", headTime: 1, cloneMode: "full", config: { "history.maxCommits": 10 } }],
+    prs: [{ slug: "r", number: 1, author: "a", mergeSha: "m", mergedAt: "2026-01-01T00:00:00Z", mergeSubject: "s", shape: "squash", base: "m^1", head: "m", commits: ["m"], changedFiles: 2 }],
+    excluded: [{ slug: "r", number: 2, reason: "bot" }],
+  };
+  it("corpus round-trips through one compact record per line", () => {
+    const text = corpusToJsonl(corpus);
+    expect(text.split("\n").filter(Boolean)).toHaveLength(4);
+    expect(text.startsWith('{"kind":"meta",')).toBe(true);
+    expect(parseCorpusJsonl(text)).toEqual(corpus);
+  });
+  it("labels round-trip, keyed by slug#number", () => {
+    const labels: LabelsFile = { windowDays: 90, lineWindow: 10, prs: { "r#1": { comments: [{ path: "a", line: 3 }], changesRequested: false, reverted: true, hits: [], fixTouched: ["a"], fixCommits: ["f"] } } };
+    const text = labelsToJsonl(labels);
+    expect(text.split("\n").filter(Boolean)).toHaveLength(2);
+    expect(parseLabelsJsonl(text)).toEqual(labels);
+  });
+});
+
+describe("concentration", () => {
+  it("names any PR carrying more than the threshold share of a fact type's fires, for types at or above minFires", () => {
+    const rs = [...Array(9).fill(0).map((_, i) => rec("contract.api", false, false, 0, 0, { number: 1, file: `f${i}` })), rec("contract.api", false, false, 0, 0, { number: 2 }), rec("layers.edge", false, false, 0, 0, { number: 3 }), rec("layers.edge", false, false, 0, 0, { number: 4 })];
+    expect(concentration(rs, 0.2, 10)).toEqual(["contract.api: r#1 carries 9 of 10 fires (90 %)"]);
+    expect(concentration(rs, 0.2, 11)).toEqual([]);
   });
 });

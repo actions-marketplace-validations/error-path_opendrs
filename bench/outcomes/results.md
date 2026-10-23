@@ -1,10 +1,23 @@
 # Outcome labels: results
 
-Built 2026-10-23T12:47:12.012Z. 6 repos, 1010 PRs scored, 1304 excluded (reasons in corpus.json).
+Built 2026-10-23T12:52:38.089Z. 6 repos, 1010 PRs scored, 1304 excluded (reasons in corpus.jsonl).
 
-Spec: `docs/specs/2026-10-23-outcome-labels-design.md`. Lift = observed rate ÷ the same PRs' expected rate (§5.3). Decision rule §7: ≥ 30 fires; keep when E_file or F_file lift ≥ 1.2×; retune when neither but one ≥ 1.0×; demote when both < 1.0×.
+Spec: `docs/specs/2026-10-23-outcome-labels-design.md`. Lift = observed rate ÷ the same PRs' expected rate (§5.3). Decision rule §7: ≥ 30 fires; keep when E_file or F_file lift ≥ 1.2×; retune when neither but one ≥ 1.0×; demote when both < 1.0×. Primary view (forward amendment 2026-10-23): the first five facts of each PR, what the PR comment shows; the per-fire view over every fact is secondary.
 
-## Per fact type (file level, primary)
+## Primary: the five facts the PR comment shows (first five per PR, brief order; file level)
+
+| Fact | Fires | PRs | Strong | E_file | exp | lift | F_file | exp | lift | R | No outcome | Conclusion |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `change.concurrency` | 22 | 19 | 22 | 13.6 % | 8.4 % | 1.63× | 4.5 % | 3.8 % | 1.19× | 0.0 % | 81.8 % | **insufficient** |
+| `change.safety_removed` | 34 | 34 | 0 | 11.8 % | 7.9 % | 1.49× | 0.0 % | 0.4 % | 0.00× | 0.0 % | 88.2 % | **keep** |
+| `contract.api` | 202 | 112 | 104 | 15.8 % | 12.2 % | 1.30× | 3.5 % | 3.2 % | 1.08× | 0.0 % | 81.7 % | **keep** |
+| `contract.dependency` | 35 | 21 | 20 | 11.4 % | 8.6 % | 1.32× | 22.9 % | 6.2 % | 3.70× | 0.0 % | 65.7 % | **keep** |
+| `contract.env` | 21 | 12 | 21 | 4.8 % | 12.4 % | 0.38× | 23.8 % | 17.1 % | 1.39× | 0.0 % | 71.4 % | **insufficient** |
+| `contract.instructions` | 10 | 9 | 10 | 60.0 % | 43.4 % | 1.38× | 0.0 % | 2.2 % | 0.00× | 0.0 % | 40.0 % | **insufficient** |
+| `coupling.missing` | 43 | 34 | 24 | 0.0 % | 4.5 % | 0.00× | 4.7 % | 5.1 % | 0.92× | 0.0 % | 95.3 % | **demote** |
+| `layers.edge` | 18 | 16 | 18 | 33.3 % | 17.6 % | 1.89× | 0.0 % | 2.1 % | 0.00× | 0.0 % | 66.7 % | **insufficient** |
+
+## Secondary: per fire, every fact of every PR (file level)
 
 | Fact | Fires | PRs | Strong | E_file | exp | lift | F_file | exp | lift | R | No outcome | Conclusion |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
@@ -18,7 +31,13 @@ Spec: `docs/specs/2026-10-23-outcome-labels-design.md`. Lift = observed rate ÷ 
 | `coupling.missing` | 45 | 36 | 25 | 0.0 % | 4.3 % | 0.00× | 4.4 % | 4.8 % | 0.92× | 0.0 % | 95.6 % | **demote** |
 | `layers.edge` | 18 | 16 | 18 | 33.3 % | 17.6 % | 1.89× | 0.0 % | 2.1 % | 0.00× | 0.0 % | 66.7 % | **insufficient** |
 
-## Per fact type (line level, ±10 lines, facts with a line only)
+### Concentration (a PR with more than 20 % of a fact type's per-fire count)
+
+- change.concurrency: cli-cli#12289 carries 48 of 72 fires (67 %)
+- contract.api: cli-cli#12289 carries 2628 of 2938 fires (89 %)
+- contract.dependency: cli-cli#12859 carries 10 of 43 fires (23 %)
+
+## Per fact type, line level (±10 lines, facts with a line only; per fire)
 
 | Fact | With line | E_line | exp | lift | F_line | exp | lift | P_partner |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -32,21 +51,6 @@ Spec: `docs/specs/2026-10-23-outcome-labels-design.md`. Lift = observed rate ÷ 
 | `coupling.missing` | 0 | — | — | — | — | — | — | 44.4 % |
 | `layers.edge` | 1 | 0.0 % | 0.0 % | — | 0.0 % | 0.0 % | — | — |
 
-## Post-hoc: the five facts the PR comment shows (first five per PR, brief order)
-
-Not part of the pre-registered rule; added after run 2 because one PR carried 2,628 `contract.api` facts and dominated the per-fact numbers above. The conclusion column applies the same §7 rule to this view.
-
-| Fact | Fires | PRs | E_file | exp | lift | F_file | exp | lift | No outcome | Rule on this view |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `change.concurrency` | 22 | 19 | 13.6 % | 8.4 % | 1.63× | 4.5 % | 3.8 % | 1.19× | 81.8 % | insufficient |
-| `change.safety_removed` | 34 | 34 | 11.8 % | 7.9 % | 1.49× | 0.0 % | 0.4 % | 0.00× | 88.2 % | keep |
-| `contract.api` | 202 | 112 | 15.8 % | 12.2 % | 1.30× | 3.5 % | 3.2 % | 1.08× | 81.7 % | keep |
-| `contract.dependency` | 35 | 21 | 11.4 % | 8.6 % | 1.32× | 22.9 % | 6.2 % | 3.70× | 65.7 % | keep |
-| `contract.env` | 21 | 12 | 4.8 % | 12.4 % | 0.38× | 23.8 % | 17.1 % | 1.39× | 71.4 % | insufficient |
-| `contract.instructions` | 10 | 9 | 60.0 % | 43.4 % | 1.38× | 0.0 % | 2.2 % | 0.00× | 40.0 % | insufficient |
-| `coupling.missing` | 43 | 34 | 0.0 % | 4.5 % | 0.00× | 4.7 % | 5.1 % | 0.92× | 95.3 % | demote |
-| `layers.edge` | 18 | 16 | 33.3 % | 17.6 % | 1.89× | 0.0 % | 2.1 % | 0.00× | 66.7 % | insufficient |
-
 ## Captain priority
 
 Corpus fixed-or-reverted rate: 9.8 %. Recall at careful: 65.7 %. Informative (careful ≥ 1.2× base on ≥ 30 PRs): **yes**.
@@ -57,9 +61,12 @@ Corpus fixed-or-reverted rate: 9.8 %. Recall at careful: 65.7 %. Informative (ca
 | standard | 278 | 29 | 10.4 % |
 | quick | 294 | 5 | 1.7 % |
 
-## Drift vs. baseline.json
+## Drift vs. baseline.json (primary view)
 
-No baseline, or nothing moved beyond the tolerance.
+- change.concurrency: fires 72 → 22 (-69 %)
+- change.concurrency: conclusion keep → insufficient
+- contract.api: fires 2938 → 202 (-93 %)
+- contract.schema: no longer fires (was 3)
 
 ## Timings
 

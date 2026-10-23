@@ -3,8 +3,8 @@
  * docs/specs/2026-10-23-outcome-labels-design.md). Four resumable steps:
  *
  *   fetch  — GitHub (read-only `gh api`): pinned head, merged PRs, review comments, reviews
- *   build  — clones, merge-shape resolution, corpus.json, one captain brief per PR (dist/)
- *   label  — fix commits in the window, SZZ-lite blame, labels.json
+ *   build  — clones, merge-shape resolution, corpus.jsonl, one captain brief per PR (dist/)
+ *   label  — fix commits in the window, SZZ-lite blame, labels.jsonl
  *   eval   — per-fact labels, lifts, decision rule, priority table, drift, results.md/json
  *
  * Everything fetched or computed is cached under ~/.cache/opendrs/outcomes/ and reused, so an
@@ -28,12 +28,17 @@ import { blameFix } from "../../dist/model/label.js";
 import {
   addedLines,
   changesRequested,
+  concentration,
+  corpusToJsonl,
   countedComments,
   drift,
   fixCandidates,
   hitsOnPr,
   isRevertOfPr,
   labelFact,
+  labelsToJsonl,
+  parseCorpusJsonl,
+  parseLabelsJsonl,
   prRange,
   priorityTable,
   rateLimitWaitMs,
@@ -51,7 +56,9 @@ import {
   type FactRecord,
   type FactTypeSummary,
   type GhPullSummary,
+  type LabelsFile,
   type PrFile,
+  type PrLabels,
   type Priority,
 } from "./lib.ts";
 
@@ -366,7 +373,10 @@ async function buildRepo(repo: (typeof REPOS)[number], o: Options): Promise<Repo
   return build;
 }
 
-/** corpus.json from every repo whose build file exists (a `--repos` subset leaves the others as they were). */
+const CORPUS_FILE = join(HERE, "corpus.jsonl");
+const LABELS_FILE = join(HERE, "labels.jsonl");
+
+/** corpus.jsonl from every repo whose build file exists (a `--repos` subset leaves the others as they were). */
 async function writeCorpus(): Promise<CorpusFile> {
   const corpus: CorpusFile = { builtAt: new Date().toISOString(), windowDays: WINDOW_DAYS, lookbackDays: LOOKBACK_DAYS, perRepo: PER_REPO, repos: [], prs: [], excluded: [] };
   for (const repo of REPOS) {
@@ -376,28 +386,12 @@ async function writeCorpus(): Promise<CorpusFile> {
     corpus.prs.push(...build.prs);
     corpus.excluded.push(...build.excluded);
   }
-  await writeJson(join(HERE, "corpus.json"), corpus);
+  await writeFile(CORPUS_FILE, corpusToJsonl(corpus));
   return corpus;
 }
 
 // ---------------------------------------------------------------------------------------------
 // label
-
-interface PrLabels {
-  comments: CommentLoc[];
-  changesRequested: boolean;
-  reverted: boolean;
-  hits: BlameHit[];
-  fixTouched: string[];
-  /** Shas of the fix commits in the window that touched a PR file (blamed, whether or not they hit). */
-  fixCommits: string[];
-}
-
-interface LabelsFile {
-  windowDays: number;
-  lineWindow: number;
-  prs: Record<string, PrLabels>;
-}
 
 const prKey = (pr: { slug: string; number: number }): string => `${pr.slug}#${pr.number}`;
 
@@ -450,6 +444,7 @@ interface ResultsJson {
   corpus: { repos: number; prs: number; excluded: number };
   facts: FactTypeSummary[];
   factsShown: FactTypeSummary[];
+  concentration: string[];
   priority: ReturnType<typeof priorityTable>;
   drift: string[];
   timings: Record<string, number>;
@@ -458,9 +453,9 @@ interface ResultsJson {
 }
 
 async function evalCorpus(o: Options): Promise<ResultsJson> {
-  const corpus = await readJson<CorpusFile>(join(HERE, "corpus.json"));
-  const labels = await readJson<LabelsFile>(join(HERE, "labels.json"));
-  if (!corpus || !labels) throw new Error("eval needs bench/outcomes/corpus.json and labels.json: run build and label first");
+  if (!existsSync(CORPUS_FILE) || !existsSync(LABELS_FILE)) throw new Error("eval needs bench/outcomes/corpus.jsonl and labels.jsonl: run build and label first");
+  const corpus = parseCorpusJsonl(await readFile(CORPUS_FILE, "utf8"));
+  const labels = parseLabelsJsonl(await readFile(LABELS_FILE, "utf8"));
   const records: FactRecord[] = [];
   const prs: ResultsJson["prs"] = [];
   let scored = 0;
@@ -475,22 +470,25 @@ async function evalCorpus(o: Options): Promise<ResultsJson> {
     prs.push({ key: prKey(pr), priority: brief.priority, fixedOrReverted: l.reverted || l.hits.length > 0, changesRequested: l.changesRequested, facts: brief.facts.length });
   }
   const facts = summarise(records);
-  const baseline = await readJson<{ facts: FactTypeSummary[] }>(join(HERE, "baseline.json"));
+  const factsShown = summarise(shownFacts(records));
+  // Drift is on the primary (shown) view; an older baseline without it falls back to per fire.
+  const baseline = await readJson<{ facts: FactTypeSummary[]; factsShown?: FactTypeSummary[] }>(join(HERE, "baseline.json"));
   const timings = (await readJson<Record<string, number>>(join(CACHE, "timings.json"))) ?? {};
   const results: ResultsJson = {
     builtAt: new Date().toISOString(),
     corpus: { repos: corpus.repos.length, prs: scored, excluded: corpus.excluded.length },
     facts,
-    factsShown: summarise(shownFacts(records)),
+    factsShown,
+    concentration: concentration(records),
     priority: priorityTable(prs),
-    drift: baseline ? drift(baseline.facts, facts) : [],
+    drift: baseline ? drift(baseline.factsShown ?? baseline.facts, factsShown) : [],
     timings,
     records,
     prs,
   };
   await writeJson(join(HERE, "results.json"), results);
   await writeFile(join(HERE, "results.md"), renderResults(results));
-  if (o.writeBaseline) await writeJson(join(HERE, "baseline.json"), { builtAt: results.builtAt, facts, priority: results.priority });
+  if (o.writeBaseline) await writeJson(join(HERE, "baseline.json"), { builtAt: results.builtAt, factsShown, facts, priority: results.priority });
   return results;
 }
 
@@ -575,20 +573,19 @@ async function main(): Promise<number> {
     await timed("build", async () => {
       await pool(repos, o.repoConcurrency, async (r) => void (await buildRepo(r, o)));
       const corpus = await writeCorpus();
-      log(`corpus.json: ${corpus.repos.length} repos, ${corpus.prs.length} PRs, ${corpus.excluded.length} excluded`);
+      log(`corpus.jsonl: ${corpus.repos.length} repos, ${corpus.prs.length} PRs, ${corpus.excluded.length} excluded`);
     });
   }
   if (run("label")) {
     await timed("label", async () => {
-      const file = join(HERE, "labels.json");
-      const labels = (await readJson<LabelsFile>(file)) ?? { windowDays: WINDOW_DAYS, lineWindow: LINE_WINDOW, prs: {} };
+      const labels: LabelsFile = existsSync(LABELS_FILE) ? parseLabelsJsonl(await readFile(LABELS_FILE, "utf8")) : { windowDays: WINDOW_DAYS, lineWindow: LINE_WINDOW, prs: {} };
       await pool(repos, o.repoConcurrency, async (r) => {
         const build = await readJson<RepoBuild>(buildFile(r.slug));
         if (!build) throw new Error(`${r.slug}: run build first (no ${buildFile(r.slug)})`);
         Object.assign(labels.prs, await labelRepo(r, build, o));
       });
-      await writeJson(file, labels);
-      log(`labels.json: ${Object.keys(labels.prs).length} PRs`);
+      await writeFile(LABELS_FILE, labelsToJsonl(labels));
+      log(`labels.jsonl: ${Object.keys(labels.prs).length} PRs`);
     });
   }
   if (run("eval")) {

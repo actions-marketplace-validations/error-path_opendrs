@@ -106,6 +106,31 @@ export interface CorpusFile {
   excluded: Array<{ slug: string; number: number; reason: ExclusionReason; detail?: string }>;
 }
 
+/** `corpus.jsonl`: one `meta` line, then one compact record per repo, PR and exclusion (diffable). */
+export function corpusToJsonl(c: CorpusFile): string {
+  const { repos, prs, excluded, ...meta } = c;
+  const lines = [JSON.stringify({ kind: "meta", ...meta })];
+  for (const r of repos) lines.push(JSON.stringify({ kind: "repo", ...r }));
+  for (const p of prs) lines.push(JSON.stringify({ kind: "pr", ...p }));
+  for (const e of excluded) lines.push(JSON.stringify({ kind: "excluded", ...e }));
+  return `${lines.join("\n")}\n`;
+}
+
+function parseJsonl(text: string): Array<Record<string, unknown> & { kind: string }> {
+  return text.split("\n").filter((l) => l.trim() !== "").map((l) => JSON.parse(l));
+}
+
+export function parseCorpusJsonl(text: string): CorpusFile {
+  const corpus: CorpusFile = { builtAt: "", windowDays: 0, lookbackDays: 0, perRepo: 0, repos: [], prs: [], excluded: [] };
+  for (const { kind, ...rec } of parseJsonl(text)) {
+    if (kind === "meta") Object.assign(corpus, rec);
+    else if (kind === "repo") corpus.repos.push(rec as unknown as CorpusRepo);
+    else if (kind === "pr") corpus.prs.push(rec as unknown as CorpusPr);
+    else if (kind === "excluded") corpus.excluded.push(rec as unknown as CorpusFile["excluded"][number]);
+  }
+  return corpus;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Labels (spec §5)
 
@@ -263,6 +288,46 @@ export function labelFact(fact: { id: string; weight: "strong" | "info"; file: s
   return rec;
 }
 
+/** One PR's outcome data, independent of opendrs output (spec §8 "committed inputs"). */
+export interface PrLabels {
+  comments: CommentLoc[];
+  changesRequested: boolean;
+  reverted: boolean;
+  /** Blame hits already filtered to the PR's commits (hitsOnPr). */
+  hits: BlameHit[];
+  /** Files touched by any fix commit in the window (for coupling's P_partner). */
+  fixTouched: string[];
+  /** Shas of the fix commits in the window that touched a PR file (blamed, whether or not they hit). */
+  fixCommits: string[];
+}
+
+export interface LabelsFile {
+  windowDays: number;
+  lineWindow: number;
+  /** Keyed by `<slug>#<number>`. */
+  prs: Record<string, PrLabels>;
+}
+
+/** `labels.jsonl`: one `meta` line, then one compact record per PR, keyed by `slug#number`. */
+export function labelsToJsonl(l: LabelsFile): string {
+  const { prs, ...meta } = l;
+  const lines = [JSON.stringify({ kind: "meta", ...meta })];
+  for (const [key, pr] of Object.entries(prs)) lines.push(JSON.stringify({ kind: "pr", key, ...pr }));
+  return `${lines.join("\n")}\n`;
+}
+
+export function parseLabelsJsonl(text: string): LabelsFile {
+  const labels: LabelsFile = { windowDays: 0, lineWindow: 0, prs: {} };
+  for (const { kind, ...rec } of parseJsonl(text)) {
+    if (kind === "meta") Object.assign(labels, rec);
+    else if (kind === "pr") {
+      const { key, ...pr } = rec as unknown as PrLabels & { key: string };
+      labels.prs[key] = pr;
+    }
+  }
+  return labels;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Metrics and the decision rule (spec §5.4, §7, §8)
 
@@ -364,6 +429,31 @@ export function shownFacts(records: FactRecord[], cap = 5): FactRecord[] {
   });
 }
 
+/**
+ * Fact types where one PR carries more than `threshold` of the fires (the per-fire view is then
+ * that PR's). Types under `minFires` are skipped: they are "insufficient" anyway, and two fires
+ * on two PRs would trivially trip the threshold.
+ */
+export function concentration(records: FactRecord[], threshold = 0.2, minFires = 30): string[] {
+  const out: string[] = [];
+  const byId = new Map<string, Map<string, number>>();
+  for (const r of records) {
+    const perPr = byId.get(r.id) ?? new Map<string, number>();
+    const key = `${r.slug}#${r.number}`;
+    perPr.set(key, (perPr.get(key) ?? 0) + 1);
+    byId.set(r.id, perPr);
+  }
+  for (const id of [...byId.keys()].sort()) {
+    const perPr = byId.get(id)!;
+    const total = [...perPr.values()].reduce((a, b) => a + b, 0);
+    if (total < minFires) continue;
+    for (const [key, n] of [...perPr].sort((a, b) => b[1] - a[1])) {
+      if (n / total > threshold) out.push(`${id}: ${key} carries ${n} of ${total} fires (${Math.round((n / total) * 100)} %)`);
+    }
+  }
+  return out;
+}
+
 export type Priority = "careful" | "standard" | "quick";
 const PRIORITIES: readonly Priority[] = ["careful", "standard", "quick"];
 
@@ -422,9 +512,12 @@ export function drift(baseline: FactTypeSummary[], current: FactTypeSummary[], f
 export interface ResultsInput {
   builtAt: string;
   corpus: { repos: number; prs: number; excluded: number };
+  /** Per fire, every fact of every PR (secondary since the 2026-10-23 forward amendment). */
   facts: FactTypeSummary[];
-  /** Post-hoc: the same summaries over the first five facts of each PR (what the comment shows). */
-  factsShown?: FactTypeSummary[];
+  /** The first five facts of each PR, what the comment shows: the primary view for runs after run 2. */
+  factsShown: FactTypeSummary[];
+  /** PRs carrying more than 20 % of a fact type's per-fire count. */
+  concentration: string[];
   priority: PriorityReport;
   drift: string[];
   /** Step durations in ms, by step name. */
@@ -438,30 +531,30 @@ const minutes = (ms: number): string => `${(ms / 60_000).toFixed(1)} min`;
 /** The Markdown report; every number docs/experiments.md quotes comes from here. */
 export function renderResults(r: ResultsInput): string {
   const lines: string[] = [];
-  lines.push("# Outcome labels: results", "", `Built ${r.builtAt}. ${r.corpus.repos} repos, ${r.corpus.prs} PRs scored, ${r.corpus.excluded} excluded (reasons in corpus.json).`, "");
-  lines.push("Spec: `docs/specs/2026-10-23-outcome-labels-design.md`. Lift = observed rate ÷ the same PRs' expected rate (§5.3). Decision rule §7: ≥ 30 fires; keep when E_file or F_file lift ≥ 1.2×; retune when neither but one ≥ 1.0×; demote when both < 1.0×.", "");
-  lines.push("## Per fact type (file level, primary)", "");
-  lines.push("| Fact | Fires | PRs | Strong | E_file | exp | lift | F_file | exp | lift | R | No outcome | Conclusion |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
-  for (const s of r.facts) {
-    lines.push(`| \`${s.id}\` | ${s.fires} | ${s.prs} | ${s.strong} | ${pct(s.E_file)} | ${pct(s.expE_file)} | ${x(s.liftE_file)} | ${pct(s.F_file)} | ${pct(s.expF_file)} | ${x(s.liftF_file)} | ${pct(s.R)} | ${pct(s.noOutcome)} | **${s.conclusion}** |`);
-  }
-  lines.push("", "## Per fact type (line level, ±10 lines, facts with a line only)", "");
+  lines.push("# Outcome labels: results", "", `Built ${r.builtAt}. ${r.corpus.repos} repos, ${r.corpus.prs} PRs scored, ${r.corpus.excluded} excluded (reasons in corpus.jsonl).`, "");
+  lines.push("Spec: `docs/specs/2026-10-23-outcome-labels-design.md`. Lift = observed rate ÷ the same PRs' expected rate (§5.3). Decision rule §7: ≥ 30 fires; keep when E_file or F_file lift ≥ 1.2×; retune when neither but one ≥ 1.0×; demote when both < 1.0×. Primary view (forward amendment 2026-10-23): the first five facts of each PR, what the PR comment shows; the per-fire view over every fact is secondary.", "");
+  const table = (rows: FactTypeSummary[]) => {
+    lines.push("| Fact | Fires | PRs | Strong | E_file | exp | lift | F_file | exp | lift | R | No outcome | Conclusion |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+    for (const s of rows) {
+      lines.push(`| \`${s.id}\` | ${s.fires} | ${s.prs} | ${s.strong} | ${pct(s.E_file)} | ${pct(s.expE_file)} | ${x(s.liftE_file)} | ${pct(s.F_file)} | ${pct(s.expF_file)} | ${x(s.liftF_file)} | ${pct(s.R)} | ${pct(s.noOutcome)} | **${s.conclusion}** |`);
+    }
+  };
+  lines.push("## Primary: the five facts the PR comment shows (first five per PR, brief order; file level)", "");
+  table(r.factsShown);
+  lines.push("", "## Secondary: per fire, every fact of every PR (file level)", "");
+  table(r.facts);
+  lines.push("", "### Concentration (a PR with more than 20 % of a fact type's per-fire count)", "");
+  if (r.concentration.length === 0) lines.push("None.");
+  else for (const c of r.concentration) lines.push(`- ${c}`);
+  lines.push("", "## Per fact type, line level (±10 lines, facts with a line only; per fire)", "");
   lines.push("| Fact | With line | E_line | exp | lift | F_line | exp | lift | P_partner |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|");
   for (const s of r.facts) {
     lines.push(`| \`${s.id}\` | ${s.withLine} | ${pct(s.E_line)} | ${pct(s.expE_line)} | ${x(s.liftE_line)} | ${pct(s.F_line)} | ${pct(s.expF_line)} | ${x(s.liftF_line)} | ${pct(s.P_partner)} |`);
   }
-  if (r.factsShown) {
-    lines.push("", "## Post-hoc: the five facts the PR comment shows (first five per PR, brief order)", "");
-    lines.push("Not part of the pre-registered rule; added after run 2 because one PR carried 2,628 `contract.api` facts and dominated the per-fact numbers above. The conclusion column applies the same §7 rule to this view.", "");
-    lines.push("| Fact | Fires | PRs | E_file | exp | lift | F_file | exp | lift | No outcome | Rule on this view |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
-    for (const s of r.factsShown) {
-      lines.push(`| \`${s.id}\` | ${s.fires} | ${s.prs} | ${pct(s.E_file)} | ${pct(s.expE_file)} | ${x(s.liftE_file)} | ${pct(s.F_file)} | ${pct(s.expF_file)} | ${x(s.liftF_file)} | ${pct(s.noOutcome)} | ${s.conclusion} |`);
-    }
-  }
   lines.push("", "## Captain priority", "", `Corpus fixed-or-reverted rate: ${pct(r.priority.base)}. Recall at careful: ${pct(r.priority.recallAtCareful)}. Informative (careful ≥ 1.2× base on ≥ 30 PRs): **${r.priority.informative ? "yes" : "no"}**.`, "");
   lines.push("| Priority | PRs | Fixed or reverted | Rate |", "|---|---:|---:|---:|");
   for (const row of r.priority.rows) lines.push(`| ${row.priority} | ${row.n} | ${row.fixedOrReverted} | ${pct(row.rate)} |`);
-  lines.push("", "## Drift vs. baseline.json", "");
+  lines.push("", "## Drift vs. baseline.json (primary view)", "");
   if (r.drift.length === 0) lines.push("No baseline, or nothing moved beyond the tolerance.");
   else for (const d of r.drift) lines.push(`- ${d}`);
   lines.push("", "## Timings", "");
