@@ -94,6 +94,11 @@ eval is reproducible from the committed file.
 **Take the 60 most recently merged** qualifying PRs per repo (fewer if the repo has fewer).
 No other filter. Not by size, not by language of the diff, not by whether facts fire.
 
+> **Amendment 2026-10-23 (after run 1, before run 2; recorded in `docs/experiments.md`).** The
+> lookback becomes **1,095 days** and the count **200 per repo**. Run 1's 327 PRs carried 137
+> facts, leaving 7 of 8 fact types under the 30-fire bar with no verdict possible; the rule is
+> unchanged in every other respect and scales without choosing PRs. Run 1 stays recorded as run.
+
 **Stop rule on reconstruction.** If more than 20 % of a repo's candidates are excluded as
 non-reconstructible, the run stops and the cause is investigated before any result is read —
 that would be a harness bug, not a corpus property.

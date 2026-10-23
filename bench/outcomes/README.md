@@ -41,7 +41,7 @@ node bench/outcomes/run.ts eval                                  # results.md ga
 | Flag | Default | Meaning |
 |---|---|---|
 | `--repos a,b` | all six | Restrict to these slugs (`black`, `cli-cli`, `actix-web`, `vite`, `fastlane`, `mockito`) |
-| `--limit N` | 60 | PRs per repo (pilots) |
+| `--limit N` | 200 | PRs per repo (pilots) |
 | `--repo-concurrency N` | 3 | Repos processed at once |
 | `--pr-concurrency N` | 2 | Briefs per repo at once (each `scoreDiff` spawns several git processes) |
 | `--keep-clones` | off | Keep `~/.cache/opendrs/outcomes/clones/<slug>`; otherwise `build`/`label` delete them at the end |
@@ -66,7 +66,8 @@ resumes; delete a file to redo that one thing.
 
 Per repo: default-branch tip at first fetch = pinned head `T_head`; window `W = 90 days`;
 candidates are PRs into the default branch with `merged_at ≤ T_head − W`, created within the
-365 days before that cutoff, not bot-authored; the 60 most recently merged. A PR is then
+1,095 days (3 years) before that cutoff, not bot-authored; the 200 most recently merged (run 1,
+recorded in `docs/experiments.md`, used 365 days and 60; the amendment there says why). A PR is then
 excluded, with its reason in `corpus.json`, when its merge commit is not on the pinned head's
 first-parent history or the reconstructed diff's file count differs from GitHub's
 `changed_files`. More than 20 % of a repo excluded that way stops the run (exit 1 with the

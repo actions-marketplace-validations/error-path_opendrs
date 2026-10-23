@@ -58,8 +58,9 @@ const execFileAsync = promisify(execFile);
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const CACHE = join(homedir(), ".cache/opendrs/outcomes");
 const WINDOW_DAYS = 90;
-const LOOKBACK_DAYS = 365;
-const PER_REPO = 60;
+/** Spec §3 as amended 2026-10-23 (docs/experiments.md): run 1 used 365 days and 60 PRs per repo. */
+const LOOKBACK_DAYS = 1095;
+const PER_REPO = 200;
 const LINE_WINDOW = 10;
 const BLAME_CONCURRENCY = 4;
 
@@ -177,6 +178,9 @@ interface Selection {
   defaultBranch: string;
   head: string;
   headTime: number;
+  /** The rule's parameters this selection was made with; a change recomputes it (same pinned head). */
+  lookbackDays: number;
+  perRepo: number;
   selected: number[];
   excluded: Array<{ number: number; reason: ExclusionReason }>;
 }
@@ -191,7 +195,7 @@ async function fetchRepo(repo: (typeof REPOS)[number], limit: number): Promise<S
   const head = await ghJson<{ sha: string; commit: { committer: { date: string } } }>(`repos/${owner}/${name}/commits/${info.default_branch}`);
   const headTime = sec(head.commit.committer.date);
   let selection: Selection;
-  if (existing && existing.head === head.sha) {
+  if (existing && existing.head === head.sha && existing.lookbackDays === LOOKBACK_DAYS && existing.perRepo === PER_REPO) {
     selection = existing;
   } else {
     const pulls: GhPullSummary[] = [];
@@ -202,7 +206,7 @@ async function fetchRepo(repo: (typeof REPOS)[number], limit: number): Promise<S
       if (stopPaging || items.length < 100) break;
     }
     const { selected, excluded } = selectPulls(pulls, headTime, { windowDays: WINDOW_DAYS, lookbackDays: LOOKBACK_DAYS, perRepo: PER_REPO });
-    selection = { defaultBranch: info.default_branch, head: head.sha, headTime, selected: selected.map((p) => p.number), excluded: excluded.filter((e) => e.reason !== "not-merged" && e.reason !== "merged-inside-window") };
+    selection = { defaultBranch: info.default_branch, head: head.sha, headTime, lookbackDays: LOOKBACK_DAYS, perRepo: PER_REPO, selected: selected.map((p) => p.number), excluded: excluded.filter((e) => e.reason !== "not-merged" && e.reason !== "merged-inside-window") };
     await writeJson(selectionFile(repo.slug), selection);
   }
   for (const n of selection.selected.slice(0, limit)) {

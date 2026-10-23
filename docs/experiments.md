@@ -95,6 +95,43 @@ branch; every conclusion lists follow-ups.
 drift baseline in `bench/outcomes/baseline.json`. Cache under `~/.cache/opendrs/outcomes/`;
 clones deleted after the run. Every repeatable step timed with `scripts/record-run.mjs`.
 
+**Result (run 1, the pre-registered corpus; commit `4f4597b` holds its `corpus.json`,
+`labels.json` and `results.*`).** Pinned heads 2026-10-20 to 2026-10-23. 327 PRs scored of
+1,067 candidates: 621 bot-authored, 115 outside the lookback, 4 `diff-mismatch` (3 cli/cli
+merge-commit PRs, 1 mockito; every repo far under the 20 % stop rule), none `not-first-parent`.
+mockito had only 30 qualifying PRs. Shapes: 300 squash, 33 merge commits (cli/cli), 1 rebase.
+Timings: fetch 5.5 min (1,208 cached requests), build 3.3 min (full clones; a blobless-clone
+pilot spent 2–6 min *per brief* in partial-clone lazy fetches and was abandoned), label 1.6 min
+(231 fix commits blamed), eval 7 s. **137 facts fired on 327 PRs; only `contract.api` (75,
+46 of them on mockito) reached the 30-fire bar**, so the rule gives one verdict:
+
+| Fact | Fires | E_file (exp) | lift | F_file (exp) | lift | No outcome | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `contract.api` | 75 | 16.0 % (12.1 %) | 1.32× | 0.0 % (1.5 %) | 0.00× | 84.0 % | **keep** (line level: E_line 12.0 % vs 5.3 %, 2.28×) |
+| `coupling.missing` | 19 | 0.0 % (2.6 %) | 0.00× | 0.0 % (1.7 %) | 0.00× | 100 % | insufficient; every fire on a CI workflow, a `Cargo.toml`/`package.json` or a test — the field test's noise pattern again; `P_partner` 57.9 % |
+| `contract.env` | 14 | 0.0 % (24.0 %) | 0.00× | 71.4 % (48.9 %) | 1.46× | 28.6 % | insufficient; 10 of 14 are one PR (cli/cli#13777, ten lines of one generated `issue-triage.lock.yml`) |
+| `change.safety_removed` | 10 | 10.0 % (7.8 %) | 1.28× | 0.0 % (0.7 %) | 0.00× | 90.0 % | insufficient |
+| `change.concurrency` | 7 | 0.0 % (5.9 %) | 0.00× | 14.3 % (3.0 %) | 4.72× | 85.7 % | insufficient |
+| `contract.instructions` | 5 | 60.0 % (20.7 %) | 2.90× | 0.0 % (4.4 %) | 0.00× | 40.0 % | insufficient |
+| `contract.dependency` | 5 | 0.0 % (0.0 %) | — | 0.0 % (0.0 %) | — | 100 % | insufficient |
+| `layers.edge` | 2 | 100 % (41.7 %) | 2.40× | 0.0 % (0.0 %) | — | 0.0 % | insufficient |
+
+Outcomes are sparse: 73 of 327 PRs have a counted review comment (248 comments, none without a
+line), **18 have a blame hit** (5.5 %), 1 was reverted, 22 had changes requested. **Captain
+priority:** careful 11/149 fixed-or-reverted (7.4 %), standard 6/78 (7.7 %), quick 1/100
+(1.0 %); corpus 5.5 %; recall at careful 61.1 %. The pre-registered test passes (careful ≥ 1.2×
+base on ≥ 30 PRs: 1.35×), but the honest reading is that the priority separates **quick** from
+the rest, not careful from standard.
+
+**Amendment 2026-10-23 (before run 2).** The corpus rule's two size parameters change:
+lookback 365 → **1,095 days**, PRs per repo 60 → **200** (fewer where a repo has fewer). Nothing
+else changes — same repos, pinned heads, window, labels, controls, metrics and decision rule, and
+run 1 above stays recorded exactly as run. Reason: the rule's own "insufficient data" arm fired
+for 7 of 8 fact types; the only way to a verdict is more PRs, and the mechanical rule scales
+without choosing any. Run 1's 60 PRs per repo are a subset of run 2's selection (same pinned
+heads), so run 2 is an extension, not a different sample. Expected cost: ~3,600 read-only API
+requests across two rate-limit hours, about 1,200 briefs at ~2 s each.
+
 ## Verifier precision study on the field-test corpus
 
 **Status.** Pre-registered 2026-10-22; v1 run completed 2026-10-22 (run id
