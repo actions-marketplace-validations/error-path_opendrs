@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| 2026-10-23 (pre-registered 2026-10-23, before coding) | Do the outcome-labels study's top three detector follow-ups (`contract.api` per-file aggregation, `coupling.missing` narrowing, `contract.env` per-file aggregation + generated-file skip) hold on a held-out corpus the follow-ups were never derived from? | See "Result" below: pending at pre-registration time | Pending | [details](#captain-fact-precision-follow-ups-on-a-held-out-corpus) |
 | 2026-10-23 (pre-registered 2026-10-23; corpus-size amendment the same day, before run 2) | Do the captain facts point where human reviewers independently look (review comments) and where later fixes land (90-day SZZ blame, reverts), relative to the same PR's other files, on merged PRs of six active public repos (one per supported language)? Is the captain priority informative about later fixes? | Run 2, 1,010 PRs, 3,197 facts: **keep** `contract.api` (engagement 1.23×; 1.30× on the five facts a comment shows), `contract.dependency` (engagement 1.32×, later-fix 4.62×), `change.concurrency` (1.63× / 2.08×), `change.safety_removed` (1.62× / —); **demote** `coupling.missing` (0 of 45 fires engaged, later-fix 0.92×); insufficient data (< 30 fires) for `contract.env`, `layers.edge` (1.89× on 18), `contract.instructions`, `contract.schema`. Priority **informative**: fixed-or-reverted careful 14.8 %, standard 10.4 %, quick 1.7 % (base 9.8 %) | Report only; no detector changed. Standing eval in `bench/outcomes/` | [details](#outcome-labels-on-active-public-repos) |
 | 2026-10-22, amended and re-run 2026-10-23 (pre-registered 2026-10-22, amendment 2026-10-23) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | **v1**: recall PASS (1/14), `coupling.missing` PASS (15/18: 4 detector + 11 verifier), WRONG-fire precision FAIL (0/2 — both facts never fire at all post-0.4.1; the study couldn't yet tell "eliminated" from "missed"), cost FAIL ($0.0210/PR, $1.0271/49 PRs). Overall precision-fail, recorded honestly below with no exception carved out. Root-caused and fixed (dead `VerifyVerdict.confidence` field; WRONG-fire elimination now scored, same bar) — amended and re-run. **v2** (same corpus/model/bars, run `2026-10-22T19-16-53-589Z`): recall PASS (1/14), `coupling.missing` PASS (14/18: 4 detector + 10 verifier), WRONG-fire precision PASS (2/2, both eliminated at the detector), cost PASS ($0.0192/PR, $0.9419/49 PRs). **Overall: ship.** Combined v1+v2 spend $1.9690 of the $5 study cap | Shipped as opendrs 0.5.0 | [details](#verifier-precision-study-on-the-field-test-corpus) |
 | 2026-10-20 (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | On ApacheJIT, both candidates make saturation worse, not better: intercept re-centring to mid-yellow raises red share 25.6 % → 40.3 % (the train-split median was 0.307, not near red as assumed); scaling `history.*`/`expertise.*` by repo age raises red share to 33.9 % and costs −0.0052 AUC (significant loss, CI −0.0058 to −0.0046) | Rejected; the pre-registration's "median near red" premise does not hold on ApacheJIT | [details](#default-weights-re-centred-intercept-and-repo-age-scaling-on-apachejit) |
@@ -244,6 +245,92 @@ number).**
 6. Wire the standing eval into the release checklist (`docs/maintaining.md`): after any detector,
    weight or prompt change, `build --fresh-briefs` then `eval`, and read the drift section
    before shipping. Not CI: it needs the clones and ~10 min.
+
+## Captain-fact precision follow-ups on a held-out corpus
+
+**Status.** Pre-registered 2026-10-23, before any fix was coded (worker rule 8). The three fixes
+and their rationale are recorded in commits `fix(captain): aggregate contract.api and
+contract.env per file, skip generated lock files` and `fix(coupling): demote coupling.missing to
+info-only, skip CI workflows/manifests/tests`, both on branch `fix/captain-fact-precision`.
+
+**Why a held-out corpus, not run 2's.** The three fixes below (ranked follow-ups 1–3 in "Outcome
+labels on active public repos" above) were read directly off run 2's 1,010-PR corpus: `contract.api`
+per-file aggregation from cli/cli#12289's 2,628 fires, `coupling.missing`'s narrowing from its 45
+fires' file classes, `contract.env`'s per-file aggregation and generated-file skip from
+cli/cli#13777's 10 fires on one `issue-triage.lock.yml`. Re-running the standing eval's `build
+--fresh-briefs`/`eval` on that same corpus would measure the fixes against the exact data that
+produced them — not a validation, an echo. Every number from that corpus is reported below only
+as a sanity check that the mechanics ran, labelled "run 2 (reference only, not validating)".
+
+**Question.** On merged PRs the study never scored before, each in a repo never in run 2's six: do
+the three fixes (a) behave correctly on the diffs they are meant for — one `contract.api`/
+`contract.env` fact per file with a count, no `coupling.missing` fire on a CI workflow, manifest
+or test, `coupling.missing` always `info` — and (b) leave the standing eval's primary metric
+(shown-facts file-level engagement/fix lift, the forward amendment above) no worse than main's,
+for the two fact types whose change is purely an aggregation (not a new exclusion)?
+
+**Held-out corpus.** Two repositories never in run 2's six and never `error-path/opendrs` (rule
+16), chosen by the spec's own mechanical selection, scoped down for this task's time budget:
+
+| Slug | Repo | Language | Why |
+|---|---|---|---|
+| `click` | pallets/click | Python | Multi-maintainer (the Pallets team), active, small enough to clone and brief quickly (5 MB) |
+| `yargs` | yargs/yargs | JavaScript | Multi-maintainer, active, small (5.5 MB) |
+
+Same mechanical PR-selection rule as spec §3 (pinned head = default-branch tip at fetch time,
+`W = 90` days, author not a bot, reconstructible from the clone), with **`--limit 60`** instead of
+200 — the pre-amendment per-repo count from the spec's own first run, chosen here only for this
+task's bench-time budget, not for how the facts behave on these PRs. This is a genuine reduction
+in statistical power versus the standing eval's own 200/repo and is recorded as a caveat on any
+"insufficient data" reading below, not papered over.
+
+**Setup.** `bench/outcomes/run.ts`'s own fetch/build/label/eval steps, copied to a scratch
+directory (`scripts/` and committed files untouched — this never writes to `bench/outcomes/
+corpus.jsonl`/`labels.jsonl`/`baseline.json`, which stay run 2's) with `REPOS` replaced by the two
+rows above and the committed-file paths redirected under
+`~/.cache/opendrs/outcomes-heldout/`. Built and run twice from the same corpus/labels (fetched
+once, labels independent of opendrs):
+
+1. **main** (commit before this branch): `npm run build` on a clean checkout, `build
+   --fresh-briefs`, `eval`.
+2. **fix/captain-fact-precision** (this branch, after both detector commits): `npm run build`,
+   `build --fresh-briefs`, `eval`.
+
+**Decision rule, fixed before running.**
+
+1. **Structural correctness (primary; checkable even at N≈120, not a statistical claim).** On
+   every held-out PR's brief built with this branch's `dist/`:
+   - no file carries more than one `contract.api` fact and more than one `contract.env` fact
+     (aggregation holds);
+   - no `contract.env` fact's file matches `**/*.lock.yml`;
+   - no `coupling.missing` fact's file matches `**/.github/workflows/**`, a manifest
+     (`isManifestPath`) or `paths.tests`;
+   - every `coupling.missing` fact has `weight: "info"`.
+   A single violation on real, previously-unseen diffs fails this leg and reverts the fix (worker
+   rule: a fix that fails its rule on held-out data is reverted, recorded here as a FAIL either
+   way).
+2. **No regression on the primary (shown-facts) engagement/fix lift**, for `contract.api` and
+   `contract.env` only (the aggregation is a presentation change — it must not change *which*
+   files fire, so the labelled PRs and outcomes are identical before and after; only the per-file
+   fact *count* changes). Pass: held-out `E_file`/`F_file` lift with the fix ≥ lift on main, within
+   rounding, **or** fewer than 10 fires on both sides (insufficient data either way — reported, not
+   a pass or fail). `coupling.missing` is exempted from this leg by design: the fix is meant to
+   *remove* fires on noisy classes, so a fire-count drop is the intended outcome, not a regression;
+   its own rule is #3.
+3. **`coupling.missing`'s remaining fires, if any, are no less engaged than main's.** If the
+   held-out corpus has any `coupling.missing` fires surviving the narrower exclusion, their
+   `E_file`/`F_file` lift must be ≥ main's fires' lift on the same corpus (even a single fire is
+   reported, since the structural leg #1 already proves the exclusion fired correctly; this leg
+   only checks that what's left isn't worse). Fewer than 5 remaining fires on either side:
+   insufficient data, reported, not a fail.
+
+**Reference only, not validating.** `bench/outcomes/results.md`'s already-committed run 2 numbers
+for the three fact types, copied here unchanged for comparison: `contract.api` keep (1.23×
+per-fire, 1.30× shown), `contract.env` insufficient (26 fires, 0.23× / 1.44×), `coupling.missing`
+demote (0.00× / 0.92×, 45 fires). These are what motivated the fixes, not what tests them.
+
+**Result.** *(filled in after the held-out run; a failing leg reverts that fix and is recorded
+here, not silently fixed up.)*
 
 ## Verifier precision study on the field-test corpus
 
