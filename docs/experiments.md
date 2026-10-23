@@ -17,6 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| Pre-registered 2026-10-23 (no run yet) | Do the captain facts point where human reviewers independently look, and where later fixes land, on ~360 merged PRs across six active public repos (one per supported language)? Is the captain priority informative about later fixes? | Pending | Pre-registered; harness `bench/outcomes/` | [details](#outcome-labels-on-active-public-repos) |
 | 2026-10-22, amended and re-run 2026-10-23 (pre-registered 2026-10-22, amendment 2026-10-23) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | **v1**: recall PASS (1/14), `coupling.missing` PASS (15/18: 4 detector + 11 verifier), WRONG-fire precision FAIL (0/2 — both facts never fire at all post-0.4.1; the study couldn't yet tell "eliminated" from "missed"), cost FAIL ($0.0210/PR, $1.0271/49 PRs). Overall precision-fail, recorded honestly below with no exception carved out. Root-caused and fixed (dead `VerifyVerdict.confidence` field; WRONG-fire elimination now scored, same bar) — amended and re-run. **v2** (same corpus/model/bars, run `2026-10-22T19-16-53-589Z`): recall PASS (1/14), `coupling.missing` PASS (14/18: 4 detector + 10 verifier), WRONG-fire precision PASS (2/2, both eliminated at the detector), cost PASS ($0.0192/PR, $0.9419/49 PRs). **Overall: ship.** Combined v1+v2 spend $1.9690 of the $5 study cap | Shipped as opendrs 0.5.0 | [details](#verifier-precision-study-on-the-field-test-corpus) |
 | 2026-10-20 (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | On ApacheJIT, both candidates make saturation worse, not better: intercept re-centring to mid-yellow raises red share 25.6 % → 40.3 % (the train-split median was 0.307, not near red as assumed); scaling `history.*`/`expertise.*` by repo age raises red share to 33.9 % and costs −0.0052 AUC (significant loss, CI −0.0058 to −0.0046) | Rejected; the pre-registration's "median near red" premise does not hold on ApacheJIT | [details](#default-weights-re-centred-intercept-and-repo-age-scaling-on-apachejit) |
 | 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
@@ -30,6 +31,69 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Outcome labels on active public repos
+
+**Status.** Pre-registered 2026-10-23, before any fetch, clone or brief. Spec:
+`docs/specs/2026-10-23-outcome-labels-design.md`. The question, corpus rule, labels, metrics and
+decision rule below are copied from it; results are appended under "Result" after the run,
+including a failed or stopped run.
+
+**Question.** The captain facts' precision has only been measured on proxies — the hand-graded
+49-PR field test, and ApacheJIT bug lift on Java commits. On merged PRs in active public repos,
+where review comments and the later fix history already exist: (1) per fact type, do facts point
+at files (and lines) that human reviewers independently commented on, and at files (and lines)
+that a fix commit within 90 days blamed back to the PR, more often than the same PR's other
+changed files? (2) Is the captain priority ("careful review") informative about which PRs were
+later fixed or reverted? (3) Can the labelled set stand as a regression eval that re-runs on
+every detector, weight or prompt change?
+
+**Setup.**
+- **Repos (fixed).** psf/black (Python), cli/cli (Go), actix/actix-web (Rust), vitejs/vite
+  (TypeScript), fastlane/fastlane (Ruby, with the field test's recorded quirks: full clone,
+  `history.maxCommits: 1500`, `history.lookbackDays: 90`), mockito/mockito (Java). vapor/vapor
+  (Swift) is dropped: no Swift import extractor, zero facts in the field test.
+- **PR selection (mechanical, spec §3).** Pinned head = default-branch tip at corpus-build time,
+  `T_head`. Window `W = 90 days`. Candidates: PRs into the default branch, `merged_at ≤ T_head −
+  W`, `created_at ≥ T_head − W − 365 d`, author not a `Bot`, reconstructible from the clone (merge
+  commit on first-parent history; diff file count equals the PR's `changed_files`). The 60 most
+  recently merged qualifying PRs per repo. Exclusions are listed with reasons. **Stop rule:** more
+  than 20 % of a repo's candidates non-reconstructible → the run stops and the cause is
+  investigated before any number is read.
+- **Brief (spec §4).** `scoreDiff` from `dist/` with `llm: null`, `defaultConfig()` plus the
+  repo's recorded quirks only (no `.opendrs.yml` from the repo), base/head from the merge commit
+  (merge → `M^1`/`M^2`; squash → `M^1`/`M`; rebase → `M~k`/`M`), one shared history index per
+  repo at the pinned head with `asOf = base time + 1 s` (the `calibrate`/`backtest` reuse;
+  leakage of later-merged, earlier-committed branches is a recorded caveat).
+- **Labels (spec §5), stored in `bench/outcomes/labels.json`, independent of opendrs output.**
+  `E_file`/`E_line`: a review comment by a non-bot non-author on the fact's file / within ±10
+  lines of the fact's line. `F_file`/`F_line`: a fix commit (`isFix` or `isRevert`, non-merge,
+  within `(merged_at, merged_at + 90 d]`) whose SZZ-lite blame (`blameFix`) lands on a PR commit
+  at the fact's file / within ±10 lines. `R`: the PR reverted. `P_partner` (coupling only,
+  descriptive): a fix in the window touched the named partner.
+- **Controls (spec §5.3).** Expected `E_file`/`F_file` for a fact = the share of the PR's
+  changed non-ignored files with that outcome; expected `E_line`/`F_line` = the share of the
+  fact file's added lines within ±10 of such an outcome. **Lift** = mean(label) / mean(expected)
+  over a fact type's facts.
+- **Priority.** Share of fixed-or-reverted PRs per priority tier vs. the corpus rate; recall of
+  fixed-or-reverted PRs at "careful".
+- **No LLM or API calls.** Verifier outcome measurement is designed in spec §10 (≈ $7, cap $10)
+  and not run.
+
+**Decision rule (spec §7), per fact type, file-level lifts primary.**
+- fewer than 30 facts fired → **insufficient data** (no change proposed);
+- `E_file` lift ≥ 1.2 or `F_file` lift ≥ 1.2 → **keep**;
+- neither ≥ 1.2, at least one ≥ 1.0 → **retune** (a detector change is proposed, not made);
+- both < 1.0 → **demote** (`strong` → `info` proposed; `info` → removal or a narrower trigger).
+
+The captain priority is **informative** when the careful tier's fixed-or-reverted rate is ≥ 1.2×
+the corpus rate on ≥ 30 careful PRs; otherwise **not shown**. No detector is changed in this
+branch; every conclusion lists follow-ups.
+
+**Where.** `bench/outcomes/run.ts`, `bench/outcomes/lib.ts`, `bench/outcomes/corpus.json`,
+`bench/outcomes/labels.json`; results in `bench/outcomes/results.md`/`results.json` and the
+drift baseline in `bench/outcomes/baseline.json`. Cache under `~/.cache/opendrs/outcomes/`;
+clones deleted after the run. Every repeatable step timed with `scripts/record-run.mjs`.
 
 ## Verifier precision study on the field-test corpus
 
