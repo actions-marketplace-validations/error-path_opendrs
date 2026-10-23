@@ -16,6 +16,7 @@ import {
   renderResults,
   resolveMergeShape,
   selectPulls,
+  shownFacts,
   summarise,
   type BlameHit,
   type CommentLoc,
@@ -272,5 +273,14 @@ describe("renderResults", () => {
     expect(md).toContain("careful");
     expect(md).toContain("a: fires 1 → 2 (+100 %)");
     expect(md).toContain("insufficient");
+  });
+});
+
+describe("shownFacts", () => {
+  it("keeps the first `cap` records of each PR, in brief order — what the PR comment shows", () => {
+    const rs = [1, 2, 3, 4, 5, 6, 7].map((i) => rec(`t${i}`, false, false, 0, 0, { number: 1, file: `f${i}` }));
+    const other = rec("t1", false, false, 0, 0, { number: 2 });
+    const shown = shownFacts([...rs, other], 5);
+    expect(shown.map((r) => `${r.number}:${r.file}`)).toEqual(["1:f1", "1:f2", "1:f3", "1:f4", "1:f5", "2:f"]);
   });
 });

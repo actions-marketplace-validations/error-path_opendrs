@@ -17,7 +17,7 @@ commits in the riskiest X % of commits. How to read the metrics is in
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
-| Pre-registered 2026-10-23 (no run yet) | Do the captain facts point where human reviewers independently look, and where later fixes land, on ~360 merged PRs across six active public repos (one per supported language)? Is the captain priority informative about later fixes? | Pending | Pre-registered; harness `bench/outcomes/` | [details](#outcome-labels-on-active-public-repos) |
+| 2026-10-23 (pre-registered 2026-10-23; corpus-size amendment the same day, before run 2) | Do the captain facts point where human reviewers independently look (review comments) and where later fixes land (90-day SZZ blame, reverts), relative to the same PR's other files, on merged PRs of six active public repos (one per supported language)? Is the captain priority informative about later fixes? | Run 2, 1,010 PRs, 3,197 facts: **keep** `contract.api` (engagement 1.23×; 1.30× on the five facts a comment shows), `contract.dependency` (engagement 1.32×, later-fix 4.62×), `change.concurrency` (1.63× / 2.08×), `change.safety_removed` (1.62× / —); **demote** `coupling.missing` (0 of 45 fires engaged, later-fix 0.92×); insufficient data (< 30 fires) for `contract.env`, `layers.edge` (1.89× on 18), `contract.instructions`, `contract.schema`. Priority **informative**: fixed-or-reverted careful 14.8 %, standard 10.4 %, quick 1.7 % (base 9.8 %) | Report only; no detector changed. Standing eval in `bench/outcomes/` | [details](#outcome-labels-on-active-public-repos) |
 | 2026-10-22, amended and re-run 2026-10-23 (pre-registered 2026-10-22, amendment 2026-10-23) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | **v1**: recall PASS (1/14), `coupling.missing` PASS (15/18: 4 detector + 11 verifier), WRONG-fire precision FAIL (0/2 — both facts never fire at all post-0.4.1; the study couldn't yet tell "eliminated" from "missed"), cost FAIL ($0.0210/PR, $1.0271/49 PRs). Overall precision-fail, recorded honestly below with no exception carved out. Root-caused and fixed (dead `VerifyVerdict.confidence` field; WRONG-fire elimination now scored, same bar) — amended and re-run. **v2** (same corpus/model/bars, run `2026-10-22T19-16-53-589Z`): recall PASS (1/14), `coupling.missing` PASS (14/18: 4 detector + 10 verifier), WRONG-fire precision PASS (2/2, both eliminated at the detector), cost PASS ($0.0192/PR, $0.9419/49 PRs). **Overall: ship.** Combined v1+v2 spend $1.9690 of the $5 study cap | Shipped as opendrs 0.5.0 | [details](#verifier-precision-study-on-the-field-test-corpus) |
 | 2026-10-20 (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | On ApacheJIT, both candidates make saturation worse, not better: intercept re-centring to mid-yellow raises red share 25.6 % → 40.3 % (the train-split median was 0.307, not near red as assumed); scaling `history.*`/`expertise.*` by repo age raises red share to 33.9 % and costs −0.0052 AUC (significant loss, CI −0.0058 to −0.0046) | Rejected; the pre-registration's "median near red" premise does not hold on ApacheJIT | [details](#default-weights-re-centred-intercept-and-repo-age-scaling-on-apachejit) |
 | 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
@@ -133,6 +133,102 @@ for 7 of 8 fact types; the only way to a verdict is more PRs, and the mechanical
 without choosing any. Run 1's 60 PRs per repo are a subset of run 2's selection (same pinned
 heads), so run 2 is an extension, not a different sample. Expected cost: ~3,600 read-only API
 requests across two rate-limit hours, about 1,200 briefs at ~2 s each.
+
+**Result (run 2, the amended corpus; this branch's `corpus.json`, `labels.json`, `baseline.json`
+and `results.*`).** Same pinned heads as run 1. **1,010 PRs scored** (black 200, cli/cli 196,
+actix-web 98, vite 199, fastlane 200, mockito 117 — actix-web and mockito ran out of qualifying
+PRs inside the three years) of 2,314 candidates: 1,151 bot-authored, 147 outside the lookback,
+6 `diff-mismatch` (4 cli/cli merge-commit PRs, 1 vite, 1 mockito; every repo far under the 20 %
+stop rule). Shapes: 838 squash, 166 merge commits, 6 rebase. Labels: 245 PRs have a counted
+review comment (827 comments, all with a line), **99 have a blame hit (9.8 %)**, 5 were
+reverted, 54 had changes requested; 461 fix commits were blamed. 205 of 1,010 PRs carry any fact
+(805 none, 188 one to five, 13 six to twenty, 4 more). Timings (`scripts/record-run.mjs`): fetch —
+the first attempt was killed by the master session's restart after ≈ 3,100 cached requests (≥ 20
+min, rate-limit bound), the resume from the cache took 0.2 min; build 7.0 min for 1,010 briefs
+at 3 repos × 2 PRs in parallel (≈ 2 s a brief on full clones); label 0.3 min with run 1's blame
+cache (1.6 min cold); eval seconds. Clones deleted afterwards.
+
+Per fact type, the pre-registered per-fact rule, file level (`bench/outcomes/results.md` is the
+source; "exp" is the same PRs' other-file rate, §5.3):
+
+| Fact | Fires (PRs) | E_file (exp) | lift | F_file (exp) | lift | No outcome | Verdict (§7) |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `change.concurrency` | 72 (21) | 4.2 % (2.6 %) | 1.63× | 2.8 % (1.3 %) | 2.08× | 93.1 % | **keep** |
+| `change.safety_removed` | 42 (42) | 11.9 % (7.3 %) | 1.62× | 0.0 % (1.0 %) | 0.00× | 88.1 % | **keep** |
+| `contract.api` | 2,938 (114) | 1.1 % (0.9 %) | 1.23× | 0.3 % (0.4 %) | 0.63× | 98.7 % | **keep** |
+| `contract.dependency` | 43 (22) | 9.3 % (7.0 %) | 1.32× | 23.3 % (5.0 %) | **4.62×** | 67.4 % | **keep** |
+| `contract.env` | 26 (12) | 3.8 % (16.5 %) | 0.23× | 38.5 % (26.6 %) | 1.44× | 57.7 % | insufficient |
+| `contract.instructions` | 10 (9) | 60.0 % (43.4 %) | 1.38× | 0.0 % (2.2 %) | 0.00× | 40.0 % | insufficient |
+| `contract.schema` | 3 (1) | 0.0 % (0.0 %) | — | 0.0 % (0.1 %) | 0.00× | 100 % | insufficient |
+| `coupling.missing` | 45 (36) | 0.0 % (4.3 %) | 0.00× | 4.4 % (4.8 %) | 0.92× | 95.6 % | **demote** |
+| `layers.edge` | 18 (16) | 33.3 % (17.6 %) | 1.89× | 0.0 % (2.1 %) | 0.00× | 66.7 % | insufficient |
+
+Line level (±10 lines, facts with a line): `contract.api` E_line 0.4 % vs 0.3 % (1.31×);
+`contract.dependency` 9.3 % vs 6.4 % (1.45×); `change.concurrency` 0.67× and
+`change.safety_removed` 0.90× — the file is right, the line pointed at is not where reviewers
+comment. `coupling.missing`'s descriptive `P_partner`: 44.4 %.
+
+**One PR dominates `contract.api`.** cli/cli#12289 fired **2,628** of the 2,938 facts (one per
+removed public declaration in a mass Go refactor); the brief shows five and folds the rest into
+"+N more". Without that PR: 310 fires, E_file 10.3 % vs 8.4 % (1.23×), F_file 2.6 % vs 3.2 %
+(0.80×) — the verdict does not change. A **post-hoc view** was added to the harness after this
+was seen (labelled as such in `results.md`, not part of the rule): the first five facts of each
+PR, i.e. what the PR comment shows. On it, `contract.api` is 202 fires on 112 PRs, E_file
+15.8 % vs 12.2 % (**1.30×**), F_file 3.5 % vs 3.2 % (1.08×); `change.safety_removed` 1.49×;
+`contract.dependency` 1.32× / 3.70×; `coupling.missing` still 0.00× / 0.92× (43 fires);
+`change.concurrency` drops to 22 fires (1.63× / 1.19×, insufficient on that view).
+
+**Captain priority** (1,010 PRs): fixed-or-reverted careful **65/438 (14.8 %)**, standard
+29/278 (10.4 %), quick **5/294 (1.7 %)**; corpus 9.8 %; recall at careful 65.7 %. The
+pre-registered test passes (careful 1.51× base on ≥ 30 PRs). Unlike run 1, careful now also
+beats standard (1.4×); quick is clean. Changes-requested reviews by priority: careful 25,
+standard 23, quick 6.
+
+**Reading the labels honestly.** Engagement is counterfactual (opendrs did not run on these
+PRs): a lift > 1 means the fact points where reviewers already looked without it, a lift < 1 that
+they did not — which is noise *or* the blind spot the brief exists to fill; the fix lift is what
+separates the two. `contract.env` is the clearest case: reviewers rarely comment on an env read
+(0.23×), yet the file is fixed later more often than the PR's other files (1.44×). Fix outcomes
+are sparse (9.8 % of PRs) and SZZ-lite blames only modified or deleted lines, so `F` undercounts
+and its lifts are noisy below ~40 fires. Also: 10 of `contract.env`'s 26 fires are one generated
+`issue-triage.lock.yml` in cli/cli#13777 — the same fact-id collision/repetition the verifier
+study flagged.
+
+**Conclusion per fact type (no detector changed in this branch; follow-ups below).**
+- `contract.api` — **keep**. Reviewers comment on the files it names 1.23–1.30× more than on the
+  PR's other files; no later-fix signal.
+- `contract.dependency` — **keep**; the strongest later-fix signal of any fact (23.3 % of named
+  manifests fixed within 90 days, 4.62×), plus 1.32× engagement.
+- `change.concurrency` — **keep** (1.63× / 2.08×), as a file-level fact; its line is not where
+  reviewers comment.
+- `change.safety_removed` — **keep** (1.62× engagement); stays `info` (fires on 42 PRs).
+- `coupling.missing` — **demote**: 0 of 45 fires drew a comment, and the file was fixed later no
+  more than the PR's other files (0.92×). Firing files: 15 CI workflows, 8 manifests, 8 tests, 14
+  source files. The field test's 18-of-18 noise finding holds at 45 fires on a different sample.
+- `contract.env` (26), `layers.edge` (18, 1.89× engagement — the first non-ApacheJIT evidence
+  in its favour), `contract.instructions` (10, 1.38×), `contract.schema` (3) — **insufficient
+  data**; no change proposed.
+- `drift.scope` — not measurable here (Action-only), as in the field test.
+
+**Follow-ups, ranked (each a separate branch with its own pre-registration where it changes a
+number).**
+1. `contract.api`: one fact per file with a count ("removes or changes N exported declarations
+   in X"), the way `change.safety_removed` already counts per PR — one PR firing 2,628 facts
+   also starves every other fact of the comment's five slots. Re-run this eval (drift section)
+   and the ApacheJIT lift afterwards.
+2. `coupling.missing`: demote to `info` for every class (the rule's output) and narrow the
+   firing file to source files — no CI workflow, manifest or test as the changed side — then
+   re-run; the standing eval's drift section is the check.
+3. `contract.env`: one fact per file, and skip generated files (`*.lock.yml` and the like).
+4. More repos, not a longer window, for the four insufficient types: actix-web and mockito are
+   exhausted at three years; add multi-reviewer public repos per language (never
+   `error-path/opendrs`, worker rule 16). `layers.edge` needs ~12 more firing PRs to reach the bar.
+5. The verifier's outcome measurement (spec §10): the same labels score `llm.verify`'s
+   drop/downgrade verdicts; at the measured $0.0192/PR it is ≈ $19 for all 1,010 PRs or ≈ $4
+   for the 205 PRs that carry a fact (cap $10). Designed, not run; the user decides.
+6. Wire the standing eval into the release checklist (`docs/maintaining.md`): after any detector,
+   weight or prompt change, `build --fresh-briefs` then `eval`, and read the drift section
+   before shipping. Not CI: it needs the clones and ~10 min.
 
 ## Verifier precision study on the field-test corpus
 

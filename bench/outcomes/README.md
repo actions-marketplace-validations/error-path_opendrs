@@ -58,7 +58,7 @@ resumes; delete a file to redo that one thing.
 | `fetch` | GitHub | `gh/<request>.json` (one file per API request), `gh/<slug>/selection.json` (the pinned head and the 60 selected PR numbers — pinned by the cache: the first fetch decides) |
 | `build` | `selection.json`, clones | `clones/<slug>`, `briefs/<slug>/<n>.json` (priority, facts, score, changed files with added-line numbers, wall time), `build/<slug>.json`, and the committed `corpus.json` |
 | `label` | `build/<slug>.json`, `briefs/`, clones | `blame/<slug>/<fixSha>.json` (one `blameFix` per fix commit), and the committed `labels.json` |
-| `eval` | `corpus.json`, `labels.json`, `briefs/` | the committed `results.md`, `results.json`, optionally `baseline.json` |
+| `eval` | `corpus.json`, `labels.json`, `briefs/` | the committed `results.md`, `results.json` (per-fact records included), optionally `baseline.json`. `results.md` also carries a post-hoc "first five facts per PR" view, since one PR can fire thousands of facts of one type and the comment shows five |
 
 `timings.json` under the cache root holds each step's last duration; `results.md` prints them.
 

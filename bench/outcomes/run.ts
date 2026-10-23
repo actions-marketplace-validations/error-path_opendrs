@@ -40,6 +40,7 @@ import {
   renderResults,
   resolveMergeShape,
   selectPulls,
+  shownFacts,
   summarise,
   type BlameHit,
   type CommentLoc,
@@ -448,6 +449,7 @@ interface ResultsJson {
   builtAt: string;
   corpus: { repos: number; prs: number; excluded: number };
   facts: FactTypeSummary[];
+  factsShown: FactTypeSummary[];
   priority: ReturnType<typeof priorityTable>;
   drift: string[];
   timings: Record<string, number>;
@@ -479,6 +481,7 @@ async function evalCorpus(o: Options): Promise<ResultsJson> {
     builtAt: new Date().toISOString(),
     corpus: { repos: corpus.repos.length, prs: scored, excluded: corpus.excluded.length },
     facts,
+    factsShown: summarise(shownFacts(records)),
     priority: priorityTable(prs),
     drift: baseline ? drift(baseline.facts, facts) : [],
     timings,

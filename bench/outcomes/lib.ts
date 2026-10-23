@@ -349,6 +349,21 @@ export function summarise(records: FactRecord[], o = { minFires: 30, bar: 1.2 })
   });
 }
 
+/**
+ * The first `cap` records of each PR, in brief order (strong first, fixed detector order) — the
+ * facts the PR comment actually shows (docs/captain.md §5). Post-hoc view added after run 2,
+ * where one PR carried 2,628 `contract.api` facts; records must arrive grouped by PR in brief order.
+ */
+export function shownFacts(records: FactRecord[], cap = 5): FactRecord[] {
+  const seen = new Map<string, number>();
+  return records.filter((r) => {
+    const key = `${r.slug}#${r.number}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    return n <= cap;
+  });
+}
+
 export type Priority = "careful" | "standard" | "quick";
 const PRIORITIES: readonly Priority[] = ["careful", "standard", "quick"];
 
@@ -408,6 +423,8 @@ export interface ResultsInput {
   builtAt: string;
   corpus: { repos: number; prs: number; excluded: number };
   facts: FactTypeSummary[];
+  /** Post-hoc: the same summaries over the first five facts of each PR (what the comment shows). */
+  factsShown?: FactTypeSummary[];
   priority: PriorityReport;
   drift: string[];
   /** Step durations in ms, by step name. */
@@ -432,6 +449,14 @@ export function renderResults(r: ResultsInput): string {
   lines.push("| Fact | With line | E_line | exp | lift | F_line | exp | lift | P_partner |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|");
   for (const s of r.facts) {
     lines.push(`| \`${s.id}\` | ${s.withLine} | ${pct(s.E_line)} | ${pct(s.expE_line)} | ${x(s.liftE_line)} | ${pct(s.F_line)} | ${pct(s.expF_line)} | ${x(s.liftF_line)} | ${pct(s.P_partner)} |`);
+  }
+  if (r.factsShown) {
+    lines.push("", "## Post-hoc: the five facts the PR comment shows (first five per PR, brief order)", "");
+    lines.push("Not part of the pre-registered rule; added after run 2 because one PR carried 2,628 `contract.api` facts and dominated the per-fact numbers above. The conclusion column applies the same §7 rule to this view.", "");
+    lines.push("| Fact | Fires | PRs | E_file | exp | lift | F_file | exp | lift | No outcome | Rule on this view |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+    for (const s of r.factsShown) {
+      lines.push(`| \`${s.id}\` | ${s.fires} | ${s.prs} | ${pct(s.E_file)} | ${pct(s.expE_file)} | ${x(s.liftE_file)} | ${pct(s.F_file)} | ${pct(s.expF_file)} | ${x(s.liftF_file)} | ${pct(s.noOutcome)} | ${s.conclusion} |`);
+    }
   }
   lines.push("", "## Captain priority", "", `Corpus fixed-or-reverted rate: ${pct(r.priority.base)}. Recall at careful: ${pct(r.priority.recallAtCareful)}. Informative (careful ≥ 1.2× base on ≥ 30 PRs): **${r.priority.informative ? "yes" : "no"}**.`, "");
   lines.push("| Priority | PRs | Fixed or reverted | Rate |", "|---|---:|---:|---:|");
