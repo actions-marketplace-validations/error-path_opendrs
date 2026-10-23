@@ -152,14 +152,30 @@ one of them:
 > `session.ts` changed with `auth.ts` in 14 of 17 commits (last 365 days); this PR changes only
 > `auth.ts`.
 
-Three deterministic noise classes, found by reading the field test's 18 fires (spec §3.8), are
-filtered or downgraded in the detector itself rather than left for a reviewer to dismiss: a
-**retired file** (the firing file is deleted in this PR) never fires at all, since a file going
-away has no partner left to update; a **partner lacking the subject** (every hunk of the firing
-file removes lines, and no identifier from those removed lines occurs in the partner's base text)
-downgrades to `info`; and a **test fired on its source** (the firing file matches `paths.tests`,
-its partner does not) also downgrades to `info`, since a test changing alone is a test-only change,
-not a forgotten co-change.
+**Demoted 2026-10-23** (`docs/experiments.md`, "coupling.missing"): the outcome-labels study
+measured this fact against real review comments and later fixes on 1,010 merged PRs and found 0 of
+45 fires drew a reviewer's attention and the fix rate on the file was no higher than the PR's other
+files (0.92×) — every fire was on a CI workflow, a manifest or a test, the same noise the
+hand-graded field test found at 18-of-18 (spec §3.8) two orders of magnitude earlier. Two changes
+follow from that result:
+
+- The fact is now always `info`, never `strong`: it can no longer by itself raise a PR to
+  "careful review" or "standard review" (§2).
+- It never fires at all when the file this PR actually changed (as opposed to its missing
+  partner) is a **CI workflow** (`.github/workflows/**`), a **manifest** (`package.json`,
+  `Cargo.toml`, `go.mod` and the other kinds `contract.dependency` parses), or a **test**
+  (`paths.tests`) — narrower than the field test's original three classes, which only downgraded
+  a changed-test-without-its-source case and left CI workflows and manifests unaddressed. A
+  **retired file** (the firing file is deleted in this PR) still never fires at all, since a file
+  going away has no partner left to update. When neither exclusion applies but every hunk of the
+  firing file removes lines and no identifier from those lines occurs in the partner's base text,
+  the text notes it (`mention nothing `<partner>` contains`) without changing the weight, since
+  every fire is `info` regardless now.
+
+It still appears in the full AI-facing brief (`captain.facts` lists every fact, §5) and still
+counts toward the PR comment's five slots when room is left after `strong` facts, but it can no
+longer take a slot away from them the way a `strong` fact could, and it never pushes the priority
+past what the other facts and the tier already say.
 
 ### `drift.scope` — what the PR grew into after opendrs first scored it
 
@@ -226,7 +242,10 @@ own captain brief off. See the [configuration reference](configuration.html) for
   45.5 % of them were bug-inducing against a 23.6 % base rate: a lift of 1.9×. Adding it to the
   score did not raise AUC (0.823 with and without), so it stays a captain fact and is not a
   score signal. The defaults (`minSupport: 8`, `minConfidence: 0.6`) were tuned on the training
-  split only. Details: [Experiments](experiments.html).
+  split only. That ApacheJIT lift measures whether the file *was buggy*, not whether a reviewer
+  would have cared; measured against real review comments and fixes instead (the outcome-labels
+  study, §4 above), it did not clear its own bar and was demoted to `info`-only with a narrower
+  trigger, as recorded there. Details: [Experiments](experiments.html).
 - **Contracts and change risk** (`contract.dependency`, `contract.api`, `contract.schema`,
   `change.concurrency`, `change.safety_removed`) cleared the same pre-registered bug-lift bar
   (≥ 1.2×, ≥ 50 firing test commits) on ApacheJIT's test split (24,690 commits, pooled):
