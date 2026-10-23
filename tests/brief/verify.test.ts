@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildBrief } from "../../src/brief/build.js";
 import { factHash } from "../../src/brief/facts-memory.js";
 import { renderBriefMarkdown } from "../../src/brief/render.js";
+import { factIds } from "../../src/brief/selfcheck.js";
 import { applyVerification, collectCandidates, verifyBrief } from "../../src/brief/verify.js";
 import { defaultConfig } from "../../src/domain/config.js";
 import type { ArchitectureFact, LlmProvider, LlmVerifyInput, ReviewBrief, Verification, VerifyVerdict } from "../../src/domain/types.js";
@@ -99,6 +100,24 @@ describe("collectCandidates", () => {
     const { candidates, partners } = await collectCandidates(brief, ctx);
     expect(candidates[0]).toMatchObject({ id: "coupling.missing:src/a.ts", status: "unknown", excerpt: expect.stringContaining("+2") });
     expect(partners["coupling.missing:src/a.ts"]).toBe("b".repeat(2000));
+    repo.cleanup();
+  });
+
+  it("gives two facts that share one id+file+line distinct candidate ids, so neither's partner excerpt overwrites the other's", async () => {
+    const repo = makeRepo();
+    const base = repo.commit({ "src/a.ts": "1\n", "src/b.ts": "B\n", "src/c.ts": "C\n" }, "base");
+    repo.commit({ "src/a.ts": "2\n" }, "change a");
+    const ctx = await ctxFor(repo, base);
+    const factB: ArchitectureFact = { id: "coupling.missing", weight: "strong", file: "src/a.ts", text: "`src/b.ts` changed with `src/a.ts` in 9 of 10 commits (last 30 days); this PR changes only `src/a.ts`." };
+    const factC: ArchitectureFact = { id: "coupling.missing", weight: "strong", file: "src/a.ts", text: "`src/c.ts` changed with `src/a.ts` in 8 of 10 commits (last 30 days); this PR changes only `src/a.ts`." };
+    const brief = await buildBrief(fakeResult(0.3), ctx, {});
+    brief.captain!.facts = [factB, factC];
+    const { candidates, partners } = await collectCandidates(brief, ctx);
+    const ids = candidates.filter((c) => c.kind === "fact").map((c) => c.id);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(partners[ids[0]!]).toBe("B\n");
+    expect(partners[ids[1]!]).toBe("C\n");
     repo.cleanup();
   });
 });
@@ -330,6 +349,21 @@ describe("applyVerification", () => {
       ["first?", "downgrade"],
     ]);
     expect(out.checks[0]!.verification?.source).toBe("unverified");
+  });
+
+  it("two facts sharing one id+file+line each get their own verdict, not merged or swapped", () => {
+    const twoCoupling: ArchitectureFact[] = [
+      { id: "coupling.missing", weight: "strong", file: "src/z.ts", text: "`src/x.ts` changed with `src/z.ts` in 9 of 10 commits." },
+      { id: "coupling.missing", weight: "strong", file: "src/z.ts", text: "`src/y.ts` changed with `src/z.ts` in 8 of 10 commits." },
+    ];
+    const brief: ReviewBrief = { ...base(), captain: { ...base().captain!, facts: twoCoupling } };
+    const ids = factIds(twoCoupling);
+    expect(new Set(ids).size).toBe(2); // the fixture itself must collide on id+file+line before any suffix
+    const out = applyVerification(brief, new Map([[ids[0]!, v("keep")], [ids[1]!, v("drop", { droppedClass: "docs", reason: "noise" })]]), meta);
+    expect(out.captain!.facts).toHaveLength(1);
+    expect(out.captain!.facts[0]!.text).toBe(twoCoupling[0]!.text);
+    expect(out.captain!.facts[0]!.verification?.action).toBe("keep");
+    expect(out.verification!.dropped).toEqual([{ id: ids[1], droppedClass: "docs", reason: "noise" }]);
   });
 });
 
