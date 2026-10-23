@@ -1,0 +1,4711 @@
+{
+ "builtAt": "2026-10-23T11:38:01.071Z",
+ "corpus": {
+  "repos": 6,
+  "prs": 327,
+  "excluded": 740
+ },
+ "facts": [
+  {
+   "id": "change.concurrency",
+   "fires": 7,
+   "prs": 6,
+   "strong": 7,
+   "E_file": 0,
+   "expE_file": 0.059113300492610835,
+   "liftE_file": 0,
+   "F_file": 0.14285714285714285,
+   "expF_file": 0.030260380014074596,
+   "liftF_file": 4.720930232558139,
+   "withLine": 7,
+   "R": 0,
+   "noOutcome": 0.8571428571428571,
+   "conclusion": "insufficient",
+   "E_line": 0,
+   "expE_line": 0,
+   "liftE_line": null,
+   "F_line": 0,
+   "expF_line": 0.05803571428571429,
+   "liftF_line": 0
+  },
+  {
+   "id": "change.safety_removed",
+   "fires": 10,
+   "prs": 10,
+   "strong": 0,
+   "E_file": 0.1,
+   "expE_file": 0.07833333333333334,
+   "liftE_file": 1.2765957446808511,
+   "F_file": 0,
+   "expF_file": 0.007142857142857143,
+   "liftF_file": 0,
+   "withLine": 10,
+   "R": 0,
+   "noOutcome": 0.9,
+   "conclusion": "insufficient",
+   "E_line": 0,
+   "expE_line": 0.017948717948717947,
+   "liftE_line": 0,
+   "F_line": 0,
+   "expF_line": 0,
+   "liftF_line": null
+  },
+  {
+   "id": "contract.api",
+   "fires": 75,
+   "prs": 34,
+   "strong": 42,
+   "E_file": 0.16,
+   "expE_file": 0.1208888888888889,
+   "liftE_file": 1.3235294117647056,
+   "F_file": 0,
+   "expF_file": 0.015438596491228064,
+   "liftF_file": 0,
+   "withLine": 75,
+   "R": 0,
+   "noOutcome": 0.84,
+   "conclusion": "keep",
+   "E_line": 0.12,
+   "expE_line": 0.05260319572323027,
+   "liftE_line": 2.2812302247067926,
+   "F_line": 0,
+   "expF_line": 0,
+   "liftF_line": null
+  },
+  {
+   "id": "contract.dependency",
+   "fires": 5,
+   "prs": 3,
+   "strong": 2,
+   "E_file": 0,
+   "expE_file": 0,
+   "liftE_file": null,
+   "F_file": 0,
+   "expF_file": 0,
+   "liftF_file": null,
+   "withLine": 5,
+   "R": 0,
+   "noOutcome": 1,
+   "conclusion": "insufficient",
+   "E_line": 0,
+   "expE_line": 0,
+   "liftE_line": null,
+   "F_line": 0,
+   "expF_line": 0,
+   "liftF_line": null
+  },
+  {
+   "id": "contract.env",
+   "fires": 14,
+   "prs": 5,
+   "strong": 14,
+   "E_file": 0,
+   "expE_file": 0.23992673992673993,
+   "liftE_file": 0,
+   "F_file": 0.7142857142857143,
+   "expF_file": 0.4893001735106998,
+   "liftF_file": 1.4598108747044918,
+   "withLine": 14,
+   "R": 0,
+   "noOutcome": 0.2857142857142857,
+   "conclusion": "insufficient",
+   "E_line": 0,
+   "expE_line": 0,
+   "liftE_line": null,
+   "F_line": 0,
+   "expF_line": 0.009523809523809523,
+   "liftF_line": 0
+  },
+  {
+   "id": "contract.instructions",
+   "fires": 5,
+   "prs": 5,
+   "strong": 5,
+   "E_file": 0.6,
+   "expE_file": 0.20666666666666664,
+   "liftE_file": 2.903225806451613,
+   "F_file": 0,
+   "expF_file": 0.04444444444444444,
+   "liftF_file": 0,
+   "withLine": 0,
+   "R": 0,
+   "noOutcome": 0.4,
+   "conclusion": "insufficient"
+  },
+  {
+   "id": "coupling.missing",
+   "fires": 19,
+   "prs": 16,
+   "strong": 14,
+   "E_file": 0,
+   "expE_file": 0.02631578947368421,
+   "liftE_file": 0,
+   "F_file": 0,
+   "expF_file": 0.016620498614958446,
+   "liftF_file": 0,
+   "withLine": 0,
+   "R": 0,
+   "noOutcome": 1,
+   "conclusion": "insufficient",
+   "P_partner": 0.5789473684210527
+  },
+  {
+   "id": "layers.edge",
+   "fires": 2,
+   "prs": 2,
+   "strong": 2,
+   "E_file": 1,
+   "expE_file": 0.41666666666666663,
+   "liftE_file": 2.4000000000000004,
+   "F_file": 0,
+   "expF_file": 0,
+   "liftF_file": null,
+   "withLine": 0,
+   "R": 0,
+   "noOutcome": 0,
+   "conclusion": "insufficient"
+  }
+ ],
+ "priority": {
+  "rows": [
+   {
+    "priority": "careful",
+    "n": 149,
+    "fixedOrReverted": 11,
+    "rate": 0.0738255033557047
+   },
+   {
+    "priority": "standard",
+    "n": 78,
+    "fixedOrReverted": 6,
+    "rate": 0.07692307692307693
+   },
+   {
+    "priority": "quick",
+    "n": 100,
+    "fixedOrReverted": 1,
+    "rate": 0.01
+   }
+  ],
+  "base": 0.05504587155963303,
+  "recallAtCareful": 0.6111111111111112,
+  "informative": true
+ },
+ "drift": [],
+ "timings": {
+  "build": 200193,
+  "fetch": 328322,
+  "label": 96312
+ },
+ "records": [
+  {
+   "slug": "black",
+   "number": 5129,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "src/black/output.py",
+   "line": 115,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "black",
+   "number": 5145,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": ".github/workflows/diff_shades_comment.yml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "black",
+   "number": 5159,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": ".github/workflows/diff_shades_comment.yml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "black",
+   "number": 5159,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": ".github/workflows/test.yml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "black",
+   "number": 5184,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "src/black/nodes.py",
+   "line": 1003,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "black",
+   "number": 5192,
+   "id": "coupling.missing",
+   "weight": "info",
+   "file": "tests/test_black.py",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "black",
+   "number": 5194,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "src/blib2to3/pytree.py",
+   "line": 137,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "black",
+   "number": 5212,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "src/black/__init__.py",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "black",
+   "number": 5213,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "src/black/ranges.py",
+   "line": 341,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "black",
+   "number": 5258,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "src/blib2to3/pgen2/driver.py",
+   "line": 302,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.2,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13313,
+   "id": "change.concurrency",
+   "weight": "strong",
+   "file": "internal/codespaces/connection/connection.go",
+   "line": 36,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13313,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "internal/codespaces/portforwarder/port_forwarder.go",
+   "line": 171,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13403,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "internal/codespaces/api/api.go",
+   "line": 607,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13403,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "internal/codespaces/api/api.go",
+   "line": 647,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13403,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "internal/codespaces/api/api.go",
+   "line": 1014,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13403,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "pkg/cmd/codespace/mock_api.go",
+   "line": 612,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13403,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "pkg/cmd/codespace/mock_api.go",
+   "line": 660,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13403,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "pkg/cmd/codespace/mock_api.go",
+   "line": 852,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13403,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "pkg/cmd/skills/publish/publish.go",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13449,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "pkg/cmd/skills/update/update.go",
+   "line": 405,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0.1794871794871795,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13459,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "internal/skills/discovery/discovery.go",
+   "line": 395,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 1,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0.34545454545454546,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13523,
+   "id": "coupling.missing",
+   "weight": "info",
+   "file": "pkg/cmd/skills/install/install_test.go",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13541,
+   "id": "change.concurrency",
+   "weight": "strong",
+   "file": "pkg/cmd/discussion/client/client_mock.go",
+   "line": 235,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.41379310344827586,
+   "expF_file": 0.06896551724137931,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13548,
+   "id": "layers.edge",
+   "weight": "strong",
+   "file": "pkg/cmd/skills/install/install.go",
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.5,
+   "expF_file": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13580,
+   "id": "contract.instructions",
+   "weight": "strong",
+   "file": "skills/gh/SKILL.md",
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13580,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "internal/text/text.go",
+   "line": 156,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13581,
+   "id": "layers.edge",
+   "weight": "strong",
+   "file": "pkg/cmd/root/official_extension_stub.go",
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13612,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/extensions/terminal-mockup/extension.mjs",
+   "line": 18,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13631,
+   "id": "contract.instructions",
+   "weight": "strong",
+   "file": "skills/gh/SKILL.md",
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.5,
+   "expF_file": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13642,
+   "id": "contract.instructions",
+   "weight": "strong",
+   "file": "skills/gh/SKILL.md",
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.2,
+   "expF_file": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13720,
+   "id": "contract.instructions",
+   "weight": "strong",
+   "file": "AGENTS.md",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 374,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 376,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 377,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 378,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 379,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 380,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 381,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 382,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 383,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13777,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": ".github/workflows/issue-triage.lock.yml",
+   "line": 384,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0.6666666666666666,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.013333333333333334
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13807,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "pkg/cmd/project/shared/queries/queries.go",
+   "line": 976,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.5714285714285714,
+   "expF_file": 0,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 1,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13823,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "pkg/cmd/project/shared/queries/queries.go",
+   "line": 481,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.3333333333333333,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13864,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "pkg/cmd/skills/install/install.go",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13864,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "pkg/cmd/skills/update/update.go",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13940,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "pkg/cmd/skills/install/install.go",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "cli-cli",
+   "number": 13949,
+   "id": "contract.instructions",
+   "weight": "strong",
+   "file": ".github/skills/agentic-workflows/SKILL.md",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.2222222222222222
+  },
+  {
+   "slug": "actix-web",
+   "number": 3940,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": ".github/workflows/ci.yml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": false
+  },
+  {
+   "slug": "actix-web",
+   "number": 3945,
+   "id": "contract.dependency",
+   "weight": "info",
+   "file": "actix-http/Cargo.toml",
+   "line": 142,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3946,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-web/src/request.rs",
+   "line": 188,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3946,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-web/src/rmap.rs",
+   "line": 243,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3946,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-web/src/service.rs",
+   "line": 325,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3953,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "awc/src/ws.rs",
+   "line": 252,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3986,
+   "id": "change.concurrency",
+   "weight": "strong",
+   "file": "actix-web/src/server.rs",
+   "line": 306,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3986,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-http/src/builder.rs",
+   "line": 167,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3986,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-http/src/config.rs",
+   "line": 22,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3986,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-web/src/server.rs",
+   "line": 300,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 3995,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-multipart/src/test.rs",
+   "line": 18,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4013,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-web/src/request.rs",
+   "line": 494,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4013,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-web/src/service.rs",
+   "line": 303,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4022,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "actix-http/Cargo.toml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "actix-web",
+   "number": 4025,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "actix-multipart/src/payload.rs",
+   "line": 55,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.25,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4025,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-multipart/src/multipart.rs",
+   "line": 52,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.25,
+   "expF_file": 0,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.0979020979020979,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4026,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "actix-multipart/src/form/mod.rs",
+   "line": 321,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4028,
+   "id": "contract.dependency",
+   "weight": "info",
+   "file": "actix-multipart/Cargo.toml",
+   "line": 21,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4028,
+   "id": "contract.dependency",
+   "weight": "info",
+   "file": "actix-multipart/Cargo.toml",
+   "line": 76,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4030,
+   "id": "coupling.missing",
+   "weight": "info",
+   "file": "actix-http/Cargo.toml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "actix-web",
+   "number": 4033,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "actix-web/src/request.rs",
+   "line": 711,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4034,
+   "id": "coupling.missing",
+   "weight": "info",
+   "file": "awc/Cargo.toml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "actix-web",
+   "number": 4039,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "actix-files/src/files.rs",
+   "line": 107,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "actix-web",
+   "number": 4045,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "actix-http/Cargo.toml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "actix-web",
+   "number": 4056,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "awc/Cargo.toml",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "vite",
+   "number": 22792,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "packages/vite/rolldown.dts.config.ts",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.5,
+   "expF_file": 0,
+   "P_partner": true
+  },
+  {
+   "slug": "vite",
+   "number": 22850,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": "packages/vite/src/node/config.ts",
+   "line": 2430,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.02564102564102564,
+   "expF_file": 0.02564102564102564,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "vite",
+   "number": 22951,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "packages/vite/src/node/utils.ts",
+   "line": 449,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "vite",
+   "number": 23027,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": "playground/vitestSetup.ts",
+   "line": 74,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.15789473684210525,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "vite",
+   "number": 23027,
+   "id": "coupling.missing",
+   "weight": "strong",
+   "file": "package.json",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.15789473684210525,
+   "P_partner": true
+  },
+  {
+   "slug": "vite",
+   "number": 23027,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "playground/vitestSetup.ts",
+   "line": 74,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.15789473684210525,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "vite",
+   "number": 23027,
+   "id": "coupling.missing",
+   "weight": "info",
+   "file": "playground/resolve/__tests__/resolve.spec.ts",
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.15789473684210525,
+   "P_partner": true
+  },
+  {
+   "slug": "fastlane",
+   "number": 29896,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "fastlane/lib/fastlane/actions/notarize.rb",
+   "line": 169,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "fastlane",
+   "number": 29999,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "supply/lib/supply/client.rb",
+   "line": 522,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.25,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "fastlane",
+   "number": 30078,
+   "id": "contract.env",
+   "weight": "strong",
+   "file": "match/lib/match/storage/git_storage.rb",
+   "line": 274,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "fastlane",
+   "number": 30089,
+   "id": "contract.dependency",
+   "weight": "strong",
+   "file": "Gemfile",
+   "line": 17,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "fastlane",
+   "number": 30089,
+   "id": "contract.dependency",
+   "weight": "strong",
+   "file": "Gemfile",
+   "line": 20,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3708,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/test/java/org/mockito/internal/stubbing/defaultanswers/ReturnsEmptyValuesTest.java",
+   "line": 180,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.5,
+   "expF_file": 0,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.48148148148148145,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3711,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/test/java/org/mockito/internal/stubbing/defaultanswers/ReturnsEmptyValuesTest.java",
+   "line": 180,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 1,
+   "expF_file": 0,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.3125,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3711,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/test/java/org/mockito/internal/stubbing/defaultanswers/ReturnsEmptyValuesTest.java",
+   "line": 189,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 1,
+   "expF_file": 0,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.3125,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3711,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/test/java/org/mockito/internal/stubbing/defaultanswers/ReturnsEmptyValuesTest.java",
+   "line": 198,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 1,
+   "expF_file": 0,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.3125,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3727,
+   "id": "change.concurrency",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/stubbing/defaultanswers/ReturnsEmptyValues.java",
+   "line": 32,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3727,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/test/java/org/mockito/internal/stubbing/defaultanswers/ReturnsEmptyValuesTest.java",
+   "line": 248,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3731,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/Mockito.java",
+   "line": 2444,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.5,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3731,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/test/java/org/mockito/MockitoTest.java",
+   "line": 244,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.5,
+   "expF_file": 0,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.08290155440414508,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3753,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/internal/util/Primitives.java",
+   "line": 68,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3759,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/test/java/org/mockito/internal/creation/bytebuddy/InlineDelegateByteBuddyMockMakerTest.java",
+   "line": 410,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3760,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/test/java/org/mockitousage/strictness/ProductionCode.java",
+   "line": 23,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3762,
+   "id": "change.concurrency",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/InlineDelegateByteBuddyMockMaker.java",
+   "line": 687,
+   "E_file": false,
+   "F_file": true,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.07142857142857142,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0.40625
+  },
+  {
+   "slug": "mockito",
+   "number": 3762,
+   "id": "change.concurrency",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/MockMethodAdvice.java",
+   "line": 26,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.07142857142857142,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3762,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/InlineByteBuddyMockMaker.java",
+   "line": 97,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.07142857142857142,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3762,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/internal/MockitoCore.java",
+   "line": 95,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.07142857142857142,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3762,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/internal/util/MockUtil.java",
+   "line": 205,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.07142857142857142,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3762,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/Mockito.java",
+   "line": 2560,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.07142857142857142,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3762,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/internal/MockedConstructionImpl.java",
+   "line": 57,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0.07142857142857142,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3784,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/BDDMockito.java",
+   "line": 166,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.2857142857142857,
+   "expF_file": 0.14285714285714285,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.3333333333333333,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3784,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/BDDMockito.java",
+   "line": 170,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.2857142857142857,
+   "expF_file": 0.14285714285714285,
+   "E_line": true,
+   "F_line": false,
+   "expE_line": 0.3333333333333333,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3784,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/BDDMockito.java",
+   "line": 202,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.2857142857142857,
+   "expF_file": 0.14285714285714285,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0.3333333333333333,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3784,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/MockitoCore.java",
+   "line": 139,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.2857142857142857,
+   "expF_file": 0.14285714285714285,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3784,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/Mockito.java",
+   "line": 2898,
+   "E_file": true,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.2857142857142857,
+   "expF_file": 0.14285714285714285,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3792,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/util/Platform.java",
+   "line": 28,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3792,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "mockito-extensions/mockito-android/src/main/java/org/mockito/android/internal/creation/AndroidLoadingStrategy.java",
+   "line": 21,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3794,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/Mockito.java",
+   "line": 2624,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3795,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-integration-tests/programmatic-tests/src/test/java/org/mockito/ProgrammaticMockMakerTest.java",
+   "line": 161,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3795,
+   "id": "change.safety_removed",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/internal/util/MockUtil.java",
+   "line": 160,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java",
+   "line": 40,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java",
+   "line": 56,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java",
+   "line": 61,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/InlineByteBuddyMockMaker.java",
+   "line": 55,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/InlineByteBuddyMockMaker.java",
+   "line": 71,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/SubclassByteBuddyMockMaker.java",
+   "line": 44,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/SubclassByteBuddyMockMaker.java",
+   "line": 149,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/SubclassByteBuddyMockMaker.java",
+   "line": 157,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/proxy/ProxyMockMaker.java",
+   "line": 36,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/proxy/ProxyMockMaker.java",
+   "line": 80,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/proxy/ProxyMockMaker.java",
+   "line": 92,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/framework/DisabledMockHandler.java",
+   "line": 30,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/framework/DisabledMockHandler.java",
+   "line": 31,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/framework/DisabledMockHandler.java",
+   "line": 43,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/framework/DisabledMockHandler.java",
+   "line": 61,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/listeners/StubbingLookupNotifier.java",
+   "line": 68,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/progress/MockingProgressImpl.java",
+   "line": 166,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/progress/MockingProgressImpl.java",
+   "line": 176,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/util/DefaultMockingDetails.java",
+   "line": 67,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/util/MockUtil.java",
+   "line": 196,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3806,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-integration-tests/programmatic-tests/src/test/java/org/mockito/ProgrammaticMockMakerTest.java",
+   "line": 218,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3815,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/creation/bytebuddy/ClinitSuppressionTransformer.java",
+   "line": 41,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0.4,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3819,
+   "id": "change.concurrency",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/internal/stubbing/InvocationContainerImpl.java",
+   "line": 37,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3827,
+   "id": "contract.api",
+   "weight": "info",
+   "file": "mockito-core/src/main/java/org/mockito/internal/progress/MockingProgressImpl.java",
+   "line": 186,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  },
+  {
+   "slug": "mockito",
+   "number": 3835,
+   "id": "contract.api",
+   "weight": "strong",
+   "file": "mockito-core/src/main/java/org/mockito/Spy.java",
+   "line": 114,
+   "E_file": false,
+   "F_file": false,
+   "R": false,
+   "expE_file": 0,
+   "expF_file": 0,
+   "E_line": false,
+   "F_line": false,
+   "expE_line": 0,
+   "expF_line": 0
+  }
+ ],
+ "prs": [
+  {
+   "key": "black#5095",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5107",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5124",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5129",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "black#5130",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5134",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5135",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5136",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5139",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5140",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5142",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5144",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5145",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "black#5147",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5148",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5152",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5158",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5159",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "black#5161",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5162",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5163",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5165",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5167",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5169",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5170",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5171",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5173",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5176",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5177",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5178",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5183",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5184",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "black#5186",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5188",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5189",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5190",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5192",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "black#5193",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5194",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "black#5199",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5200",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5211",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5212",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "black#5213",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "black#5217",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5223",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5232",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5235",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5238",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5239",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5240",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5241",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5242",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5244",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5246",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5248",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5253",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5254",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5255",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "black#5258",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13313",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "cli-cli#13403",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 7
+  },
+  {
+   "key": "cli-cli#13418",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13421",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13449",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13459",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13469",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13471",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13476",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13479",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13481",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13487",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13488",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13491",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13510",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13518",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13523",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13536",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13541",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13548",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13580",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "cli-cli#13581",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13584",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13599",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13612",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13624",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13631",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13632",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13642",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13674",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13675",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13677",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13679",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13681",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13688",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13690",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13705",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13720",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13722",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13723",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13756",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13766",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13777",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 10
+  },
+  {
+   "key": "cli-cli#13780",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13787",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13807",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13823",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13830",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13864",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "cli-cli#13886",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13900",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13922",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13927",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13940",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13943",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "cli-cli#13949",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "cli-cli#13960",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3940",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#3941",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3942",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3943",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3944",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3945",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#3946",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 3
+  },
+  {
+   "key": "actix-web#3953",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#3970",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3971",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3974",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3984",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3985",
+   "priority": "standard",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3986",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 4
+  },
+  {
+   "key": "actix-web#3987",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3988",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3993",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#3995",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4011",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4012",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4013",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "actix-web#4016",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4021",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4022",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4023",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4024",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4025",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "actix-web#4026",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4027",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4028",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "actix-web#4029",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4030",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4032",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4033",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4034",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4039",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4040",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4042",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4043",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4044",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4045",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4046",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4047",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4048",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4052",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4054",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4056",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "actix-web#4070",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4075",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4083",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4097",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4112",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4113",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4114",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4117",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4124",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4133",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4141",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4142",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "actix-web#4148",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22468",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "vite#22642",
+   "priority": "standard",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22674",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22780",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22792",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "vite#22813",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22829",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22830",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22832",
+   "priority": "standard",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22840",
+   "priority": "standard",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22842",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22850",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "vite#22852",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22862",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22869",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22870",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22872",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22875",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22882",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22887",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22891",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22893",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22897",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22899",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22908",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22909",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22911",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22912",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22914",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22927",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22931",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22939",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22940",
+   "priority": "quick",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22945",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22947",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22948",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22951",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "vite#22952",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22953",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22954",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22965",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22972",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22974",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22979",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "vite#22983",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22988",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22992",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#22993",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23000",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23002",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23006",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23010",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23013",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23015",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23020",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23023",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23024",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23027",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 4
+  },
+  {
+   "key": "vite#23035",
+   "priority": "standard",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "vite#23036",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#29736",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#29839",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#29888",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#29896",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 1
+  },
+  {
+   "key": "fastlane#29942",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#29981",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#29999",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "fastlane#30004",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30010",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30020",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30023",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30025",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30028",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30029",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30030",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30031",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30032",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30036",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30038",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30039",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30042",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30044",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30045",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30051",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30052",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30054",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30056",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30057",
+   "priority": "standard",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30058",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30061",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30062",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30066",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30069",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30072",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30073",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30076",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30077",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30078",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "fastlane#30080",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30081",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30084",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30085",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30089",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "fastlane#30090",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30092",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30095",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30096",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30097",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30099",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30103",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30106",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30108",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30111",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30118",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30119",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30121",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30124",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30125",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30126",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "fastlane#30129",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3704",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3708",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3710",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3711",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 3
+  },
+  {
+   "key": "mockito#3727",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 2
+  },
+  {
+   "key": "mockito#3729",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3731",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 2
+  },
+  {
+   "key": "mockito#3753",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3759",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3760",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3762",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 7
+  },
+  {
+   "key": "mockito#3771",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3773",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3784",
+   "priority": "careful",
+   "fixedOrReverted": true,
+   "changesRequested": false,
+   "facts": 5
+  },
+  {
+   "key": "mockito#3785",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3790",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3792",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "mockito#3794",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3795",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 2
+  },
+  {
+   "key": "mockito#3806",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 21
+  },
+  {
+   "key": "mockito#3812",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3815",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3819",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3823",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3827",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3829",
+   "priority": "quick",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3835",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 1
+  },
+  {
+   "key": "mockito#3838",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3840",
+   "priority": "careful",
+   "fixedOrReverted": false,
+   "changesRequested": true,
+   "facts": 0
+  },
+  {
+   "key": "mockito#3844",
+   "priority": "standard",
+   "fixedOrReverted": false,
+   "changesRequested": false,
+   "facts": 0
+  }
+ ]
+}
