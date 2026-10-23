@@ -8,8 +8,29 @@ export interface SelfCheckItem {
   text: string;
 }
 
-/** `coupling.missing:src/session.ts`, or with a line: `contract.api:src/api.ts:42` (spec §2.3). */
-export const factId = (fact: ArchitectureFact): string => `${fact.id}:${fact.file}${fact.line === undefined ? "" : `:${fact.line}`}`;
+/**
+ * `coupling.missing:src/session.ts`, or with a line: `contract.api:src/api.ts:42` (spec §2.3). `index`
+ * disambiguates a fact that shares this key with an earlier one in the same brief (`factIds` assigns
+ * it) — e.g. two new dependencies added to the same manifest that `findLine` cannot place on
+ * different lines, or a file historically coupled with more than one partner.
+ */
+export const factId = (fact: ArchitectureFact, index = 0): string => `${fact.id}:${fact.file}${fact.line === undefined ? "" : `:${fact.line}`}${index === 0 ? "" : `#${index}`}`;
+
+/**
+ * Every fact's id, in `facts` order, made unique against others sharing its id+file+line: the first
+ * keeps the plain `factId`, later ones get `#1`, `#2`, ... appended. Several candidate facts can share
+ * that key (see `factId`), and a shared key previously collapsed the verifier's verdicts, the
+ * dismissal memory lookup and `opendrs feedback --fact` onto whichever fact was processed last.
+ */
+export function factIds(facts: readonly ArchitectureFact[]): string[] {
+  const seen = new Map<string, number>();
+  return facts.map((f) => {
+    const base = factId(f);
+    const index = seen.get(base) ?? 0;
+    seen.set(base, index + 1);
+    return factId(f, index);
+  });
+}
 
 /** `hunk:src/session.ts:3` — the file and the brief's own numeric hunk id (unique within one diff). */
 export const hunkId = (file: string, hunk: number): string => `hunk:${file}:${hunk}`;
@@ -28,9 +49,11 @@ export const checkId = (file: string, line: number | undefined, index: number): 
  */
 export function selfCheckItems(brief: ReviewBrief): SelfCheckItem[] {
   const items: SelfCheckItem[] = [];
-  for (const fact of brief.captain?.facts ?? []) {
-    items.push({ id: factId(fact), file: fact.file, line: fact.line, text: fact.text });
-  }
+  const facts = brief.captain?.facts ?? [];
+  factIds(facts).forEach((id, i) => {
+    const fact = facts[i]!;
+    items.push({ id, file: fact.file, line: fact.line, text: fact.text });
+  });
   for (const file of brief.reviewFirst) {
     for (const hunk of file.hunks) {
       items.push({ id: hunkId(file.file, hunk.id), file: file.file, line: hunk.newStart, text: hunk.reasons.map((r) => r.text).join("; ") || `hunk ${hunk.id}` });
