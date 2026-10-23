@@ -4,7 +4,9 @@ Status: **decided 2026-10-23** by the initiative lead (brainstormed alone, per t
 brief; the decisions and the alternatives they beat are recorded in §9 so they can be re-opened).
 Pre-registered the same day in `docs/experiments.md` ("Outcome labels on active public repos").
 Research origin: `docs/research/2026-10-20-code-review-at-anthropic.md` §3 O3/O5/O6 and §4
-Approach C, which was held back because opendrs's own history has no incident volume.
+Approach C, which was held back because opendrs's own history has no incident volume — and, as
+a single-maintainer repository, never will: its review and outcome data says nothing about the
+facts (worker rule 16), so no measurement in this spec touches it.
 
 ## 1. Problem
 
@@ -71,7 +73,10 @@ drift against a committed baseline whenever a detector, weight or prompt changes
 vapor/vapor (Swift) is dropped on purpose: `src/graph/imports.ts` has no Swift extractor and the
 field test's nine vapor PRs produced zero facts; a repo that can fire nothing measures nothing.
 The six are chosen for language coverage and reuse of known-working setups, not for how the
-facts behave on them; what is mechanical is the **PR** selection below.
+facts behave on them; what is mechanical is the **PR** selection below. **`error-path/opendrs`
+itself is excluded from this corpus and from the standing eval, now and in any extension:** it
+has one maintainer, so its review comments and fix history measure nothing (worker rule 16). Any
+repo added later must have more than one active reviewer in the lookback window.
 
 **Pinned head.** Each repo's default-branch tip at corpus-build time, recorded in
 `corpus.json` with its committer time `T_head`. Everything downstream is relative to it, so the
@@ -260,6 +265,8 @@ written before the re-run.
 
 ## 8. The standing eval
 
+- **Never `error-path/opendrs`.** The eval's corpus is public, multi-reviewer repos only (§3);
+  opendrs's own PRs are not a seed, a fixture or a sanity check for it.
 - **Committed inputs:** `bench/outcomes/corpus.json` (repos, pinned heads, PR list with
   `base`/`head`/`mergeSha`/`mergedAt`/shape, exclusions with reasons) and
   `bench/outcomes/labels.json` (per PR: counted comment locations, blame hits on the PR, `R`,
@@ -287,8 +294,9 @@ written before the re-run.
 ## 9. Decisions and the alternatives they beat
 
 1. **Public repos' own outcomes, not opendrs's incidents** (the research held Approach C back for
-   lack of incident volume). Alternative: dogfood only — rejected, months to reach 30 facts of
-   any type.
+   lack of incident volume). Alternative: measure on `error-path/opendrs` itself — rejected
+   outright: a single-maintainer repo's review and outcome data says nothing (worker rule 16),
+   and this spec never seeds from or measures on it.
 2. **Counterfactual labels from review comments + SZZ, not a live deployment** on the six repos.
    Alternative: install the Action on forks or ask maintainers — rejected, slow, consent-bound
    and tiny.

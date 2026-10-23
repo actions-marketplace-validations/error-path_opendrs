@@ -64,6 +64,10 @@ resumes; delete a file to redo that one thing.
 
 ## Corpus rule (spec §3, mechanical)
 
+The six repos are public, multi-reviewer projects, one per supported language.
+`error-path/opendrs` itself is excluded, now and in any extension: with one maintainer, its
+review and outcome data measures nothing.
+
 Per repo: default-branch tip at first fetch = pinned head `T_head`; window `W = 90 days`;
 candidates are PRs into the default branch with `merged_at ≤ T_head − W`, created within the
 1,095 days (3 years) before that cutoff, not bot-authored; the 200 most recently merged (run 1,

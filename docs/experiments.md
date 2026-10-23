@@ -53,6 +53,8 @@ every detector, weight or prompt change?
   (TypeScript), fastlane/fastlane (Ruby, with the field test's recorded quirks: full clone,
   `history.maxCommits: 1500`, `history.lookbackDays: 90`), mockito/mockito (Java). vapor/vapor
   (Swift) is dropped: no Swift import extractor, zero facts in the field test.
+  `error-path/opendrs` itself is excluded, here and in the standing eval (worker rule 16,
+  2026-10-23): a single-maintainer repo's review and outcome data says nothing.
 - **PR selection (mechanical, spec §3).** Pinned head = default-branch tip at corpus-build time,
   `T_head`. Window `W = 90 days`. Candidates: PRs into the default branch, `merged_at ≤ T_head −
   W`, `created_at ≥ T_head − W − 365 d`, author not a `Bot`, reconstructible from the clone (merge
