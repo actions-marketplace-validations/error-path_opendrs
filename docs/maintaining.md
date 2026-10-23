@@ -67,31 +67,43 @@ it, replace both. To preview locally: `cd docs && bundle install && bundle exec 
 
 ## Dev loop metrics
 
-`.dev-metrics/runs.jsonl` (gitignored, append-only) is a local record of how long `check`, `test`,
-`test:slow`, `build:action` and `claude plugin eval` runs take, so "is the dev loop getting
-slower" has a measured answer instead of a guess. Background: see
+A shared, gitignored, append-only `runs.jsonl` is a record of how long `check`, `test`,
+`test:slow`, `build:action`, `claude plugin eval` and any other repeatable command take, so "is
+the dev loop getting slower" has a measured answer instead of a guess. Background: see
 [Where the dev loop's time goes]({{ '/research/2026-10-22-dev-loop-time-sinks.html' | relative_url }}).
+
+**Where it lives:** `scripts/metrics-path.mjs` resolves the file the same way for every script,
+in this order: the `OPENDRS_METRICS_FILE` env var if set; otherwise
+`<git rev-parse --git-common-dir>/opendrs-dev-metrics/runs.jsonl`, which is the one `.git` dir
+shared by the main checkout and every `git worktree`, so it survives pruning a worktree; otherwise
+(git unavailable) the old `.dev-metrics/runs.jsonl` in the current directory. Set
+`OPENDRS_METRICS_FILE` to point every script at a different file, e.g. for a one-off experiment.
 
 **How it's written:**
 
 - `npm run check`, `npm test`, `npm run test:slow` and `npm run build:action` are each wrapped by
   `scripts/record-run.mjs <kind> -- <command>`, which times the command, then appends one JSON
-  line (`ts`, `kind`, `command`, `gitSha`, `gitBranch`, `durationMs`, `exitCode`, `loadAvg1m`,
-  `source: "live"`) and exits with the wrapped command's own exit code.
+  line (`ts`, `kind`, `command`, `gitSha`, `gitBranch`, `worktree`, `durationMs`, `exitCode`,
+  `loadAvg1m`, `source: "live"`) and exits with the wrapped command's own exit code. `<kind>` is
+  free-form, so any repeatable action can be timed the same way, e.g.
+  `node scripts/record-run.mjs bench:apachejit -- <bench command>` or
+  `node scripts/record-run.mjs eval:case -- <command>`. `gitBranch` and `worktree` keep timings
+  from different worktrees of the clone distinguishable in the shared file.
 - After a `claude plugin eval` run, append its result with
   `node scripts/record-eval-run.mjs evals/results/<timestamp>/aggregate-result.json` — it reads
   `durationSeconds`, `costUsd` and each case's `passRate` out of that file and appends a `kind:
   "eval"` entry the same way. There's no automatic hook for this (eval is run by hand or by a
   worker, not by an npm script), so it's a manual or scripted post-step.
-- A bench script (e.g. `bench/apachejit/run.ts`) isn't wrapped automatically; run it through
-  `node scripts/record-run.mjs bench -- <bench command>` to get a `kind: "bench"` entry.
 - The historical numbers in the research note above were seeded into the ledger with
   `"source": "backfill"` instead of `"live"`, so a report can tell measured runs from
   reconstructed ones.
 
 **How to read it:** `node scripts/metrics-report.mjs` prints totals and averages by kind, the top
-10 slowest individual runs, and an older-half-vs-newer-half trend per kind (so a regression shows
-up as "up" before it's a surprise in CI).
+10 slowest individual runs, a "parallelism candidates" section listing every kind whose median
+(p50) duration is over 10 minutes (count, p50, max) — override with
+`--slow-threshold-min=<N>` — and an older-half-vs-newer-half trend per kind (so a regression shows
+up as "up" before it's a surprise in CI). Anything flagged there is a candidate to split into
+parallel work.
 
 **Extending it:** add a new `kind` by picking a short string and using it consistently; both
 scripts are dependency-free (Node builtins only) by design, so keep additions that way rather than

@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// Dependency-free wrapper: runs a command, times it, and appends one JSON line to
-// .dev-metrics/runs.jsonl (gitignored, append-only). See docs/maintaining.md "Dev loop metrics".
+// Dependency-free wrapper: runs a command, times it, and appends one JSON line to the shared
+// dev-metrics file (gitignored, append-only). See docs/maintaining.md "Dev loop metrics".
 //
 // Usage: node scripts/record-run.mjs <kind> -- <command> [args...]
 import { spawnSync, execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import os from "node:os";
+import { resolveMetricsFile } from "./metrics-path.mjs";
 
 function safe(fn) {
   try {
@@ -40,6 +42,7 @@ const entry = {
   command: cmdParts.join(" "),
   gitSha,
   gitBranch,
+  worktree: process.cwd(),
   durationMs,
   exitCode,
   counts: null,
@@ -49,8 +52,9 @@ const entry = {
 };
 
 safe(() => {
-  mkdirSync(".dev-metrics", { recursive: true });
-  appendFileSync(".dev-metrics/runs.jsonl", JSON.stringify(entry) + "\n");
+  const path = resolveMetricsFile();
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, JSON.stringify(entry) + "\n");
 });
 
 process.exit(exitCode);
