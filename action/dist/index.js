@@ -7723,14 +7723,25 @@ function renderFocusBullets(brief, max = MAX_BULLETS) {
 }
 
 // src/brief/selfcheck.ts
-var factId = (fact) => `${fact.id}:${fact.file}${fact.line === void 0 ? "" : `:${fact.line}`}`;
+var factId = (fact, index = 0) => `${fact.id}:${fact.file}${fact.line === void 0 ? "" : `:${fact.line}`}${index === 0 ? "" : `#${index}`}`;
+function factIds(facts) {
+  const seen = /* @__PURE__ */ new Map();
+  return facts.map((f) => {
+    const base = factId(f);
+    const index = seen.get(base) ?? 0;
+    seen.set(base, index + 1);
+    return factId(f, index);
+  });
+}
 var hunkId = (file2, hunk) => `hunk:${file2}:${hunk}`;
 var checkId = (file2, line2, index) => `check:${file2}:${line2 ?? "-"}:${index}`;
 function selfCheckItems(brief) {
   const items = [];
-  for (const fact of brief.captain?.facts ?? []) {
-    items.push({ id: factId(fact), file: fact.file, line: fact.line, text: fact.text });
-  }
+  const facts = brief.captain?.facts ?? [];
+  factIds(facts).forEach((id, i) => {
+    const fact = facts[i];
+    items.push({ id, file: fact.file, line: fact.line, text: fact.text });
+  });
   for (const file2 of brief.reviewFirst) {
     for (const hunk of file2.hunks) {
       items.push({ id: hunkId(file2.file, hunk.id), file: file2.file, line: hunk.newStart, text: hunk.reasons.map((r) => r.text).join("; ") || `hunk ${hunk.id}` });
@@ -31036,7 +31047,10 @@ var VERIFY_SCHEMA = {
         properties: {
           candidate: { type: "integer" },
           action: { type: "string", enum: ["keep", "drop", "downgrade"] },
-          droppedClass: { anyOf: [{ type: "string", enum: [...DROPPED_CLASSES] }, { type: "null" }] },
+          // Nullable enum as a type array + null member, matching schema.ts's JUDGEMENT_SCHEMA convention
+          // (risky_snippets.line): anyOf-with-null is not proven against every supported provider's
+          // structured-output validator, and this form already is (schema.ts, tested against both).
+          droppedClass: { type: ["string", "null"], enum: [...DROPPED_CLASSES, null] },
           status: { type: "string", enum: ["new", "pre_existing", "unknown"] },
           citedLine: { type: ["string", "null"] },
           reason: { type: "string" }
@@ -31194,8 +31208,10 @@ async function collectCandidates(brief, ctx) {
   };
   const candidates = [];
   const partners = {};
-  for (const fact of brief.captain?.facts ?? []) {
-    const id = factId(fact);
+  const facts = brief.captain?.facts ?? [];
+  const factCandidateIds = factIds(facts);
+  for (const [i, fact] of facts.entries()) {
+    const id = factCandidateIds[i];
     candidates.push({ id, kind: "fact", file: fact.file, line: fact.line, text: fact.text, excerpt: excerptOf(hunkOf(ctx, fact.file, fact.line)), status: fact.id === "coupling.missing" ? "unknown" : "new" });
     if (fact.id !== "coupling.missing") continue;
     const partner = [...fact.text.matchAll(/`([^`]+)`/g)].map((m) => m[1]).find((p) => p !== fact.file);
@@ -31232,8 +31248,9 @@ function applyVerification(brief, verdicts, meta3) {
   let captain = brief.captain;
   if (captain) {
     const facts = [];
-    for (const f of captain.facts) {
-      const id = factId(f);
+    const ids = factIds(captain.facts);
+    for (const [i, f] of captain.facts.entries()) {
+      const id = ids[i];
       const v = decide2(id);
       if (v.action === "drop") drop(id, v);
       else facts.push({ ...f, ...v.action === "downgrade" ? { weight: "info" } : {}, verification: v });
@@ -31283,7 +31300,8 @@ async function verifyBrief(brief, ctx, provider) {
     const memory = /* @__PURE__ */ new Map();
     const text = await gitMaybe(ctx.repoDir, ["show", `${ctx.diff.base}:${FACTS_FILE}`]);
     if (text !== void 0) for (const e of parseFactMemory(text)) memory.set(e.hash, e.verdict);
-    const facts = new Map((brief.captain?.facts ?? []).map((f) => [factId(f), f]));
+    const captainFacts = brief.captain?.facts ?? [];
+    const facts = new Map(factIds(captainFacts).map((id, i) => [id, captainFacts[i]]));
     const pinned = /* @__PURE__ */ new Set();
     const toAsk = candidates.filter((c) => {
       const fact = c.kind === "fact" ? facts.get(c.id) : void 0;
