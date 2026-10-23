@@ -94,9 +94,13 @@ version bump on an existing name is not a fact:
 
 ### `contract.api` — a changed public contract
 
-A deleted line that reads as a public declaration, in a file that other files depend on:
+A deleted line that reads as a public declaration, in a file that other files depend on. One fact
+per file, with a count — a mass refactor that deletes hundreds of declarations in one file is one
+fact, not hundreds, the way `change.safety_removed` already counts (`docs/experiments.md`,
+"contract.api": one PR alone fired 2,628 facts under the old per-declaration behaviour):
 
-> Removes or changes exported `parseToken` (`src/auth/token.ts:42`), imported by 6 files.
+> Removes or changes 3 exported declarations in `src/auth/token.ts` (`parseToken`, `verify`,
+> `refresh`), imported by 6 files.
 
 ### `contract.schema` — a schema or contract file changed
 
@@ -108,9 +112,11 @@ OpenAPI/Swagger specs, and anything added under `captain.contracts.paths`):
 ### `contract.env` — a new environment variable
 
 An added line that reads an environment variable whose name does not appear anywhere in the tree
-at the PR's base:
+at the PR's base. One fact per file, with a count, and never on a generated file (`*.lock.yml`
+and the like): a generated workflow lock file that introduces ten variables at once is one fact,
+not ten (`docs/experiments.md`, "contract.env": 10 of 14 run-1 fires were one generated file):
 
-> Reads a new environment variable `JWT_SECRET` (`src/auth/token.ts:12`).
+> Reads 2 new environment variables (`JWT_SECRET`, `JWT_ISSUER`) (`src/auth/token.ts:12`).
 
 ### `contract.instructions` — a changed agent-instruction file
 

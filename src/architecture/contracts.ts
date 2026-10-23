@@ -25,6 +25,11 @@ const MAX_SCHEMA_FACTS = 3;
 const MAX_INSTRUCTION_FACTS = 3;
 const MAX_ENV_CHECKS = 10;
 
+/** A generated lock file (e.g. a GitHub Actions `actions/lock` config): its env references are a
+ * build artifact, not a decision to sign off (docs/experiments.md, "contract.env": 10 of 14
+ * run-1 fires were one such file, `issue-triage.lock.yml`). */
+const GENERATED_GLOBS = ["**/*.lock.yml"];
+
 /** Spec §6.3's exact patterns; each captures the variable name. */
 const ENV_PATTERNS: RegExp[] = [
   /\bprocess\.env\.([A-Za-z_][A-Za-z0-9_]*)/,
@@ -138,15 +143,18 @@ export const detectContracts: Detector = async (ctx) => {
     if (deletedDecls.length > 0) {
       const dependents = ctx.graph?.dependentsOf(basePath).length ?? 0;
       if (dependents > 0) {
-        for (const d of deletedDecls) {
-          facts.push({
-            id: "contract.api",
-            weight: "strong",
-            file: basePath,
-            line: d.line,
-            text: `Removes or changes exported ${code(d.name)} (${code(locate(basePath, d.line))}), imported by ${plural(dependents, "file")}.`,
-          });
-        }
+        // One fact per file, with a count (like change.safety_removed): a mass refactor that
+        // deletes hundreds of declarations in one file used to fire one fact each, starving
+        // every other fact type of the PR comment's five slots (docs/experiments.md, "contract.api").
+        const shown = deletedDecls.slice(0, 3).map((d) => code(d.name));
+        const names = shown.join(", ") + (deletedDecls.length > 3 ? ", …" : "");
+        facts.push({
+          id: "contract.api",
+          weight: "strong",
+          file: basePath,
+          line: deletedDecls[0]!.line,
+          text: `Removes or changes ${plural(deletedDecls.length, "exported declaration")} in ${code(basePath)} (${names}), imported by ${plural(dependents, "file")}.`,
+        });
       }
     } else if (addedDecls.length > 0 && f.status !== "added") {
       // Same evidence requirement as a deletion (spec §6.3): a dependent at base makes the
@@ -188,8 +196,8 @@ export const detectContracts: Detector = async (ctx) => {
   for (const f of files) {
     if (f.binary) continue;
     // Spec §6.3 targets source, not documentation or the tests exercising it (both false-fired
-    // in dogfooding: a plan doc's example and a test's literal env var name).
-    if (isTestPath(ctx.config, f.path) || languageFamily(f.path) === "docs") continue;
+    // in dogfooding: a plan doc's example and a test's literal env var name), nor a generated file.
+    if (isTestPath(ctx.config, f.path) || languageFamily(f.path) === "docs" || matchAny(GENERATED_GLOBS, f.path)) continue;
     for (const h of f.hunks) {
       for (const { kind, line, text } of changedLines(h)) {
         if (kind !== "+") continue;
@@ -202,9 +210,24 @@ export const detectContracts: Detector = async (ctx) => {
     }
   }
   const toCheck = envCandidates.slice(0, MAX_ENV_CHECKS);
+  // One fact per file, with a count: a file introducing several new variables at once (e.g. a
+  // generated workflow) used to fire one fact per name (docs/experiments.md, "contract.env").
+  const newByFile = new Map<string, Array<{ name: string; line: number }>>();
   for (const c of toCheck) {
     if (await existsAtBase(ctx, c.name)) continue;
-    facts.push({ id: "contract.env", weight: "strong", file: c.file, line: c.line, text: `Reads a new environment variable ${code(c.name)} (${code(locate(c.file, c.line))}).` });
+    newByFile.set(c.file, [...(newByFile.get(c.file) ?? []), { name: c.name, line: c.line }]);
+  }
+  for (const [file, vars] of newByFile) {
+    const first = vars[0]!;
+    const shown = vars.slice(0, 3).map((v) => code(v.name));
+    const names = shown.join(", ") + (vars.length > 3 ? ", …" : "");
+    facts.push({
+      id: "contract.env",
+      weight: "strong",
+      file,
+      line: first.line,
+      text: `Reads ${plural(vars.length, "new environment variable")} (${names}) (${code(locate(file, first.line))}).`,
+    });
   }
   const skipped = envCandidates.length - toCheck.length;
   if (skipped > 0) notes.push(`contract.env: ${plural(skipped, "more new environment variable")} not checked`);
