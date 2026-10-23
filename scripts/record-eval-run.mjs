@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// Appends one .dev-metrics/runs.jsonl entry for a finished `claude plugin eval` run, read from
+// Appends one shared dev-metrics entry for a finished `claude plugin eval` run, read from
 // its evals/results/<timestamp>/aggregate-result.json. See docs/maintaining.md "Dev loop metrics".
 //
 // Usage: node scripts/record-eval-run.mjs <path/to/aggregate-result.json>
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { execFileSync } from "node:child_process";
+import { resolveMetricsFile } from "./metrics-path.mjs";
 
 function safe(fn) {
   try {
@@ -31,6 +33,7 @@ const entry = {
   command: `claude plugin eval (${cases.length} case${cases.length === 1 ? "" : "s"}: ${cases.map((c) => c.name).join(", ")})`,
   gitSha: safe(() => execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()),
   gitBranch: safe(() => execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim()),
+  worktree: process.cwd(),
   durationMs: typeof agg.durationSeconds === "number" ? Math.round(agg.durationSeconds * 1000) : null,
   exitCode: agg.partial ? 1 : 0,
   counts: { cases: cases.length, passRate: meanPassRate },
@@ -40,8 +43,9 @@ const entry = {
 };
 
 safe(() => {
-  mkdirSync(".dev-metrics", { recursive: true });
-  appendFileSync(".dev-metrics/runs.jsonl", JSON.stringify(entry) + "\n");
+  const path = resolveMetricsFile();
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, JSON.stringify(entry) + "\n");
 });
 
 console.log(`recorded eval run: ${entry.durationMs}ms, cost $${entry.costUsd ?? 0}, cases=${entry.counts.cases}, meanPassRate=${meanPassRate}`);

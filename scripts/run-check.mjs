@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // `npm run check`'s full gate: typecheck, then the fast test tier, then the slow test tier.
-// Kept as separate sequential steps (not shell `&&`) so each still reports its own
-// .dev-metrics/runs.jsonl entry via its own npm script. CI runs the same three steps
+// Kept as separate sequential steps (not shell `&&`) so each still reports its own shared
+// dev-metrics entry via its own npm script. CI runs the same three steps
 // (see .github/workflows/ci.yml) so `check` and CI always cover the same tests.
 import { spawnSync } from "node:child_process";
 
