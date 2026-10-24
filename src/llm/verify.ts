@@ -4,7 +4,7 @@ import { OpendrsError, type DroppedClass, type LlmVerifyInput, type VerifyAction
 import { topLevelObjects } from "./parse.js";
 import { block, type LlmMessages } from "./prompt.js";
 
-const DROPPED_CLASSES = ["docs", "tests", "fixtures", "generated", "formatting"] as const satisfies readonly DroppedClass[];
+export const DROPPED_CLASSES = ["docs", "tests", "fixtures", "generated", "formatting"] as const satisfies readonly DroppedClass[];
 const MAX_REASON = 200;
 
 /**
@@ -21,7 +21,10 @@ export const VERIFY_SCHEMA = {
         properties: {
           candidate: { type: "integer" },
           action: { type: "string", enum: ["keep", "drop", "downgrade"] },
-          droppedClass: { anyOf: [{ type: "string", enum: [...DROPPED_CLASSES] }, { type: "null" }] },
+          // Nullable enum as a type array + null member, matching schema.ts's JUDGEMENT_SCHEMA convention
+          // (risky_snippets.line): anyOf-with-null is not proven against every supported provider's
+          // structured-output validator, and this form already is (schema.ts, tested against both).
+          droppedClass: { type: ["string", "null"], enum: [...DROPPED_CLASSES, null] },
           status: { type: "string", enum: ["new", "pre_existing", "unknown"] },
           citedLine: { type: ["string", "null"] },
           reason: { type: "string" },

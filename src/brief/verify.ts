@@ -6,7 +6,7 @@ import { buildVerifyMessages, verifyPromptHash } from "../llm/verify.js";
 import { estimateTokens } from "./budget.js";
 import { shortenWhy } from "./build.js";
 import { FACTS_FILE, factHash, parseFactMemory, type FactVerdict } from "./facts-memory.js";
-import { checkId, factId, hunkId } from "./selfcheck.js";
+import { checkId, factIds, hunkId } from "./selfcheck.js";
 
 /** Per candidate: enough of a hunk (or a partner file) to judge it by, never the whole diff (verification spec §3.2). */
 const MAX_EXCERPT = 2000;
@@ -49,8 +49,10 @@ export async function collectCandidates(brief: ReviewBrief, ctx: ScoringContext)
 
   const candidates: VerifyCandidate[] = [];
   const partners: Record<string, string> = {};
-  for (const fact of brief.captain?.facts ?? []) {
-    const id = factId(fact);
+  const facts = brief.captain?.facts ?? [];
+  const factCandidateIds = factIds(facts);
+  for (const [i, fact] of facts.entries()) {
+    const id = factCandidateIds[i]!;
     // Captain facts are new by construction; coupling.missing has no new/pre-existing axis (spec §3.3).
     candidates.push({ id, kind: "fact", file: fact.file, line: fact.line, text: fact.text, excerpt: excerptOf(hunkOf(ctx, fact.file, fact.line)), status: fact.id === "coupling.missing" ? "unknown" : "new" });
     if (fact.id !== "coupling.missing") continue;
@@ -97,8 +99,9 @@ export function applyVerification(brief: ReviewBrief, verdicts: Map<string, Veri
   let captain = brief.captain;
   if (captain) {
     const facts: ArchitectureFact[] = [];
-    for (const f of captain.facts) {
-      const id = factId(f);
+    const ids = factIds(captain.facts);
+    for (const [i, f] of captain.facts.entries()) {
+      const id = ids[i]!;
       const v = decide(id);
       if (v.action === "drop") drop(id, v);
       else facts.push({ ...f, ...(v.action === "downgrade" ? { weight: "info" as const } : {}), verification: v });
@@ -161,7 +164,8 @@ export async function verifyBrief(brief: ReviewBrief, ctx: ScoringContext, provi
     const memory = new Map<string, FactVerdict>();
     const text = await gitMaybe(ctx.repoDir, ["show", `${ctx.diff.base}:${FACTS_FILE}`]);
     if (text !== undefined) for (const e of parseFactMemory(text)) memory.set(e.hash, e.verdict);
-    const facts = new Map((brief.captain?.facts ?? []).map((f) => [factId(f), f]));
+    const captainFacts = brief.captain?.facts ?? [];
+    const facts = new Map(factIds(captainFacts).map((id, i) => [id, captainFacts[i]!]));
     const pinned = new Set<string>();
     const toAsk = candidates.filter((c) => {
       const fact = c.kind === "fact" ? facts.get(c.id) : undefined;

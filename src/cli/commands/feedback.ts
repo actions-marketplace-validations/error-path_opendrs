@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { FACTS_FILE, factHash, parseFactMemory, type FactMemoryEntry, type FactVerdict } from "../../brief/facts-memory.js";
-import { factId } from "../../brief/selfcheck.js";
+import { factIds } from "../../brief/selfcheck.js";
 import { loadConfig } from "../../domain/config.js";
 import type { Incident } from "../../domain/types.js";
 import { OpendrsError } from "../../domain/types.js";
@@ -55,8 +55,9 @@ async function recordFact(repoDir: string, values: { fact: string; verdict?: str
   const config = await loadConfig(repoDir);
   const result = await scoreDiff({ repoDir, base: values.base ?? (await defaultBase(repoDir)), head: values.head ?? "HEAD", config, brief: {}, llm: null });
   const facts = result.brief?.captain?.facts ?? [];
-  const fact = facts.find((f) => factId(f) === values.fact);
-  if (!fact) throw new OpendrsError(`no fact ${values.fact} in this diff; available: ${facts.map(factId).join(", ") || "none"}`, "usage");
+  const ids = factIds(facts);
+  const fact = facts[ids.indexOf(values.fact)];
+  if (!fact) throw new OpendrsError(`no fact ${values.fact} in this diff; available: ${ids.join(", ") || "none"}`, "usage");
 
   const entry: FactMemoryEntry = { hash: factHash(fact), id: fact.id, file: fact.file, verdict, ...(values.note ? { note: values.note } : {}), at: new Date().toISOString() };
   const file = join(repoDir, FACTS_FILE);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ReviewBrief } from "../../src/domain/types.js";
-import { checkId, factId, hunkId, selfCheckItems } from "../../src/brief/selfcheck.js";
+import type { ArchitectureFact, ReviewBrief } from "../../src/domain/types.js";
+import { checkId, factId, factIds, hunkId, selfCheckItems } from "../../src/brief/selfcheck.js";
 
 function brief(over: Partial<ReviewBrief> = {}): ReviewBrief {
   return {
@@ -32,6 +32,24 @@ describe("factId / hunkId / checkId", () => {
   });
 });
 
+describe("factIds", () => {
+  it("gives the second and later facts sharing one id+file+line a distinguishing suffix", () => {
+    const a: ArchitectureFact = { id: "coupling.missing", weight: "info", file: "src/a.ts", text: "`src/b.ts` changed with `src/a.ts` in 9 of 10 commits." };
+    const b: ArchitectureFact = { id: "coupling.missing", weight: "info", file: "src/a.ts", text: "`src/c.ts` changed with `src/a.ts` in 8 of 10 commits." };
+    const ids = factIds([a, b]);
+    expect(ids).toEqual(["coupling.missing:src/a.ts", "coupling.missing:src/a.ts#1"]);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("leaves ids that don't collide exactly as factId already gives them", () => {
+    const facts: ArchitectureFact[] = [
+      { id: "coupling.missing", weight: "info", file: "src/a.ts", text: "t" },
+      { id: "contract.api", weight: "strong", file: "src/api.ts", line: 42, text: "t" },
+    ];
+    expect(factIds(facts)).toEqual(["coupling.missing:src/a.ts", "contract.api:src/api.ts:42"]);
+  });
+});
+
 describe("selfCheckItems", () => {
   it("lists every captain fact, every reviewFirst hunk and every check, in brief order", () => {
     const b = brief({
@@ -60,6 +78,22 @@ describe("selfCheckItems", () => {
     });
     const items = selfCheckItems(b);
     expect(items.map((i) => i.id)).toEqual(["check:src/a.ts:10:0", "check:src/a.ts:10:1"]);
+  });
+
+  it("gives two facts that share one id+file+line distinct ids instead of merging them", () => {
+    const b = brief({
+      captain: {
+        priority: "careful",
+        why: [],
+        notes: [],
+        facts: [
+          { id: "contract.dependency", weight: "strong", file: "package.json", text: "New runtime dependency `a`." },
+          { id: "contract.dependency", weight: "strong", file: "package.json", text: "New runtime dependency `b`." },
+        ],
+      },
+    });
+    const items = selfCheckItems(b);
+    expect(items.map((i) => i.id)).toEqual(["contract.dependency:package.json", "contract.dependency:package.json#1"]);
   });
 
   it("has no captain items when captain is absent (captain.enabled: false)", () => {

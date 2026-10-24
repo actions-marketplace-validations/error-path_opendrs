@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OpendrsError, type VerifyCandidate } from "../../src/domain/types.js";
-import { VERIFY_SCHEMA, VERIFY_SYSTEM_PROMPT, buildVerifyMessages, parseVerification, verifyPromptHash } from "../../src/llm/verify.js";
+import { DROPPED_CLASSES, VERIFY_SCHEMA, VERIFY_SYSTEM_PROMPT, buildVerifyMessages, parseVerification, verifyPromptHash } from "../../src/llm/verify.js";
 
 const files = ["src/a.ts", "src/b.ts"];
 const candidate = (id: string, kind: VerifyCandidate["kind"], status: VerifyCandidate["status"] = "new", over: Partial<VerifyCandidate> = {}): VerifyCandidate => ({
@@ -161,6 +161,13 @@ describe("VERIFY_SCHEMA and the prompt hash", () => {
       expect(o.required).toEqual(Object.keys(o.properties as object));
     }
     expect(JSON.stringify(VERIFY_SCHEMA)).not.toMatch(/minimum|maximum|minLength|maxLength/);
+  });
+
+  it("makes a nullable field a type array, never anyOf (schema.ts's JUDGEMENT_SCHEMA.risky_snippets.line sets the precedent; anyOf-with-null is untested against the supported providers' structured-output validators)", () => {
+    expect(JSON.stringify(VERIFY_SCHEMA)).not.toContain("anyOf");
+    const verdict = VERIFY_SCHEMA.properties.verdicts.items.properties;
+    expect(verdict.droppedClass).toEqual({ type: ["string", "null"], enum: [...DROPPED_CLASSES, null] });
+    expect(verdict.citedLine).toEqual({ type: ["string", "null"] });
   });
 
   it("is 12 hex characters and stable", () => {
