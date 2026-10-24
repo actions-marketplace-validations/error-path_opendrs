@@ -86,7 +86,7 @@ describe("detectCoupling", () => {
     const result = await detectCoupling(ctx, {});
     expect(result.notes).toEqual([]);
     expect(result.facts).toEqual([
-      { id: "coupling.missing", weight: "strong", file: "a.ts", text: "`b.ts` changed with `a.ts` in 5 of 6 commits (last 365 days); this PR changes only `a.ts`." },
+      { id: "coupling.missing", weight: "info", file: "a.ts", text: "`b.ts` changed with `a.ts` in 5 of 6 commits (last 365 days); this PR changes only `a.ts`." },
     ]);
   });
 
@@ -135,9 +135,13 @@ describe("detectCoupling", () => {
     expect(result.facts).toEqual([]);
   });
 
-  // Spec §3.8: three deterministic noise classes read from the field test's 18 coupling.missing fires.
+  // Spec §3.8, narrowed 2026-10-23 (docs/experiments.md, "coupling.missing": demoted after the
+  // outcome-labels study found 0 of 45 fires engaged by a reviewer or a later fix, every one on a
+  // CI workflow, a manifest or a test). The fact is always `info` now, and never fires at all when
+  // the changed side itself is one of those three classes — the field test's original noise
+  // pattern, confirmed at nine times the volume.
 
-  it("does not fire for a file this PR deletes (class A: retired file)", async () => {
+  it("does not fire for a file this PR deletes (retired file: no partner left to update)", async () => {
     repo = makeRepo();
     repo.commit({ "a.ts": "0\n", "b.ts": "0\n" }, "init", undefined, T);
     for (let i = 0; i < 5; i++) repo.commit({ "a.ts": `${i + 1}\n`, "b.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 1 + i);
@@ -148,7 +152,43 @@ describe("detectCoupling", () => {
     expect(result.facts).toEqual([]);
   });
 
-  it("downgrades to info when no identifier on the removed lines occurs in the partner (class B)", async () => {
+  it("never fires when the changed side is a CI workflow", async () => {
+    repo = makeRepo();
+    repo.commit({ ".github/workflows/ci.yml": "0\n", "b.ts": "0\n" }, "init", undefined, T);
+    for (let i = 0; i < 5; i++)
+      repo.commit({ ".github/workflows/ci.yml": `${i + 1}\n`, "b.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 1 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ ".github/workflows/ci.yml": "9\n" }, "change workflow alone", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([]);
+  });
+
+  it("never fires when the changed side is a manifest (e.g. Cargo.toml, package.json)", async () => {
+    repo = makeRepo();
+    repo.commit({ "Cargo.toml": "0\n", "b.ts": "0\n" }, "init", undefined, T);
+    for (let i = 0; i < 5; i++) repo.commit({ "Cargo.toml": `${i + 1}\n`, "b.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 1 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ "Cargo.toml": "9\n" }, "change manifest alone", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([]);
+  });
+
+  it("never fires when the changed side is a test, regardless of the partner", async () => {
+    repo = makeRepo();
+    repo.commit({ "tests/a.test.ts": "0\n" }, "create test", undefined, T);
+    repo.commit({ "src/a.ts": "0\n" }, "create source", undefined, T + 1);
+    for (let i = 0; i < 5; i++)
+      repo.commit({ "tests/a.test.ts": `${i + 1}\n`, "src/a.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 2 + i);
+    const base = repo.git("rev-parse", "HEAD");
+    const head = repo.commit({ "tests/a.test.ts": "9\n" }, "change test alone", undefined, T + 10);
+    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
+    const result = await detectCoupling(ctx, {});
+    expect(result.facts).toEqual([]);
+  });
+
+  it("downgrades to info when no identifier on the removed lines occurs in the partner", async () => {
     repo = makeRepo();
     repo.commit({ "a.json": '{\n  "oxlint": "^1.0"\n}\n' }, "create a", undefined, T);
     repo.commit({ "b.json": '{"name": "b"}\n' }, "create b", undefined, T + 1);
@@ -165,12 +205,12 @@ describe("detectCoupling", () => {
         file: "a.json",
         text:
           "`b.json` changed with `a.json` in 5 of 6 commits (last 365 days); this PR changes only `a.json`." +
-          " Downgraded: the lines changed in `a.json` mention nothing `b.json` contains.",
+          " The lines changed in `a.json` mention nothing `b.json` contains.",
       },
     ]);
   });
 
-  it("keeps strong when a removed identifier does occur in the partner", async () => {
+  it("fires with no suffix when a removed identifier does occur in the partner", async () => {
     repo = makeRepo();
     repo.commit({ "a.json": '{\n  "oxlint": "^1.0"\n}\n' }, "create a", undefined, T);
     repo.commit({ "b.json": '{"oxlint": "^2.0"}\n' }, "create b", undefined, T + 1);
@@ -181,11 +221,11 @@ describe("detectCoupling", () => {
     const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
     const result = await detectCoupling(ctx, {});
     expect(result.facts).toEqual([
-      { id: "coupling.missing", weight: "strong", file: "a.json", text: "`b.json` changed with `a.json` in 5 of 6 commits (last 365 days); this PR changes only `a.json`." },
+      { id: "coupling.missing", weight: "info", file: "a.json", text: "`b.json` changed with `a.json` in 5 of 6 commits (last 365 days); this PR changes only `a.json`." },
     ]);
   });
 
-  it("keeps strong for a pure addition even when the partner lacks the added identifier", async () => {
+  it("fires with no suffix for a pure addition even when the partner lacks the added identifier", async () => {
     repo = makeRepo();
     repo.commit({ "a.ts": "line1\n" }, "create a", undefined, T);
     repo.commit({ "b.ts": "0\n" }, "create b", undefined, T + 1);
@@ -195,29 +235,7 @@ describe("detectCoupling", () => {
     const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
     const result = await detectCoupling(ctx, {});
     expect(result.facts).toEqual([
-      { id: "coupling.missing", weight: "strong", file: "a.ts", text: "`b.ts` changed with `a.ts` in 5 of 6 commits (last 365 days); this PR changes only `a.ts`." },
-    ]);
-  });
-
-  it("downgrades a test file whose partner is source (class C: test fired on its source)", async () => {
-    repo = makeRepo();
-    repo.commit({ "tests/a.test.ts": "0\n" }, "create test", undefined, T);
-    repo.commit({ "src/a.ts": "0\n" }, "create source", undefined, T + 1);
-    for (let i = 0; i < 5; i++)
-      repo.commit({ "tests/a.test.ts": `${i + 1}\n`, "src/a.ts": `${i + 1}\n` }, `co-change ${i}`, undefined, T + 2 + i);
-    const base = repo.git("rev-parse", "HEAD");
-    const head = repo.commit({ "tests/a.test.ts": "9\n" }, "change test alone", undefined, T + 10);
-    const ctx = await contextFor(repo, base, head, { config: minSupport5(), asOf: T + 10 });
-    const result = await detectCoupling(ctx, {});
-    expect(result.facts).toEqual([
-      {
-        id: "coupling.missing",
-        weight: "info",
-        file: "tests/a.test.ts",
-        text:
-          "`src/a.ts` changed with `tests/a.test.ts` in 5 of 6 commits (last 365 days); this PR changes only `tests/a.test.ts`." +
-          " Downgraded: a changed test without its source partner is a test-only change.",
-      },
+      { id: "coupling.missing", weight: "info", file: "a.ts", text: "`b.ts` changed with `a.ts` in 5 of 6 commits (last 365 days); this PR changes only `a.ts`." },
     ]);
   });
 });

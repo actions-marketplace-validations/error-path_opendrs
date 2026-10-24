@@ -5,6 +5,7 @@ import { matchAny } from "../git/glob.js";
 import { code } from "../report/escape.js";
 import { languageFamily } from "../signals/language.js";
 import { asOfOrNow, plural } from "../signals/util.js";
+import { isManifestPath } from "./manifests.js";
 
 /** Spec §3.8: an identifier worth checking for survival in the partner's base text. */
 const IDENTIFIER = /[A-Za-z_][\w.@/-]{2,}/g;
@@ -69,6 +70,21 @@ function excluded(ctx: { config: { paths: { ignore: readonly string[] } } }, pat
   return matchAny(ctx.config.paths.ignore, path) || languageFamily(path) === "docs";
 }
 
+/** A GitHub Actions workflow file. */
+const CI_WORKFLOW_GLOBS = ["**/.github/workflows/**"];
+
+/**
+ * Demoted 2026-10-23 (docs/experiments.md, "coupling.missing"): the outcome-labels study found 0
+ * of 45 fires engaged by a reviewer or a later fix, every one on a CI workflow, a manifest or a
+ * test — the field test's original 18-of-18 noise finding, confirmed at higher volume. The fact
+ * never fires when the file this PR actually changed (as opposed to its missing partner) is one
+ * of those three classes: they change together for mechanical reasons unrelated to a forgotten
+ * update.
+ */
+function isNoisyChangedSide(ctx: { config: { paths: { tests: readonly string[] } } }, path: string): boolean {
+  return matchAny(CI_WORKFLOW_GLOBS, path) || isManifestPath(path) || matchAny(ctx.config.paths.tests, path);
+}
+
 /** Spec §6.1: files that historically change together, where this PR changed only one of them. */
 export const detectCoupling: Detector = async (ctx) => {
   const cfg = ctx.config.captain.coupling;
@@ -91,17 +107,14 @@ export const detectCoupling: Detector = async (ctx) => {
   for (const pair of pairs) {
     if ((await ctx.readHead(pair.partner)) === undefined) continue;
     const firing = ctx.diff.files.find((f) => f.path === pair.file);
-    // Class A (spec §3.8): a file going away has no partner left to update; the pairing is stale.
+    // Retired file: a file going away has no partner left to update; the pairing is stale.
     if (firing?.status === "deleted") continue;
+    // Demoted 2026-10-23: never fire when the changed side is a CI workflow, a manifest or a test.
+    if (isNoisyChangedSide(ctx, pair.file)) continue;
 
-    let weight: "strong" | "info" = "strong";
     let suffix = "";
-    if (matchAny(ctx.config.paths.tests, pair.file) && !matchAny(ctx.config.paths.tests, pair.partner)) {
-      // Class C: a changed test without its source partner is a test-only change, not a forgotten co-change.
-      weight = "info";
-      suffix = " Downgraded: a changed test without its source partner is a test-only change.";
-    } else if (firing && firing.hunks.length > 0 && firing.hunks.every((h) => [...changedLines(h)].some((l) => l.kind === "-"))) {
-      // Class B: every hunk modifies (not a pure addition); downgrade unless a removed identifier survives in the partner.
+    if (firing && firing.hunks.length > 0 && firing.hunks.every((h) => [...changedLines(h)].some((l) => l.kind === "-"))) {
+      // Every hunk modifies (not a pure addition): note it when no removed identifier survives in the partner.
       const identifiers = new Set<string>();
       for (const h of firing.hunks) {
         for (const l of changedLines(h)) {
@@ -112,14 +125,13 @@ export const detectCoupling: Detector = async (ctx) => {
       const partnerText = (await ctx.readBase(pair.partner)) ?? "";
       const survives = [...identifiers].some((id) => partnerText.includes(id));
       if (!survives) {
-        weight = "info";
-        suffix = ` Downgraded: the lines changed in ${code(pair.file)} mention nothing ${code(pair.partner)} contains.`;
+        suffix = ` The lines changed in ${code(pair.file)} mention nothing ${code(pair.partner)} contains.`;
       }
     }
 
     facts.push({
       id: "coupling.missing" as const,
-      weight,
+      weight: "info" as const,
       file: pair.file,
       text: `${code(pair.partner)} changed with ${code(pair.file)} in ${pair.support} of ${pair.total} commits (last ${plural(days, "day")}); this PR changes only ${code(pair.file)}.${suffix}`,
     });

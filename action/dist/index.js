@@ -28971,6 +28971,7 @@ var DEFAULT_SCHEMA_GLOBS = [
 var MAX_SCHEMA_FACTS = 3;
 var MAX_INSTRUCTION_FACTS = 3;
 var MAX_ENV_CHECKS = 10;
+var GENERATED_GLOBS = ["**/*.lock.yml"];
 var ENV_PATTERNS = [
   /\bprocess\.env\.([A-Za-z_][A-Za-z0-9_]*)/,
   /\bprocess\.env\[["']([A-Za-z_][A-Za-z0-9_]*)["']\]/,
@@ -29065,15 +29066,15 @@ var detectContracts = async (ctx) => {
     if (deletedDecls.length > 0) {
       const dependents = ctx.graph?.dependentsOf(basePath2).length ?? 0;
       if (dependents > 0) {
-        for (const d of deletedDecls) {
-          facts.push({
-            id: "contract.api",
-            weight: "strong",
-            file: basePath2,
-            line: d.line,
-            text: `Removes or changes exported ${code(d.name)} (${code(locate(basePath2, d.line))}), imported by ${plural2(dependents, "file")}.`
-          });
-        }
+        const shown = deletedDecls.slice(0, 3).map((d) => code(d.name));
+        const names = shown.join(", ") + (deletedDecls.length > 3 ? ", \u2026" : "");
+        facts.push({
+          id: "contract.api",
+          weight: "strong",
+          file: basePath2,
+          line: deletedDecls[0].line,
+          text: `Removes or changes ${plural2(deletedDecls.length, "exported declaration")} in ${code(basePath2)} (${names}), imported by ${plural2(dependents, "file")}.`
+        });
       }
     } else if (addedDecls.length > 0 && f.status !== "added") {
       const dependents = ctx.graph?.dependentsOf(basePath2).length ?? 0;
@@ -29105,7 +29106,7 @@ var detectContracts = async (ctx) => {
   const seen = /* @__PURE__ */ new Set();
   for (const f of files) {
     if (f.binary) continue;
-    if (isTestPath(ctx.config, f.path) || languageFamily(f.path) === "docs") continue;
+    if (isTestPath(ctx.config, f.path) || languageFamily(f.path) === "docs" || matchAny(GENERATED_GLOBS, f.path)) continue;
     for (const h of f.hunks) {
       for (const { kind, line: line2, text } of changedLines(h)) {
         if (kind !== "+") continue;
@@ -29118,9 +29119,22 @@ var detectContracts = async (ctx) => {
     }
   }
   const toCheck = envCandidates.slice(0, MAX_ENV_CHECKS);
+  const newByFile = /* @__PURE__ */ new Map();
   for (const c of toCheck) {
     if (await existsAtBase(ctx, c.name)) continue;
-    facts.push({ id: "contract.env", weight: "strong", file: c.file, line: c.line, text: `Reads a new environment variable ${code(c.name)} (${code(locate(c.file, c.line))}).` });
+    newByFile.set(c.file, [...newByFile.get(c.file) ?? [], { name: c.name, line: c.line }]);
+  }
+  for (const [file2, vars] of newByFile) {
+    const first = vars[0];
+    const shown = vars.slice(0, 3).map((v) => code(v.name));
+    const names = shown.join(", ") + (vars.length > 3 ? ", \u2026" : "");
+    facts.push({
+      id: "contract.env",
+      weight: "strong",
+      file: file2,
+      line: first.line,
+      text: `Reads ${plural2(vars.length, "new environment variable")} (${names}) (${code(locate(file2, first.line))}).`
+    });
   }
   const skipped = envCandidates.length - toCheck.length;
   if (skipped > 0) notes.push(`contract.env: ${plural2(skipped, "more new environment variable")} not checked`);
@@ -29166,6 +29180,10 @@ function isHigherConfidence(a, b) {
 function excluded(ctx, path) {
   return matchAny(ctx.config.paths.ignore, path) || languageFamily(path) === "docs";
 }
+var CI_WORKFLOW_GLOBS = ["**/.github/workflows/**"];
+function isNoisyChangedSide(ctx, path) {
+  return matchAny(CI_WORKFLOW_GLOBS, path) || isManifestPath(path) || matchAny(ctx.config.paths.tests, path);
+}
 var detectCoupling = async (ctx) => {
   const cfg = ctx.config.captain.coupling;
   if (!cfg.enabled) return { facts: [], notes: [] };
@@ -29185,12 +29203,9 @@ var detectCoupling = async (ctx) => {
     if (await ctx.readHead(pair.partner) === void 0) continue;
     const firing = ctx.diff.files.find((f) => f.path === pair.file);
     if (firing?.status === "deleted") continue;
-    let weight = "strong";
+    if (isNoisyChangedSide(ctx, pair.file)) continue;
     let suffix = "";
-    if (matchAny(ctx.config.paths.tests, pair.file) && !matchAny(ctx.config.paths.tests, pair.partner)) {
-      weight = "info";
-      suffix = " Downgraded: a changed test without its source partner is a test-only change.";
-    } else if (firing && firing.hunks.length > 0 && firing.hunks.every((h) => [...changedLines(h)].some((l) => l.kind === "-"))) {
+    if (firing && firing.hunks.length > 0 && firing.hunks.every((h) => [...changedLines(h)].some((l) => l.kind === "-"))) {
       const identifiers = /* @__PURE__ */ new Set();
       for (const h of firing.hunks) {
         for (const l of changedLines(h)) {
@@ -29201,13 +29216,12 @@ var detectCoupling = async (ctx) => {
       const partnerText = await ctx.readBase(pair.partner) ?? "";
       const survives = [...identifiers].some((id) => partnerText.includes(id));
       if (!survives) {
-        weight = "info";
-        suffix = ` Downgraded: the lines changed in ${code(pair.file)} mention nothing ${code(pair.partner)} contains.`;
+        suffix = ` The lines changed in ${code(pair.file)} mention nothing ${code(pair.partner)} contains.`;
       }
     }
     facts.push({
       id: "coupling.missing",
-      weight,
+      weight: "info",
       file: pair.file,
       text: `${code(pair.partner)} changed with ${code(pair.file)} in ${pair.support} of ${pair.total} commits (last ${plural2(days, "day")}); this PR changes only ${code(pair.file)}.${suffix}`
     });
