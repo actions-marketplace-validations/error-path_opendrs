@@ -9,3 +9,4 @@ evals/results/
 docs/_site/
 docs/.jekyll-cache/
 .dev-metrics/
+bench/outcomes/results.json
