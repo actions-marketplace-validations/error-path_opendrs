@@ -13,10 +13,12 @@ Unless stated otherwise, ApacheJIT numbers are on the dataset's official split: 
 test 2017–2019. They are pooled over the held-out test commits, excluding `apache/hadoop`, which
 has no positive labels: 24,686 commits, 5,818 positive. "Recall@X %" is the share of buggy
 commits in the riskiest X % of commits. How to read the metrics is in
-[Calibration and backtesting](calibration.html#reading-the-metrics).
+[Calibration and backtesting](calibration.md#reading-the-metrics).
 
 | Date | Question | Result | Verdict | Details |
 |---|---|---|---|---|
+| 2026-10-23 (pre-registered 2026-10-23, before coding) | Do the outcome-labels study's top three detector follow-ups (`contract.api` per-file aggregation, `coupling.missing` narrowing, `contract.env` per-file aggregation + generated-file skip) hold on a held-out corpus (yargs/yargs, expressjs/express; 89 PRs) the follow-ups were never derived from? | All three **held**: zero structural violations (no file fires >1 aggregated fact, no fire on a generated `*.lock.yml`, no `coupling.missing` fire on a CI workflow/manifest/test or at `weight: "strong"`); the 3 pre-fix `coupling.missing` fires were all on `.github/workflows/ci.yml` and all eliminated with the captain priority table unchanged. `contract.api`/`contract.env` had only 0–1 fire each — insufficient volume for a precision (lift) verdict on this corpus, honestly reported, not claimed | No fix reverted; none needed it | [details](#captain-fact-precision-follow-ups-on-a-held-out-corpus) |
+| 2026-10-23 (pre-registered 2026-10-23; corpus-size amendment the same day, before run 2) | Do the captain facts point where human reviewers independently look (review comments) and where later fixes land (90-day SZZ blame, reverts), relative to the same PR's other files, on merged PRs of six active public repos (one per supported language)? Is the captain priority informative about later fixes? | Run 2, 1,010 PRs, 3,197 facts: **keep** `contract.api` (engagement 1.23×; 1.30× on the five facts a comment shows), `contract.dependency` (engagement 1.32×, later-fix 4.62×), `change.concurrency` (1.63× / 2.08×), `change.safety_removed` (1.62× / —); **demote** `coupling.missing` (0 of 45 fires engaged, later-fix 0.92×); insufficient data (< 30 fires) for `contract.env`, `layers.edge` (1.89× on 18), `contract.instructions`, `contract.schema`. Priority **informative**: fixed-or-reverted careful 14.8 %, standard 10.4 %, quick 1.7 % (base 9.8 %) | Report only; no detector changed. Standing eval in `bench/outcomes/` | [details](#outcome-labels-on-active-public-repos) |
 | 2026-10-22, amended and re-run 2026-10-23 (pre-registered 2026-10-22, amendment 2026-10-23) | Does `llm.verify` (the Phase 2 verification pass) recall the field test's 15 true+useful captain facts and correctly drop/downgrade its 18 noisy `coupling.missing` fires and 2 `contract.dependency` WRONG fires, at acceptable cost? | **v1**: recall PASS (1/14), `coupling.missing` PASS (15/18: 4 detector + 11 verifier), WRONG-fire precision FAIL (0/2 — both facts never fire at all post-0.4.1; the study couldn't yet tell "eliminated" from "missed"), cost FAIL ($0.0210/PR, $1.0271/49 PRs). Overall precision-fail, recorded honestly below with no exception carved out. Root-caused and fixed (dead `VerifyVerdict.confidence` field; WRONG-fire elimination now scored, same bar) — amended and re-run. **v2** (same corpus/model/bars, run `2026-10-22T19-16-53-589Z`): recall PASS (1/14), `coupling.missing` PASS (14/18: 4 detector + 10 verifier), WRONG-fire precision PASS (2/2, both eliminated at the detector), cost PASS ($0.0192/PR, $0.9419/49 PRs). **Overall: ship.** Combined v1+v2 spend $1.9690 of the $5 study cap | Shipped as opendrs 0.5.0 | [details](#verifier-precision-study-on-the-field-test-corpus) |
 | 2026-10-20 (pre-registered 2026-10-20) | Do re-centred default weights reduce out-of-the-box saturation on mature repositories? | On ApacheJIT, both candidates make saturation worse, not better: intercept re-centring to mid-yellow raises red share 25.6 % → 40.3 % (the train-split median was 0.307, not near red as assumed); scaling `history.*`/`expertise.*` by repo age raises red share to 33.9 % and costs −0.0052 AUC (significant loss, CI −0.0058 to −0.0046) | Rejected; the pre-registration's "median near red" premise does not hold on ApacheJIT | [details](#default-weights-re-centred-intercept-and-repo-age-scaling-on-apachejit) |
 | 2026-10-20 (pre-registered 2026-10-19) | Does excluding Conventional-Commit housekeeping from `history.fixPattern`, and matching `history.incident` at file level instead of folder level, reduce default-prior score saturation on mature repos without hurting calibrated AUC? | On ApacheJIT: red share falls 0.9 % (fixPattern), 7.4 % (incident), 8.3 % (both) — all short of the 25 % bar; calibrated AUC never drops (+0.0002 to +0.0010, every CI non-negative) | Rejected per threshold; file-level incident matching recommended anyway | [details](#score-saturation-fixpattern-and-incident-granularity-on-apachejit) |
@@ -30,6 +32,359 @@ commits in the riskiest X % of commits. How to read the metrics is in
 | 2026-10-16 | Does a prompted LLM judge improve ranking, and is its `requireSafe` gate useful? | Ranking +0.015 to +0.022 AUC (within noise). Gate passes 28.5 % of commits at 5.3 % buggy (base rate 25.5 %) | Merged (opt-in) | [details](#structured-llm-judge-on-sampled-apachejit) |
 | 2026-10-16 | How do default and calibrated opendrs compare with the classic JIT metrics on a public benchmark? | Calibrated 0.819 vs Kamei 0.821 vs DRS-OSS 0.895 (published, other split) | Merged | [details](#apachejit-benchmark-baseline) |
 | 2026-10-15 and 2026-10-16 | Does the score rank later-fixed commits on real open-source repositories, untuned and calibrated? | Better than chance almost everywhere. Calibration helped in 9 of 9, then in 11 of 18 | Kept as evidence | [details](#public-repository-backtests) |
+
+## Outcome labels on active public repos
+
+**Status.** Pre-registered 2026-10-23, before any fetch, clone or brief. Spec:
+`docs/specs/2026-10-23-outcome-labels-design.md`. The question, corpus rule, labels, metrics and
+decision rule below are copied from it; results are appended under "Result" after the run,
+including a failed or stopped run.
+
+**Question.** The captain facts' precision has only been measured on proxies — the hand-graded
+49-PR field test, and ApacheJIT bug lift on Java commits. On merged PRs in active public repos,
+where review comments and the later fix history already exist: (1) per fact type, do facts point
+at files (and lines) that human reviewers independently commented on, and at files (and lines)
+that a fix commit within 90 days blamed back to the PR, more often than the same PR's other
+changed files? (2) Is the captain priority ("careful review") informative about which PRs were
+later fixed or reverted? (3) Can the labelled set stand as a regression eval that re-runs on
+every detector, weight or prompt change?
+
+**Setup.**
+- **Repos (fixed).** psf/black (Python), cli/cli (Go), actix/actix-web (Rust), vitejs/vite
+  (TypeScript), fastlane/fastlane (Ruby, with the field test's recorded quirks: full clone,
+  `history.maxCommits: 1500`, `history.lookbackDays: 90`), mockito/mockito (Java). vapor/vapor
+  (Swift) is dropped: no Swift import extractor, zero facts in the field test.
+  `error-path/opendrs` itself is excluded, here and in the standing eval (worker rule 16,
+  2026-10-23): a single-maintainer repo's review and outcome data says nothing.
+- **PR selection (mechanical, spec §3).** Pinned head = default-branch tip at corpus-build time,
+  `T_head`. Window `W = 90 days`. Candidates: PRs into the default branch, `merged_at ≤ T_head −
+  W`, `created_at ≥ T_head − W − 365 d`, author not a `Bot`, reconstructible from the clone (merge
+  commit on first-parent history; diff file count equals the PR's `changed_files`). The 60 most
+  recently merged qualifying PRs per repo. Exclusions are listed with reasons. **Stop rule:** more
+  than 20 % of a repo's candidates non-reconstructible → the run stops and the cause is
+  investigated before any number is read.
+- **Brief (spec §4).** `scoreDiff` from `dist/` with `llm: null`, `defaultConfig()` plus the
+  repo's recorded quirks only (no `.opendrs.yml` from the repo), base/head from the merge commit
+  (merge → `M^1`/`M^2`; squash → `M^1`/`M`; rebase → `M~k`/`M`), one shared history index per
+  repo at the pinned head with `asOf = base time + 1 s` (the `calibrate`/`backtest` reuse;
+  leakage of later-merged, earlier-committed branches is a recorded caveat).
+- **Labels (spec §5), stored in `bench/outcomes/labels.json`, independent of opendrs output.**
+  `E_file`/`E_line`: a review comment by a non-bot non-author on the fact's file / within ±10
+  lines of the fact's line. `F_file`/`F_line`: a fix commit (`isFix` or `isRevert`, non-merge,
+  within `(merged_at, merged_at + 90 d]`) whose SZZ-lite blame (`blameFix`) lands on a PR commit
+  at the fact's file / within ±10 lines. `R`: the PR reverted. `P_partner` (coupling only,
+  descriptive): a fix in the window touched the named partner.
+- **Controls (spec §5.3).** Expected `E_file`/`F_file` for a fact = the share of the PR's
+  changed non-ignored files with that outcome; expected `E_line`/`F_line` = the share of the
+  fact file's added lines within ±10 of such an outcome. **Lift** = mean(label) / mean(expected)
+  over a fact type's facts.
+- **Priority.** Share of fixed-or-reverted PRs per priority tier vs. the corpus rate; recall of
+  fixed-or-reverted PRs at "careful".
+- **No LLM or API calls.** Verifier outcome measurement is designed in spec §10 (≈ $7, cap $10)
+  and not run.
+
+**Decision rule (spec §7), per fact type, file-level lifts primary.**
+- fewer than 30 facts fired → **insufficient data** (no change proposed);
+- `E_file` lift ≥ 1.2 or `F_file` lift ≥ 1.2 → **keep**;
+- neither ≥ 1.2, at least one ≥ 1.0 → **retune** (a detector change is proposed, not made);
+- both < 1.0 → **demote** (`strong` → `info` proposed; `info` → removal or a narrower trigger).
+
+The captain priority is **informative** when the careful tier's fixed-or-reverted rate is ≥ 1.2×
+the corpus rate on ≥ 30 careful PRs; otherwise **not shown**. No detector is changed in this
+branch; every conclusion lists follow-ups.
+
+**Where.** `bench/outcomes/run.ts`, `bench/outcomes/lib.ts`, `bench/outcomes/corpus.json`,
+`bench/outcomes/labels.json`; results in `bench/outcomes/results.md`/`results.json` and the
+drift baseline in `bench/outcomes/baseline.json`. Cache under `~/.cache/opendrs/outcomes/`;
+clones deleted after the run. Every repeatable step timed with `scripts/record-run.mjs`.
+
+**Result (run 1, the pre-registered corpus; commit `4f4597b` holds its `corpus.json`,
+`labels.json` and `results.*`).** Pinned heads 2026-10-20 to 2026-10-23. 327 PRs scored of
+1,067 candidates: 621 bot-authored, 115 outside the lookback, 4 `diff-mismatch` (3 cli/cli
+merge-commit PRs, 1 mockito; every repo far under the 20 % stop rule), none `not-first-parent`.
+mockito had only 30 qualifying PRs. Shapes: 300 squash, 33 merge commits (cli/cli), 1 rebase.
+Timings: fetch 5.5 min (1,208 cached requests), build 3.3 min (full clones; a blobless-clone
+pilot spent 2–6 min *per brief* in partial-clone lazy fetches and was abandoned), label 1.6 min
+(231 fix commits blamed), eval 7 s. **137 facts fired on 327 PRs; only `contract.api` (75,
+46 of them on mockito) reached the 30-fire bar**, so the rule gives one verdict:
+
+| Fact | Fires | E_file (exp) | lift | F_file (exp) | lift | No outcome | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `contract.api` | 75 | 16.0 % (12.1 %) | 1.32× | 0.0 % (1.5 %) | 0.00× | 84.0 % | **keep** (line level: E_line 12.0 % vs 5.3 %, 2.28×) |
+| `coupling.missing` | 19 | 0.0 % (2.6 %) | 0.00× | 0.0 % (1.7 %) | 0.00× | 100 % | insufficient; every fire on a CI workflow, a `Cargo.toml`/`package.json` or a test — the field test's noise pattern again; `P_partner` 57.9 % |
+| `contract.env` | 14 | 0.0 % (24.0 %) | 0.00× | 71.4 % (48.9 %) | 1.46× | 28.6 % | insufficient; 10 of 14 are one PR (cli/cli#13777, ten lines of one generated `issue-triage.lock.yml`) |
+| `change.safety_removed` | 10 | 10.0 % (7.8 %) | 1.28× | 0.0 % (0.7 %) | 0.00× | 90.0 % | insufficient |
+| `change.concurrency` | 7 | 0.0 % (5.9 %) | 0.00× | 14.3 % (3.0 %) | 4.72× | 85.7 % | insufficient |
+| `contract.instructions` | 5 | 60.0 % (20.7 %) | 2.90× | 0.0 % (4.4 %) | 0.00× | 40.0 % | insufficient |
+| `contract.dependency` | 5 | 0.0 % (0.0 %) | — | 0.0 % (0.0 %) | — | 100 % | insufficient |
+| `layers.edge` | 2 | 100 % (41.7 %) | 2.40× | 0.0 % (0.0 %) | — | 0.0 % | insufficient |
+
+Outcomes are sparse: 73 of 327 PRs have a counted review comment (248 comments, none without a
+line), **18 have a blame hit** (5.5 %), 1 was reverted, 22 had changes requested. **Captain
+priority:** careful 11/149 fixed-or-reverted (7.4 %), standard 6/78 (7.7 %), quick 1/100
+(1.0 %); corpus 5.5 %; recall at careful 61.1 %. The pre-registered test passes (careful ≥ 1.2×
+base on ≥ 30 PRs: 1.35×), but the honest reading is that the priority separates **quick** from
+the rest, not careful from standard.
+
+**Amendment 2026-10-23 (before run 2).** The corpus rule's two size parameters change:
+lookback 365 → **1,095 days**, PRs per repo 60 → **200** (fewer where a repo has fewer). Nothing
+else changes — same repos, pinned heads, window, labels, controls, metrics and decision rule, and
+run 1 above stays recorded exactly as run. Reason: the rule's own "insufficient data" arm fired
+for 7 of 8 fact types; the only way to a verdict is more PRs, and the mechanical rule scales
+without choosing any. Run 1's 60 PRs per repo are a subset of run 2's selection (same pinned
+heads), so run 2 is an extension, not a different sample. Expected cost: ~3,600 read-only API
+requests across two rate-limit hours, about 1,200 briefs at ~2 s each.
+
+**Result (run 2, the amended corpus; this branch's `corpus.jsonl`, `labels.jsonl`,
+`baseline.json` and `results.md`; `results.json` is regenerated by `eval`).** Same pinned heads as run 1. **1,010 PRs scored** (black 200, cli/cli 196,
+actix-web 98, vite 199, fastlane 200, mockito 117 — actix-web and mockito ran out of qualifying
+PRs inside the three years) of 2,314 candidates: 1,151 bot-authored, 147 outside the lookback,
+6 `diff-mismatch` (4 cli/cli merge-commit PRs, 1 vite, 1 mockito; every repo far under the 20 %
+stop rule). Shapes: 838 squash, 166 merge commits, 6 rebase. Labels: 245 PRs have a counted
+review comment (827 comments, all with a line), **99 have a blame hit (9.8 %)**, 5 were
+reverted, 54 had changes requested; 461 fix commits were blamed. 205 of 1,010 PRs carry any fact
+(805 none, 188 one to five, 13 six to twenty, 4 more). Timings (`scripts/record-run.mjs`): fetch —
+the first attempt was killed by the master session's restart after ≈ 3,100 cached requests (≥ 20
+min, rate-limit bound), the resume from the cache took 0.2 min; build 7.0 min for 1,010 briefs
+at 3 repos × 2 PRs in parallel (≈ 2 s a brief on full clones); label 0.3 min with run 1's blame
+cache (1.6 min cold); eval seconds. Clones deleted afterwards.
+
+Per fact type, the pre-registered per-fact rule, file level (`bench/outcomes/results.md` is the
+source; "exp" is the same PRs' other-file rate, §5.3):
+
+| Fact | Fires (PRs) | E_file (exp) | lift | F_file (exp) | lift | No outcome | Verdict (§7) |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `change.concurrency` | 72 (21) | 4.2 % (2.6 %) | 1.63× | 2.8 % (1.3 %) | 2.08× | 93.1 % | **keep** |
+| `change.safety_removed` | 42 (42) | 11.9 % (7.3 %) | 1.62× | 0.0 % (1.0 %) | 0.00× | 88.1 % | **keep** |
+| `contract.api` | 2,938 (114) | 1.1 % (0.9 %) | 1.23× | 0.3 % (0.4 %) | 0.63× | 98.7 % | **keep** |
+| `contract.dependency` | 43 (22) | 9.3 % (7.0 %) | 1.32× | 23.3 % (5.0 %) | **4.62×** | 67.4 % | **keep** |
+| `contract.env` | 26 (12) | 3.8 % (16.5 %) | 0.23× | 38.5 % (26.6 %) | 1.44× | 57.7 % | insufficient |
+| `contract.instructions` | 10 (9) | 60.0 % (43.4 %) | 1.38× | 0.0 % (2.2 %) | 0.00× | 40.0 % | insufficient |
+| `contract.schema` | 3 (1) | 0.0 % (0.0 %) | — | 0.0 % (0.1 %) | 0.00× | 100 % | insufficient |
+| `coupling.missing` | 45 (36) | 0.0 % (4.3 %) | 0.00× | 4.4 % (4.8 %) | 0.92× | 95.6 % | **demote** |
+| `layers.edge` | 18 (16) | 33.3 % (17.6 %) | 1.89× | 0.0 % (2.1 %) | 0.00× | 66.7 % | insufficient |
+
+Line level (±10 lines, facts with a line): `contract.api` E_line 0.4 % vs 0.3 % (1.31×);
+`contract.dependency` 9.3 % vs 6.4 % (1.45×); `change.concurrency` 0.67× and
+`change.safety_removed` 0.90× — the file is right, the line pointed at is not where reviewers
+comment. `coupling.missing`'s descriptive `P_partner`: 44.4 %.
+
+**One PR dominates `contract.api`.** cli/cli#12289 fired **2,628** of the 2,938 facts (one per
+removed public declaration in a mass Go refactor); the brief shows five and folds the rest into
+"+N more". Without that PR: 310 fires, E_file 10.3 % vs 8.4 % (1.23×), F_file 2.6 % vs 3.2 %
+(0.80×) — the verdict does not change. A **post-hoc view** was added to the harness after this
+was seen (labelled as such in `results.md`, not part of the rule): the first five facts of each
+PR, i.e. what the PR comment shows. On it, `contract.api` is 202 fires on 112 PRs, E_file
+15.8 % vs 12.2 % (**1.30×**), F_file 3.5 % vs 3.2 % (1.08×); `change.safety_removed` 1.49×;
+`contract.dependency` 1.32× / 3.70×; `coupling.missing` still 0.00× / 0.92× (43 fires);
+`change.concurrency` drops to 22 fires (1.63× / 1.19×, insufficient on that view).
+
+**Captain priority** (1,010 PRs): fixed-or-reverted careful **65/438 (14.8 %)**, standard
+29/278 (10.4 %), quick **5/294 (1.7 %)**; corpus 9.8 %; recall at careful 65.7 %. The
+pre-registered test passes (careful 1.51× base on ≥ 30 PRs). Unlike run 1, careful now also
+beats standard (1.4×); quick is clean. Changes-requested reviews by priority: careful 25,
+standard 23, quick 6.
+
+**Reading the labels honestly.** Engagement is counterfactual (opendrs did not run on these
+PRs): a lift > 1 means the fact points where reviewers already looked without it, a lift < 1 that
+they did not — which is noise *or* the blind spot the brief exists to fill; the fix lift is what
+separates the two. `contract.env` is the clearest case: reviewers rarely comment on an env read
+(0.23×), yet the file is fixed later more often than the PR's other files (1.44×). Fix outcomes
+are sparse (9.8 % of PRs) and SZZ-lite blames only modified or deleted lines, so `F` undercounts
+and its lifts are noisy below ~40 fires. Also: 10 of `contract.env`'s 26 fires are one generated
+`issue-triage.lock.yml` in cli/cli#13777 — the same fact-id collision/repetition the verifier
+study flagged.
+
+**Conclusion per fact type (no detector changed in this branch; follow-ups below).**
+- `contract.api` — **keep**. Reviewers comment on the files it names 1.23–1.30× more than on the
+  PR's other files; no later-fix signal.
+- `contract.dependency` — **keep**; the strongest later-fix signal of any fact (23.3 % of named
+  manifests fixed within 90 days, 4.62×), plus 1.32× engagement.
+- `change.concurrency` — **keep** (1.63× / 2.08×), as a file-level fact; its line is not where
+  reviewers comment.
+- `change.safety_removed` — **keep** (1.62× engagement); stays `info` (fires on 42 PRs).
+- `coupling.missing` — **demote**: 0 of 45 fires drew a comment, and the file was fixed later no
+  more than the PR's other files (0.92×). Firing files: 15 CI workflows, 8 manifests, 8 tests, 14
+  source files. The field test's 18-of-18 noise finding holds at 45 fires on a different sample.
+- `contract.env` (26), `layers.edge` (18, 1.89× engagement — the first non-ApacheJIT evidence
+  in its favour), `contract.instructions` (10, 1.38×), `contract.schema` (3) — **insufficient
+  data**; no change proposed.
+- `drift.scope` — not measurable here (Action-only), as in the field test.
+
+**Forward amendment 2026-10-23 (after run 2; for every later run of the standing eval — run 2's
+verdicts above stay exactly as pre-registered and are not re-decided).** From the next run the
+**primary** metric is the shown-facts view (the first five facts of each PR in brief order, what
+the PR comment shows), with the §7 rule applied to it; the per-fire view over every fact becomes
+secondary. Reason, stated plainly: the per-fire metric is dominated by one PR — cli/cli#12289
+carries 2,628 of 2,938 `contract.api` fires (89 %) and 48 of 72 `change.concurrency` fires
+(67 %) — so its number was that PR's, not the fact type's. Had the rule been applied to the
+shown view in run 2, `contract.api` (1.30×), `contract.dependency` (1.32× / 3.70×) and
+`change.safety_removed` (1.49×) would still be keep and `coupling.missing` (0.00× / 0.92×, 43
+fires) still demote; `change.concurrency` would be insufficient (22 fires, 1.63× / 1.19×). The
+report now also lists every PR carrying more than 20 % of a fact type's per-fire count (types
+at or above 30 fires), and `baseline.json`'s drift is computed on the primary view. The frozen
+inputs are stored as `corpus.jsonl`/`labels.jsonl` (one record per line) and `results.json` is
+regenerated, not committed: `bench/outcomes/` is 1.5 MB in git instead of 3.1 MB.
+
+**Follow-ups, ranked (each a separate branch with its own pre-registration where it changes a
+number).**
+1. `contract.api`: one fact per file with a count ("removes or changes N exported declarations
+   in X"), the way `change.safety_removed` already counts per PR — one PR firing 2,628 facts
+   also starves every other fact of the comment's five slots. Re-run this eval (drift section)
+   and the ApacheJIT lift afterwards.
+2. `coupling.missing`: demote to `info` for every class (the rule's output) and narrow the
+   firing file to source files — no CI workflow, manifest or test as the changed side — then
+   re-run; the standing eval's drift section is the check.
+3. `contract.env`: one fact per file, and skip generated files (`*.lock.yml` and the like).
+4. More repos, not a longer window, for the four insufficient types: actix-web and mockito are
+   exhausted at three years; add multi-reviewer public repos per language (never
+   `error-path/opendrs`, worker rule 16). `layers.edge` needs ~12 more firing PRs to reach the bar.
+5. The verifier's outcome measurement (spec §10): the same labels score `llm.verify`'s
+   drop/downgrade verdicts; at the measured $0.0192/PR it is ≈ $19 for all 1,010 PRs or ≈ $4
+   for the 205 PRs that carry a fact (cap $10). Designed, not run; the user decides.
+6. Wire the standing eval into the release checklist (`docs/maintaining.md`): after any detector,
+   weight or prompt change, `build --fresh-briefs` then `eval`, and read the drift section
+   before shipping. Not CI: it needs the clones and ~10 min.
+
+## Captain-fact precision follow-ups on a held-out corpus
+
+**Status.** Pre-registered 2026-10-23, before any fix was coded (worker rule 8). The three fixes
+and their rationale are recorded in commits `fix(captain): aggregate contract.api and
+contract.env per file, skip generated lock files` and `fix(coupling): demote coupling.missing to
+info-only, skip CI workflows/manifests/tests`, both on branch `fix/captain-fact-precision`.
+
+**Why a held-out corpus, not run 2's.** The three fixes below (ranked follow-ups 1–3 in "Outcome
+labels on active public repos" above) were read directly off run 2's 1,010-PR corpus: `contract.api`
+per-file aggregation from cli/cli#12289's 2,628 fires, `coupling.missing`'s narrowing from its 45
+fires' file classes, `contract.env`'s per-file aggregation and generated-file skip from
+cli/cli#13777's 10 fires on one `issue-triage.lock.yml`. Re-running the standing eval's `build
+--fresh-briefs`/`eval` on that same corpus would measure the fixes against the exact data that
+produced them — not a validation, an echo. Every number from that corpus is reported below only
+as a sanity check that the mechanics ran, labelled "run 2 (reference only, not validating)".
+
+**Question.** On merged PRs the study never scored before, each in a repo never in run 2's six: do
+the three fixes (a) behave correctly on the diffs they are meant for — one `contract.api`/
+`contract.env` fact per file with a count, no `coupling.missing` fire on a CI workflow, manifest
+or test, `coupling.missing` always `info` — and (b) leave the standing eval's primary metric
+(shown-facts file-level engagement/fix lift, the forward amendment above) no worse than main's,
+for the two fact types whose change is purely an aggregation (not a new exclusion)?
+
+**Held-out corpus.** Two repositories never in run 2's six and never `error-path/opendrs` (rule
+16), chosen by the spec's own mechanical selection, scoped down for this task's time budget:
+
+| Slug | Repo | Language | Why |
+|---|---|---|---|
+| `yargs` | yargs/yargs | JavaScript | Multi-maintainer, active, small (5.5 MB) |
+| `express` | expressjs/express | JavaScript | Multi-maintainer, active, small (10 MB); swapped in for `pallets/click` — see the amendment below, before any result was read |
+
+Same mechanical PR-selection rule as spec §3 (pinned head = default-branch tip at fetch time,
+`W = 90` days, author not a bot, reconstructible from the clone), with **`--limit 60`** instead of
+200 — the pre-amendment per-repo count from the spec's own first run, chosen here only for this
+task's bench-time budget, not for how the facts behave on these PRs. This is a genuine reduction
+in statistical power versus the standing eval's own 200/repo and is recorded as a caveat on any
+"insufficient data" reading below, not papered over.
+
+**Setup.** `bench/outcomes/run.ts`'s own fetch/build/label/eval steps, copied to a scratch
+directory (`scripts/` and committed files untouched — this never writes to `bench/outcomes/
+corpus.jsonl`/`labels.jsonl`/`baseline.json`, which stay run 2's) with `REPOS` replaced by the two
+rows above and the committed-file paths redirected under
+`~/.cache/opendrs/outcomes-heldout/`. Built and run twice from the same corpus/labels (fetched
+once, labels independent of opendrs):
+
+1. **main** (commit before this branch): `npm run build` on a clean checkout, `build
+   --fresh-briefs`, `eval`.
+2. **fix/captain-fact-precision** (this branch, after both detector commits): `npm run build`,
+   `build --fresh-briefs`, `eval`.
+
+**Decision rule, fixed before running.**
+
+1. **Structural correctness (primary; checkable even at N≈120, not a statistical claim).** On
+   every held-out PR's brief built with this branch's `dist/`:
+   - no file carries more than one `contract.api` fact and more than one `contract.env` fact
+     (aggregation holds);
+   - no `contract.env` fact's file matches `**/*.lock.yml`;
+   - no `coupling.missing` fact's file matches `**/.github/workflows/**`, a manifest
+     (`isManifestPath`) or `paths.tests`;
+   - every `coupling.missing` fact has `weight: "info"`.
+   A single violation on real, previously-unseen diffs fails this leg and reverts the fix (worker
+   rule: a fix that fails its rule on held-out data is reverted, recorded here as a FAIL either
+   way).
+2. **No regression on the primary (shown-facts) engagement/fix lift**, for `contract.api` and
+   `contract.env` only (the aggregation is a presentation change — it must not change *which*
+   files fire, so the labelled PRs and outcomes are identical before and after; only the per-file
+   fact *count* changes). Pass: held-out `E_file`/`F_file` lift with the fix ≥ lift on main, within
+   rounding, **or** fewer than 10 fires on both sides (insufficient data either way — reported, not
+   a pass or fail). `coupling.missing` is exempted from this leg by design: the fix is meant to
+   *remove* fires on noisy classes, so a fire-count drop is the intended outcome, not a regression;
+   its own rule is #3.
+3. **`coupling.missing`'s remaining fires, if any, are no less engaged than main's.** If the
+   held-out corpus has any `coupling.missing` fires surviving the narrower exclusion, their
+   `E_file`/`F_file` lift must be ≥ main's fires' lift on the same corpus (even a single fire is
+   reported, since the structural leg #1 already proves the exclusion fired correctly; this leg
+   only checks that what's left isn't worse). Fewer than 5 remaining fires on either side:
+   insufficient data, reported, not a fail.
+
+**Amendment 2026-10-23 (during the run, before any result was read).** `pallets/click` hit the
+spec §3 stop rule on its own 60-PR selection: 20 of 60 (33 %) excluded as `not-first-parent` or
+`diff-mismatch`, almost all `not-first-parent` — consistent with a default-branch rename (click's
+`default_branch` is `main`; its older merge commits are not on `main`'s first-parent history,
+the harness's own documented failure mode, not a detector issue). Swapped for `expressjs/express`
+(JavaScript, multi-maintainer, long-lived `master` default branch, 10 MB) before reading any
+fact-level result from either repo. The held-out pair is **yargs/yargs and expressjs/express**,
+both JavaScript; the spec's rule for an added repo (§3: "more than one active reviewer") does not
+require per-language diversity the way the original six does.
+
+**Reference only, not validating.** `bench/outcomes/results.md`'s already-committed run 2 numbers
+for the three fact types, copied here unchanged for comparison: `contract.api` keep (1.23×
+per-fire, 1.30× shown), `contract.env` insufficient (26 fires, 0.23× / 1.44×), `coupling.missing`
+demote (0.00× / 0.92×, 45 fires). These are what motivated the fixes, not what tests them.
+
+**Result.** Fetch 3.5 min, build 0.8 min, label < 0.1 min (`express` + `yargs`, both JS; 89 PRs
+scored of 234 candidates: 84 bot-authored or outside the lookback, 1 `diff-mismatch`, far under the
+20 % stop rule). Volume is low — both repos fire the three fact types far less often than cli/cli
+did in run 2, and `--limit 60` (not 200) compounds it, exactly the reduction in power flagged at
+pre-registration:
+
+| Fact | Main fires | Fix fires | Structural violations (fix) | Leg | Verdict |
+|---|---:|---:|---:|---|---|
+| `contract.api` | 1 (yargs#2511) | 1 (same PR, same file) | 0 | #1 structural: pass. #2 lift: tied at 0/0 (E_file, F_file both 0 on both sides) — no regression, but N=1 is insufficient data by the pre-registered <10-fires rule | **held** |
+| `contract.env` | 0 | 0 | 0 | #1/#2: no fires either side — insufficient data, honestly reported, not scored pass or fail | **insufficient data** |
+| `coupling.missing` | 3 (all `express`, all `.github/workflows/ci.yml`, all `weight: "strong"` pre-fix) | 0 | 0 | #1 structural: pass — every one of the 3 pre-fix fires was on the exact noise class (CI workflow) the fix targets, confirmed from `results.json`'s raw records, not inferred; #3 remaining-fire lift: N/A, 0 remain (the intended outcome, not insufficient data in the bad sense) | **held** |
+
+Checked directly against the raw brief JSON (`~/.cache/opendrs/outcomes-heldout/briefs/`), not
+inferred from the lift table: zero files anywhere in the 89 briefs carry more than one
+`contract.api` or `contract.env` fact, zero `contract.env` fact fires on a `*.lock.yml` file,
+zero `coupling.missing` fact has `weight: "strong"`, and zero `coupling.missing` fact fires on a
+CI workflow, a manifest or a test path — leg #1 (structural correctness) passes cleanly for all
+three fixes with no exceptions found on real, previously-unseen diffs. The `yargs#2511` brief's
+rendered text — "Removes or changes 1 exported declaration in `lib/command.ts`
+(`CommandHandlerDefinition`), imported by 2 files." — confirms the new singular-count phrasing
+reads correctly; no PR in this sample exercised the `N > 1` aggregation path, so that specific
+code path is proven only by the unit tests (`tests/architecture/contracts.test.ts`), not by this
+held-out run.
+
+**A finding worth recording on its own:** the captain priority table was byte-for-byte identical
+between main and the fix (careful 30, standard 21, quick 38 of 89, both runs) — the three
+eliminated `coupling.missing` fires (`express#6632`, `#6843`, `#7218`) stayed `careful` after
+losing their only architecture fact, so whatever else about those PRs set the tier/policy did not
+depend on this fact in this sample. Not a formal gate-invariance proof (score/tier/policy are
+computed independently of captain facts by construction, per `docs/verification.md`), but a
+concrete data point that the demotion did not silently reshuffle priorities here.
+
+**Decision.** All three fixes **held** on the held-out corpus: no structural violation, no
+engagement/fix-lift regression on the (thin) data available, and `coupling.missing`'s narrowing
+eliminated exactly the noise class it was built for with zero loss of legitimate fires in this
+sample. None is reverted. The honest caveat, stated plainly: `contract.api` and `contract.env`
+each had at most one fire, so this run mainly validates *structural* correctness (the new code
+paths behave as coded on real diffs) rather than *precision* (whether the aggregated/narrowed
+fact is a better signal) — that question still rests on run 2's own numbers, which is exactly
+why this corpus could not be used to answer it. A repeat with more repos or a higher `--limit`
+would give the lift comparison real power; not done here on this task's time budget.
+
+**Where.** Scratch copies of `bench/outcomes/run.ts`/`lib.ts` (not committed; `bench/outcomes/
+corpus.jsonl`/`labels.jsonl`/`baseline.json` in this repo are untouched, still run 2's), cache
+under `~/.cache/opendrs/outcomes-heldout/`, run twice against `dist/` built from `main` (commit
+`d6296f8`) and from this branch after both detector commits. Clones deleted after the label step.
 
 ## Verifier precision study on the field-test corpus
 
@@ -557,7 +912,7 @@ was adopted separately as a correctness fix, not a saturation fix: folder-level 
 unrelated files (confirmed on vite, where one old revert flagged hundreds of files under
 `packages/vite/src/node/`), and the change carries no accuracy cost (AUC +0.0009, CI 0.0005 to
 0.0014). V1 (the Conventional-Commits `fixPattern` exclusion) is documented as a per-repo override
-in [`docs/configuration.md`](configuration.html#repositories-that-use-conventional-commits) rather
+in [`docs/configuration.md`](configuration.md#repositories-that-use-conventional-commits) rather
 than shipped as a new default.
 
 ## Captain-fact lift on ApacheJIT
@@ -751,7 +1106,7 @@ before any spend (see Amendments, below). No API spend yet: paid LLM tests are p
 user approves Phase 1. The bench wiring for arm 2 (spec §13 phase 4) is **deferred by decision**:
 it is not built until the user approves the paid experiment. The full plan, with the prompt
 drafts, the context block, the literature and the power analysis, is in
-[the research note, Part 5](research/2026-10-18-review-risk-heuristics.html#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
+[the research note, Part 5](research/2026-10-18-review-risk-heuristics.md#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
 
 **Question.** Does an LLM reviewer plus opendrs beat the same LLM alone, by enough to justify any
 extra tokens? It is not opendrs against the LLM. The three headline arms run on the same commits:
@@ -843,9 +1198,9 @@ review of every commit.
   1's mean input tokens, and the pilot stop rule from +20 % to +35 %. The budget is recomputed to
   ≈ $38.6 of ≤ $43. Reason: the product decided its default brief size; the experiment must
   measure the product as shipped. Full detail in
-  [the research note, Amendments](research/2026-10-18-review-risk-heuristics.html#amendments).
+  [the research note, Amendments](research/2026-10-18-review-risk-heuristics.md#amendments).
 
-**Where.** The plan is in [the research note, Part 5](research/2026-10-18-review-risk-heuristics.html#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
+**Where.** The plan is in [the research note, Part 5](research/2026-10-18-review-risk-heuristics.md#part-5-pre-registered-plan-for-the-next-llm-judge-experiment).
 The free simulation is `bench/apachejit/judge-sim.ts`. The cached judgements are those of the
 [LLM judge run](#structured-llm-judge-on-sampled-apachejit).
 
@@ -905,14 +1260,14 @@ Pooled, opendrs now matches the Kamei LR within noise. It does not beat it.
 **Where.** Commits `c14da1c` (fit experiment), `ad0d368` (fix), `35862bc` (regenerated benchmark).
 - [`bench/apachejit/fit-experiment.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/fit-experiment.md) and `bench/apachejit/fit-experiment.ts`.
 - [`bench/apachejit/results.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results.md).
-- [Calibration and backtesting](calibration.html#what-calibrate-fits-on).
+- [Calibration and backtesting](calibration.md#what-calibrate-fits-on).
 
 ## Review-heuristic signals
 
 **Question.** AI code reviewers check for concurrency changes, removed error handling or guards,
 and weakened tests. Do these, computed deterministically from the diff, add ranking signal? The
 background is in the
-[research note on how AI code reviewers judge PR risk](research/2026-10-18-review-risk-heuristics.html),
+[research note on how AI code reviewers judge PR risk](research/2026-10-18-review-risk-heuristics.md),
 recommendations R4–R6.
 
 **Setup.**
@@ -1069,7 +1424,7 @@ failed commits were judged again with the same model and prompt.
 
 **Where.** Commit `a9f4882` (structured outputs), `59e07e3` (results);
 [`bench/apachejit/results-llm.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results-llm.md);
-[Calibration and backtesting](calibration.html#with-the-structured-llm-judge).
+[Calibration and backtesting](calibration.md#with-the-structured-llm-judge).
 
 ## Structured LLM judge on sampled ApacheJIT
 
@@ -1114,14 +1469,14 @@ The test sample's base rate is 25.5 % buggy.
 - The gate is the win: the commits it passes are buggy at a fifth of the base rate.
 - The ranking gain (about +0.02 AUC) is within noise on 800 commits.
 - `logic_bug` and `structural` each flag about half the commits, which is why the categories rank
-  poorly. The [research note](research/2026-10-18-review-risk-heuristics.html) proposes prompt
+  poorly. The [research note](research/2026-10-18-review-risk-heuristics.md) proposes prompt
   changes to fix that.
 - This sample was fitted before the refit in [fit experiment](#fit-experiment-and-the-calibrate-refit) and
   has not been re-run.
 
 **Where.** Commits `2c9e452` and `59e07e3`;
 [`bench/apachejit/results-llm.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results-llm.md);
-[LLM judge](llm-judge.html).
+[LLM judge](llm-judge.md).
 
 ## ApacheJIT benchmark baseline
 
@@ -1155,7 +1510,7 @@ would have to close.
 
 **Where.** Commit `50060c5`; `bench/apachejit/run.ts`;
 [`bench/apachejit/results.md`](https://github.com/error-path/opendrs/blob/main/bench/apachejit/results.md);
-[Calibration and backtesting](calibration.html#results-on-apachejit).
+[Calibration and backtesting](calibration.md#results-on-apachejit).
 
 ## Public-repository backtests
 
@@ -1183,4 +1538,4 @@ default priors and after `calibrate`, with nothing configured?
   terraform and eslint) because their bugs had not been found yet.
 
 **Where.** Commits `1e557cd` (nine repositories) and `5442193` (18 repositories);
-[Benchmark results](results.html).
+[Benchmark results](results.md).

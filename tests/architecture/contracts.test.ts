@@ -157,6 +157,32 @@ describe("detectContracts: contract.api", () => {
     expect(apiFacts[0]!.text).not.toContain("`four`");
     expect(apiFacts[0]!.text).toContain("…");
   });
+
+  it("aggregates several deleted declarations in one file into a single fact with a count", async () => {
+    repo = makeRepo();
+    const base = repo.commit(
+      {
+        "src/auth/token.ts":
+          "export function one() {\n  return 1;\n}\nexport function two() {\n  return 2;\n}\nexport function three() {\n  return 3;\n}\nexport function four() {\n  return 4;\n}\n",
+        "src/auth/user.ts": 'import { one } from "./token";\none();\n',
+      },
+      "base",
+    );
+    repo.commit({ "src/auth/token.ts": "export function other() {\n  return 0;\n}\n" }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const apiFacts = facts.filter((f) => f.id === "contract.api");
+    expect(apiFacts).toHaveLength(1);
+    expect(apiFacts[0]).toMatchObject({ weight: "strong", file: "src/auth/token.ts" });
+    expect(apiFacts[0]!.text).toContain("4 exported declarations");
+    expect(apiFacts[0]!.text).toContain("`one`");
+    expect(apiFacts[0]!.text).toContain("`two`");
+    expect(apiFacts[0]!.text).toContain("`three`");
+    expect(apiFacts[0]!.text).not.toContain("`four`");
+    expect(apiFacts[0]!.text).toContain("…");
+    expect(apiFacts[0]!.text).toContain("imported by 1 file");
+  });
 });
 
 describe("detectContracts: contract.schema", () => {
@@ -350,5 +376,33 @@ describe("detectContracts: contract.env", () => {
     const envFacts = facts.filter((f) => f.id === "contract.env");
     expect(envFacts).toHaveLength(1);
     expect(envFacts[0]!.text).toContain("NEW_PY_VAR");
+  });
+
+  it("aggregates several new environment variables in one file into a single fact with a count", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "src/config.ts": "export const x = 1;\n" }, "base");
+    repo.commit(
+      { "src/config.ts": 'export const x = 1;\nconst a = process.env.VAR_A;\nconst b = process.env.VAR_B;\n' },
+      "head",
+    );
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    const envFacts = facts.filter((f) => f.id === "contract.env");
+    expect(envFacts).toHaveLength(1);
+    expect(envFacts[0]).toMatchObject({ weight: "strong", file: "src/config.ts" });
+    expect(envFacts[0]!.text).toContain("2 new environment variables");
+    expect(envFacts[0]!.text).toContain("VAR_A");
+    expect(envFacts[0]!.text).toContain("VAR_B");
+  });
+
+  it("does not scan a generated lock file (*.lock.yml) for a new environment variable", async () => {
+    repo = makeRepo();
+    const base = repo.commit({ "issue-triage.lock.yml": "x: 1\n" }, "base");
+    repo.commit({ "issue-triage.lock.yml": 'x: 1\ntoken: ${{ env.NEW_VAR }}\nv: process.env.NEW_VAR\n' }, "head");
+
+    const { facts } = await detectContracts(await contextFor(repo, base), {});
+
+    expect(facts.filter((f) => f.id === "contract.env")).toEqual([]);
   });
 });
