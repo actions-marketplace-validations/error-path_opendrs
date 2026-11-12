@@ -27,7 +27,8 @@ A short runbook for the maintainer.
 
 ## Releasing
 
-1. Update `version` in `package.json` and `src/version.ts`, and add a section to `CHANGELOG.md`.
+1. Update `version` in `package.json`, `package-lock.json`, `src/version.ts` and both fields of
+   `server.json`, add a section to `CHANGELOG.md`, and rebuild `action/dist`.
 2. Merge that PR.
 3. Tag the release and move the major tag (from a network that allows pushes):
 
@@ -37,21 +38,52 @@ A short runbook for the maintainer.
    git push origin v0.2.0 && git push -f origin v0
    ```
 
-4. Create a GitHub release from the tag with the changelog section as notes.
-5. Publish to npm from the tag with `npm publish`. The package is `@error-path/opendrs`;
-   `publishConfig` makes it public, and the `prepack` script builds `dist`.
-6. Update the MCP registry entry: set both `version` fields in `server.json` to the release
-   (do this in step 1), then run `mcp-publisher login github` and `mcp-publisher publish` from
+4. Create a GitHub release from the tag with the changelog section as notes. Publishing it starts
+   the `publish` workflow, which stages the package on npm (see below).
+5. When the `publish` run passes, approve the staged version on npmjs.com, in the package's
+   **Staged Packages** tab, with your 2FA code. Then check that
+   `npm view @error-path/opendrs version` shows the release.
+6. Update the MCP registry entry: run `mcp-publisher login github` and `mcp-publisher publish` from
    the tag. The registry checks that the npm package's `mcpName` matches `server.json`'s `name`,
    so publish to npm first.
 7. Only after npm has the new version, open a PR that updates the plugin: set `version` in
    `plugin/.claude-plugin/plugin.json` and every pinned `@error-path/opendrs@<version>` in
    `plugin/.claude-plugin/plugin.json`, `plugin/commands/opendrs-review.md` and
-   `plugin/skills/opendrs/SKILL.md`. The directory follows `main`, so a pin merged before
-   `npm publish` would point at a version that does not exist yet.
+   `plugin/skills/opendrs/SKILL.md`. The directory follows `main`, so a pin merged before you
+   approve the staged version would point at a version that does not exist yet.
 
 Users pin `@v0`, so moving `v0` ships the release to them. Never move `v0` to a version with a
 breaking change; release `v1` instead.
+
+### Publishing to npm
+
+`.github/workflows/publish.yml` stages `@error-path/opendrs` with
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers) and
+[staged publishing](https://docs.npmjs.com/staged-publishing): npm checks the workflow's GitHub
+OIDC token, so no npm token is stored anywhere, and each version gets a provenance statement. The
+run refuses a tag that is not on `main` or does not match `package.json`, skips a version npm
+already has, runs the typecheck and fast tests, then runs `npm stage publish` (`publishConfig`
+makes it public; `prepack` builds `dist`). A prerelease such as `1.2.3-rc.1` goes to the `next`
+dist-tag.
+
+A staged version is not installable until a maintainer approves it with 2FA, on npmjs.com or with
+`npm stage approve <stage-id>`. So a compromised workflow or dependency can stage a version, but
+never publish one. Before approving, check the staged version's files and size (`npm stage view`
+or `npm stage download`).
+
+**One-time setup:**
+
+1. On npmjs.com, open the package's **Settings**, then **Trusted Publisher**, choose **GitHub
+   Actions**, and enter organization or user `error-path`, repository `opendrs`, workflow
+   filename `publish.yml` and environment `npm`. Under **Allowed actions**, leave
+   **Allow npm publish** and **Allow npm dist-tag** unticked, so the workflow can only stage.
+2. After the first release through the workflow works, set the package's **Publishing access** to
+   "Require two-factor authentication and disallow tokens", and delete any old npm tokens.
+
+**If a run fails** (npm down, setup missing), fix the cause, then open the `publish` workflow under
+**Actions**, choose **Run workflow** and give the release tag, such as `v0.5.2`. If the version is
+already staged, approve or reject that one instead of staging it again. Publishing by hand from the
+tag with `npm login` and `npm publish` also still works, with your 2FA code.
 
 ## Docs site
 

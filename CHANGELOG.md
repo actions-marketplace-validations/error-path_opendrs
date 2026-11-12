@@ -4,6 +4,17 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+### Changed
+
+- npm releases are staged from GitHub Actions with npm trusted publishing and go live only after a
+  maintainer approves them with 2FA. Each version has a provenance statement that links it to the
+  commit and workflow that built it.
+
+## 0.5.2 - 2026-11-12
+
+The first npm release since 0.5.0, so it also carries 0.5.1's fixes: see that entry, including its
+breaking change for local LLM gateway users.
+
 ### Security
 
 - The default `paths.block` list now also covers AI agent config that can run commands
@@ -17,8 +28,7 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## 0.5.1 - 2026-11-09
 
-The GitHub Action got this release; npm users get its fixes in the next release.
-
+The GitHub Action got this release; npm users get its fixes in 0.5.2.
 
 A security fix for local use, plus quieter captain facts from the outcome-labels study.
 
