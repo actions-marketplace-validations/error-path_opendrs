@@ -4,6 +4,22 @@ All notable changes to opendrs. Versions follow [Semantic Versioning](https://se
 
 ## Unreleased
 
+### Added
+
+- The Action posts a one-line comment after every push to a PR, for example "opendrs: re-scored
+  at abc1234 · 0.18 green · auto-approve · see the updated report", linking to the main comment.
+  Before, the main comment was updated in place and a separate line was posted only when the tier
+  or the decision changed, so a push that kept the tier looked like opendrs had not run. A push
+  with many commits gets one line. Set `notify-changes: on-change` for the old behaviour, or
+  `false` for no line.
+
+### Fixed
+
+- A diff with no changed files is no longer rated green and auto-approved: its score only reflected
+  the author. The new `empty-diff` rule sends it to a human, and `opendrs score`, `opendrs brief`
+  and the `review_brief` MCP tool print "nothing to score" instead of a verdict. Before, running
+  `opendrs score` on a fresh clone's default branch printed "GREEN -> auto-approve".
+
 ### Changed
 
 - npm releases are staged from GitHub Actions with npm trusted publishing and go live only after a
